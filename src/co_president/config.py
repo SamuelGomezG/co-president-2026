@@ -98,7 +98,7 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
     "ingrid_betancourt": Candidate(
         key="ingrid_betancourt",
         display_name="Ingrid Betancourt",
-        coalition=None,
+        coalition=None,  # Independent; initially in Centro Esperanza, withdrew after consultation
         first_round=True,
         runoff=False,
     ),
@@ -107,14 +107,14 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
         display_name="Otros",
         coalition=None,
         first_round=True,
-        runoff=False,
+        runoff=True,  # Aggregates blanco + minor candidates in runoff (SPEC-07 K=3)
     ),
     "blanco": Candidate(
         key="blanco",
         display_name="Voto en Blanco",
         coalition=None,
         first_round=True,
-        runoff=True,
+        runoff=False,  # Merged with rest for runoff; not a separate entity in K=3
     ),
 }
 
@@ -140,6 +140,9 @@ ELECTION_DATE_ROUND1: date = date(2022, 5, 29)
 ELECTION_DATE_ROUND2: date = date(2022, 6, 19)
 CONSULTATION_DATE: date = date(2022, 3, 13)
 
+_ROUND_FIRST = 1
+_ROUND_SECOND = 2
+
 CONSULTATION_VOTES: dict[str, int] = {
     "gustavo_petro": 5_500_000,
     "federico_gutierrez": 3_800_000,
@@ -149,23 +152,28 @@ CONSULTATION_VOTES: dict[str, int] = {
 }
 
 
-def consultation_prior_logits() -> dict[str, float]:
-    """Compute logit-scale prior means from consultation vote shares.
+def consultation_log_share_prior() -> dict[str, float]:
+    """Compute log-scale prior means from consultation vote shares.
 
-    For candidates with non-zero consultation votes, the logit is
+    For candidates with non-zero consultation votes, returns
     ``log(votes / total_votes)``. For candidates with zero votes, returns
     ``log(min_nonzero_share / 2)`` as a small placeholder.
     If all candidates have zero consultation votes, returns -1.0 for every
     candidate as a uniform fallback.
 
+    These values are used as the means of the Normal prior on ``theta[T-1]``
+    (the earliest time point in the reverse-time random walk). Setting
+    ``theta`` to the log of consultation shares centers the softmax-transformed
+    probabilities around those shares.
+
     Returns:
-        Mapping of candidate key to logit value (always finite).
+        Mapping of candidate key to log-share value (always finite).
 
     Examples:
-        >>> logits = consultation_prior_logits()
-        >>> len(logits)
+        >>> prior = consultation_log_share_prior()
+        >>> len(prior)
         5
-        >>> logits["gustavo_petro"] > logits["rodolfo_hernandez"]
+        >>> prior["gustavo_petro"] > prior["rodolfo_hernandez"]
         True
 
     """
@@ -174,13 +182,13 @@ def consultation_prior_logits() -> dict[str, float]:
     if total == 0:
         return dict.fromkeys(CONSULTATION_VOTES, -1.0)
     min_share = min(v / total for v in nonzero.values())
-    logits: dict[str, float] = {}
+    shares: dict[str, float] = {}
     for k, v in CONSULTATION_VOTES.items():
         if v > 0:
-            logits[k] = math.log(v / total)
+            shares[k] = math.log(v / total)
         else:
-            logits[k] = math.log(min_share / 2.0)
-    return logits
+            shares[k] = math.log(min_share / 2.0)
+    return shares
 
 
 POLLSTER_RATINGS: dict[str, float] = {
@@ -221,6 +229,9 @@ def pollster_weight_formula(rating: float) -> float:
         0.9
 
     """
+    # The clamp is defensive: all known ratings are in [0,10], but
+    # guaranteeing [0.8, 1.0] prevents silent downstream errors in
+    # weighted averages from out-of-range inputs.
     return max(0.8, min(1.0, rating * 0.02 + 0.8))
 
 
@@ -235,6 +246,9 @@ def get_active_candidates(
     Returns:
         List of Candidate objects active in that round.
 
+    Raises:
+        ValueError: If round_number is not 1 or 2.
+
     Examples:
         >>> round1 = get_active_candidates(1)
         >>> len(round1)
@@ -246,9 +260,12 @@ def get_active_candidates(
         True
 
     """
-    if round_number == 1:
+    if round_number == _ROUND_FIRST:
         return [c for c in FIRST_ROUND_CANDIDATES.values() if c.first_round]
-    return [c for c in FIRST_ROUND_CANDIDATES.values() if c.runoff]
+    if round_number == _ROUND_SECOND:
+        return [c for c in FIRST_ROUND_CANDIDATES.values() if c.runoff]
+    msg = f"round_number must be 1 or 2, got {round_number!r}"
+    raise ValueError(msg)
 
 
 def get_candidate_column_map() -> dict[str, str]:
@@ -256,6 +273,11 @@ def get_candidate_column_map() -> dict[str, str]:
 
     All keys in ``FIRST_ROUND_CANDIDATES`` are identity-mapped (CSV column
     name equals candidate key).
+
+    Note:
+        Currently an identity mapping (CSV column names equal candidate
+        keys). If the actual CSV data uses different column names, this
+        function must be updated.
 
     Returns:
         Dict mapping CSV column name to candidate key.
