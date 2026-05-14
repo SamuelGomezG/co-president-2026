@@ -10,9 +10,15 @@ import pytest
 
 from co_president.config import (
     COALITION_TO_CANDIDATE,
+    CONSULTATION_KEY_MAP,
     CONSULTATION_VOTES,
     FIRST_ROUND_CANDIDATES,
     POLLSTER_RATINGS,
+    TRANSFER_BLANCO_SPLIT,
+    TRANSFER_FAJARDO_HERNANDEZ,
+    TRANSFER_FAJARDO_PETRO,
+    TRANSFER_GUTIERREZ_HERNANDEZ,
+    TRANSFER_GUTIERREZ_PETRO,
     Candidate,
     ModelConfig,
     consultation_prior_logits,
@@ -318,3 +324,55 @@ class TestConsultationPriorLogits:
         logits = consultation_prior_logits()
         assert logits["rodolfo_hernandez"] != -math.inf
         assert logits["ingrid_betancourt"] != -math.inf
+
+    def test_all_zero_consultation_votes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify all-zero votes returns uniform -1.0 for every candidate."""
+        monkeypatch.setattr(
+            "co_president.config.CONSULTATION_VOTES",
+            {"a": 0, "b": 0},
+        )
+        logits = consultation_prior_logits()
+        assert logits == {"a": -1.0, "b": -1.0}
+
+
+class TestTransferConstants:
+    """Tests for the TRANSFER_* runoff constants."""
+
+    def test_fajardo_transfers_sum_to_one(self) -> None:
+        """Verify Fajardo voter transfers partition correctly."""
+        assert TRANSFER_FAJARDO_PETRO + TRANSFER_FAJARDO_HERNANDEZ == 1.0
+
+    def test_gutierrez_transfers_sum_to_one(self) -> None:
+        """Verify Gutiérrez voter transfers partition correctly."""
+        assert TRANSFER_GUTIERREZ_HERNANDEZ + TRANSFER_GUTIERREZ_PETRO == 1.0
+
+    def test_all_in_unit_interval(self) -> None:
+        """Verify every transfer constant is in [0.0, 1.0]."""
+        for name, val in [
+            ("FAJARDO_PETRO", TRANSFER_FAJARDO_PETRO),
+            ("FAJARDO_HERNANDEZ", TRANSFER_FAJARDO_HERNANDEZ),
+            ("GUTIERREZ_HERNANDEZ", TRANSFER_GUTIERREZ_HERNANDEZ),
+            ("GUTIERREZ_PETRO", TRANSFER_GUTIERREZ_PETRO),
+            ("BLANCO_SPLIT", TRANSFER_BLANCO_SPLIT),
+        ]:
+            assert 0.0 <= val <= 1.0, f"TRANSFER_{name} out of range: {val}"
+
+
+class TestConsultationKeyMap:
+    """Tests for the CONSULTATION_KEY_MAP constant."""
+
+    def test_has_expected_names(self) -> None:
+        """Verify 5 expected human-readable names are present."""
+        expected = {
+            "Gustavo Petro",
+            "Federico Gutiérrez",
+            "Sergio Fajardo",
+            "Ingrid Betancourt",
+            "Rodolfo Hernández",
+        }
+        assert set(CONSULTATION_KEY_MAP) == expected
+
+    def test_values_are_valid_candidate_keys(self) -> None:
+        """Verify every mapped value exists in FIRST_ROUND_CANDIDATES."""
+        for key in CONSULTATION_KEY_MAP.values():
+            assert key in FIRST_ROUND_CANDIDATES, f"{key} not in FIRST_ROUND_CANDIDATES"

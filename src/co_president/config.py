@@ -155,6 +155,8 @@ def consultation_prior_logits() -> dict[str, float]:
     For candidates with non-zero consultation votes, the logit is
     ``log(votes / total_votes)``. For candidates with zero votes, returns
     ``log(min_nonzero_share / 2)`` as a small placeholder.
+    If all candidates have zero consultation votes, returns -1.0 for every
+    candidate as a uniform fallback.
 
     Returns:
         Mapping of candidate key to logit value (always finite).
