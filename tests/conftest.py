@@ -20,7 +20,11 @@ def _find_data_dir() -> Path:
             return candidate
     except (ImportError, AttributeError):
         pass
-    return Path(__file__).resolve().parent.parent / "data"
+    fallback = Path(__file__).resolve().parent.parent / "data"
+    if not fallback.is_dir():
+        msg = f"data/ directory not found at {fallback}"
+        raise FileNotFoundError(msg)
+    return fallback
 
 
 @pytest.fixture
