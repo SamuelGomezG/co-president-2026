@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.Rproj*
+.Rhistory
+.RData
+.DS_Store
+notebooks/
+results/
+*.nc
+reference/
