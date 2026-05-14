@@ -322,6 +322,9 @@ def _build_round_result(
 
     # Compute total_valid_votes = candidate votes + blank votes
     total_valid_votes = int(candidate_df["votes"].sum())  # pyright: ignore[reportArgumentType]
+    if total_valid_votes == 0:
+        msg = f"Round {round_number} has zero total valid votes after aggregation"
+        raise ValueError(msg)
 
     # Compute vote shares, sorted by votes descending
     sorted_pairs = sorted(
@@ -475,6 +478,9 @@ def cross_validate(
     warnings: list[str] = []
 
     # Compare total valid votes
+    if registraduria.total_valid_votes == 0:
+        warnings.append("Registraduría total valid votes is 0; cannot compute percentage")
+        return warnings
     diff_pct = (
         abs(registraduria.total_valid_votes - moe.total_valid_votes)
         / registraduria.total_valid_votes
