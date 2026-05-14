@@ -126,13 +126,9 @@ Each SPEC has a corresponding GitHub issue with `spec:XX` label, assigned to a m
 
 ## 9. CodeRabbit
 
-`.coderabbit.yaml` is configured for `dev` branch reviews. Before pushing, run:
+Use CodeRabbit skill with `/code-review`. Run a code review in the background, let it take as long as it needs, and check on it periodically. Evaluate the fixes and considerations. Fix major issues only, or fix any critical issues and ignore the nits. Once those changes are implemented, run a code review one more time to make sure we addressed all the critical issues and didn't introduce any additional bugs. Only run the loop twice. If on the second run you don't find any critical issues, ignore the nits and you're complete. Give me a summary of everything that was completed and why.
 
-```bash
-cr --agent --type uncommitted
-```
-
-Fix MAJOR and CRITICAL issues (not nits). Re-run once. NEVER loop more than twice.
+The CodeRabbit workflow must be executed **before** any changes are committed.
 
 ---
 
