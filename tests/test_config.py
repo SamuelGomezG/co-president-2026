@@ -238,6 +238,20 @@ class TestGetCandidateColumnMap:
         mapping = get_candidate_column_map()
         assert mapping["gustavo_petro"] == "gustavo_petro"
 
+    def test_all_candidates_present(self) -> None:
+        """Verify all 7 candidate keys appear in the mapping."""
+        mapping = get_candidate_column_map()
+        expected = {
+            "gustavo_petro",
+            "federico_gutierrez",
+            "rodolfo_hernandez",
+            "sergio_fajardo",
+            "ingrid_betancourt",
+            "rest",
+            "blanco",
+        }
+        assert set(mapping) == expected
+
 
 class TestConsultationVotes:
     """Tests for the CONSULTATION_VOTES constant."""

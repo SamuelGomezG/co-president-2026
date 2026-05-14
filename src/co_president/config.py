@@ -118,6 +118,10 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
     ),
 }
 
+# "nulos" and "no_marcados" are mapped for the data loader (SPEC-03) to
+# recognise but are NOT candidates in FIRST_ROUND_CANDIDATES — they are
+# tracked separately and excluded from valid vote share per the spec.
+# The data loader must filter them before candidate lookups.
 COALITION_TO_CANDIDATE: dict[str, str] = {
     "COALICION PACTO HISTORICO": "gustavo_petro",
     "COALICION EQUIPO POR COLOMBIA": "federico_gutierrez",
@@ -154,6 +158,13 @@ def consultation_prior_logits() -> dict[str, float]:
 
     Returns:
         Mapping of candidate key to logit value (always finite).
+
+    Examples:
+        >>> logits = consultation_prior_logits()
+        >>> len(logits)
+        5
+        >>> logits["gustavo_petro"] > logits["rodolfo_hernandez"]
+        True
 
     """
     nonzero = {k: v for k, v in CONSULTATION_VOTES.items() if v > 0}
@@ -199,8 +210,16 @@ def pollster_weight_formula(rating: float) -> float:
     Returns:
         Weight factor between 0.8 and 1.0.
 
+    Examples:
+        >>> pollster_weight_formula(10.0)
+        1.0
+        >>> pollster_weight_formula(0.0)
+        0.8
+        >>> pollster_weight_formula(5.0)
+        0.9
+
     """
-    return rating * 0.02 + 0.8
+    return max(0.8, min(1.0, rating * 0.02 + 0.8))
 
 
 def get_active_candidates(
@@ -213,6 +232,16 @@ def get_active_candidates(
 
     Returns:
         List of Candidate objects active in that round.
+
+    Examples:
+        >>> round1 = get_active_candidates(1)
+        >>> len(round1)
+        7
+        >>> round2 = get_active_candidates(2)
+        >>> len(round2)
+        3
+        >>> all(c.runoff for c in round2)
+        True
 
     """
     if round_number == 1:
@@ -228,6 +257,13 @@ def get_candidate_column_map() -> dict[str, str]:
 
     Returns:
         Dict mapping CSV column name to candidate key.
+
+    Examples:
+        >>> column_map = get_candidate_column_map()
+        >>> column_map["gustavo_petro"]
+        'gustavo_petro'
+        >>> len(column_map)
+        7
 
     """
     return {key: key for key in FIRST_ROUND_CANDIDATES}
