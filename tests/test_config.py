@@ -21,7 +21,7 @@ from co_president.config import (
     TRANSFER_GUTIERREZ_PETRO,
     Candidate,
     ModelConfig,
-    consultation_prior_logits,
+    consultation_log_share_prior,
     get_active_candidates,
     get_candidate_column_map,
     pollster_weight_formula,
@@ -187,6 +187,14 @@ class TestPollsterWeightFormula:
         """Verify Invamer (top-rated) produces weight 1.0."""
         assert pollster_weight_formula(POLLSTER_RATINGS["Invamer"]) == 1.0
 
+    def test_negative_rating_clamped_to_min(self) -> None:
+        """Verify negative rating clamps to 0.8."""
+        assert pollster_weight_formula(-5.0) == 0.8
+
+    def test_above_ten_rating_clamped_to_max(self) -> None:
+        """Verify rating > 10 clamps to 1.0."""
+        assert pollster_weight_formula(15.0) == 1.0
+
 
 class TestGetActiveCandidates:
     """Tests for the get_active_candidates helper."""
@@ -207,14 +215,19 @@ class TestGetActiveCandidates:
         assert "nulos" not in keys
 
     def test_round2_count(self) -> None:
-        """Verify round 2 returns 3 candidates (petro, hernandez, blanco)."""
+        """Verify round 2 returns 3 candidates (petro, hernandez, rest which aggregates blanco)."""
         active = get_active_candidates(2)
         assert len(active) == 3
 
     def test_round2_contains_only_runoff(self) -> None:
         """Verify only runoff candidates appear in round 2."""
         keys = {c.key for c in get_active_candidates(2)}
-        assert keys == {"gustavo_petro", "rodolfo_hernandez", "blanco"}
+        assert keys == {"gustavo_petro", "rodolfo_hernandez", "rest"}
+
+    def test_round_three_raises_valueerror(self) -> None:
+        """Verify invalid round_number raises ValueError."""
+        with pytest.raises(ValueError, match="round_number"):
+            get_active_candidates(3)  # type: ignore[arg-type]
 
     def test_round1_has_correct_keys(self) -> None:
         """Verify round 1 returns the expected 7 candidate keys."""
@@ -288,17 +301,17 @@ class TestConsultationVotes:
         assert CONSULTATION_VOTES["rodolfo_hernandez"] == 0
 
 
-class TestConsultationPriorLogits:
-    """Tests for the consultation_prior_logits function."""
+class TestConsultationLogSharePrior:
+    """Tests for the consultation_log_share_prior function."""
 
     def test_returns_dict(self) -> None:
         """Verify the function returns a dict."""
-        logits = consultation_prior_logits()
-        assert isinstance(logits, dict)
+        shares = consultation_log_share_prior()
+        assert isinstance(shares, dict)
 
     def test_all_candidates_present(self) -> None:
-        """Verify all 5 candidates have a logit entry."""
-        logits = consultation_prior_logits()
+        """Verify all 5 candidates have a log-share entry."""
+        shares = consultation_log_share_prior()
         expected_keys = {
             "gustavo_petro",
             "federico_gutierrez",
@@ -306,33 +319,39 @@ class TestConsultationPriorLogits:
             "rodolfo_hernandez",
             "ingrid_betancourt",
         }
-        assert set(logits) == expected_keys
+        assert set(shares) == expected_keys
 
     def test_all_finite(self) -> None:
-        """Verify all logits are finite (no -inf for zero-vote candidates)."""
-        logits = consultation_prior_logits()
-        for k, v in logits.items():
-            assert math.isfinite(v), f"Logit for {k} is not finite: {v}"
+        """Verify all log-shares are finite (no -inf for zero-vote candidates)."""
+        shares = consultation_log_share_prior()
+        for k, v in shares.items():
+            assert math.isfinite(v), f"Log-share for {k} is not finite: {v}"
 
     def test_non_zero_candidate_larger_than_zero(self) -> None:
-        """Verify Petro (non-zero votes) has a higher logit than Hernández (zero)."""
-        logits = consultation_prior_logits()
-        assert logits["gustavo_petro"] > logits["rodolfo_hernandez"]
+        """Verify Petro (non-zero votes) has a higher log-share than Hernández (zero)."""
+        shares = consultation_log_share_prior()
+        assert shares["gustavo_petro"] > shares["rodolfo_hernandez"]
 
     def test_zero_vote_candidates_not_inf(self) -> None:
-        """Verify zero-vote candidates do not get -inf logits."""
-        logits = consultation_prior_logits()
-        assert logits["rodolfo_hernandez"] != -math.inf
-        assert logits["ingrid_betancourt"] != -math.inf
+        """Verify zero-vote candidates do not get -inf log-shares."""
+        shares = consultation_log_share_prior()
+        assert shares["rodolfo_hernandez"] != -math.inf
+        assert shares["ingrid_betancourt"] != -math.inf
+
+    def test_deterministic(self) -> None:
+        """Verify calling the function twice returns identical results."""
+        a = consultation_log_share_prior()
+        b = consultation_log_share_prior()
+        assert a == b
 
     def test_all_zero_consultation_votes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify all-zero votes returns uniform -1.0 for every candidate."""
         monkeypatch.setattr(
             "co_president.config.CONSULTATION_VOTES",
-            {"a": 0, "b": 0},
+            {"gustavo_petro": 0, "rodolfo_hernandez": 0},
         )
-        logits = consultation_prior_logits()
-        assert logits == {"a": -1.0, "b": -1.0}
+        shares = consultation_log_share_prior()
+        assert shares == {"gustavo_petro": -1.0, "rodolfo_hernandez": -1.0}
 
 
 class TestTransferConstants:
