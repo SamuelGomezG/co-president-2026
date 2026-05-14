@@ -65,22 +65,22 @@ class TestRoundResult:
     """Tests for the RoundResult frozen dataclass and its methods."""
 
     @pytest.fixture
-    def sample_candidates(self) -> list[CandidateResult]:
+    def sample_candidates(self) -> tuple[CandidateResult, ...]:
         """Provide a canonical 3-candidate round-1-like result."""
-        return [
+        return (
             CandidateResult("gustavo_petro", 8_542_020, 0.4034),
             CandidateResult("rodolfo_hernandez", 5_965_531, 0.2815),
             CandidateResult("federico_gutierrez", 5_069_526, 0.2389),
-        ]
+        )
 
     @pytest.fixture
-    def sample_result(self, sample_candidates: list[CandidateResult]) -> RoundResult:
+    def sample_result(self, sample_candidates: tuple[CandidateResult, ...]) -> RoundResult:
         """Provide a RoundResult instance for method tests."""
         return RoundResult(
             round_number=1,
             date=ELECTION_DATE_ROUND1,
-            total_valid_votes=21_173_842,
-            total_votes_incl_blank=21_173_842,
+            total_valid_votes=19_577_077,  # sum of 3 candidate votes
+            total_votes_incl_blank=19_942_854,  # total_valid + blank
             registered_voters=38_971_664,
             polling_stations=12_505,
             candidates=sample_candidates,
@@ -93,7 +93,9 @@ class TestRoundResult:
         """Verify RoundResult stores all fields correctly."""
         assert sample_result.round_number == 1
         assert sample_result.date == ELECTION_DATE_ROUND1
-        assert sample_result.total_valid_votes == 21_173_842
+        assert sample_result.total_valid_votes == 19_577_077
+        assert sample_result.total_votes_incl_blank == 19_942_854
+        assert sample_result.total_votes_incl_blank > sample_result.total_valid_votes
         assert sample_result.registered_voters == 38_971_664
         assert sample_result.polling_stations == 12_505
         assert len(sample_result.candidates) == 3
@@ -152,7 +154,7 @@ class TestRoundResult:
             total_votes_incl_blank=1000,
             registered_voters=2000,
             polling_stations=50,
-            candidates=[CandidateResult("gustavo_petro", 1000, 1.0)],
+            candidates=(CandidateResult("gustavo_petro", 1000, 1.0),),
             blank_votes=0,
             null_votes=0,
             unmarked_votes=0,
@@ -163,9 +165,8 @@ class TestRoundResult:
     # ── turnout ──
 
     def test_turnout_normal(self, sample_result: RoundResult) -> None:
-        """Verify turnout is correctly computed as votes / registered."""
-        # total_valid_votes includes blank = 21_173_842
-        expected = 21_173_842 / 38_971_664
+        """Verify turnout is correctly computed as total_votes_incl_blank / registered."""
+        expected = 19_942_854 / 38_971_664
         assert sample_result.turnout() == pytest.approx(expected)
 
     def test_turnout_zero_registered(self) -> None:
@@ -177,7 +178,7 @@ class TestRoundResult:
             total_votes_incl_blank=1000,
             registered_voters=0,
             polling_stations=0,
-            candidates=[CandidateResult("gustavo_petro", 1000, 1.0)],
+            candidates=(CandidateResult("gustavo_petro", 1000, 1.0),),
             blank_votes=0,
             null_votes=0,
             unmarked_votes=0,
@@ -197,15 +198,15 @@ class TestCrossValidate:
     @pytest.fixture
     def base_result(self) -> RoundResult:
         """Return a minimal RoundResult for cross-validation tests."""
-        candidates = [
+        candidates = (
             CandidateResult("gustavo_petro", 1_000_000, 0.40),
             CandidateResult("rodolfo_hernandez", 750_000, 0.30),
-        ]
+        )
         return RoundResult(
             round_number=1,
             date=ELECTION_DATE_ROUND1,
-            total_valid_votes=2_500_000,
-            total_votes_incl_blank=2_500_000,
+            total_valid_votes=1_750_000,
+            total_votes_incl_blank=2_560_000,  # total_valid + blank + null + unmarked
             registered_voters=5_000_000,
             polling_stations=100,
             candidates=candidates,
@@ -224,12 +225,12 @@ class TestCrossValidate:
         moe = RoundResult(
             round_number=1,
             date=ELECTION_DATE_ROUND1,
-            total_valid_votes=2_495_000,  # 0.20% less, exceeds 0.10% tolerance
-            total_votes_incl_blank=2_495_000,
+            total_valid_votes=1_746_500,  # 0.20% less, exceeds 0.10% tolerance
+            total_votes_incl_blank=2_556_500,
             registered_voters=5_000_000,
             polling_stations=100,
             candidates=base_result.candidates,
-            blank_votes=500_000,
+            blank_votes=250_000,
             null_votes=50_000,
             unmarked_votes=10_000,
         )
@@ -238,20 +239,22 @@ class TestCrossValidate:
         assert any("total valid votes" in w.lower() for w in warnings)
 
     def test_differing_shares_returns_warnings(self, base_result: RoundResult) -> None:
-        """Verify candidate share mismatch beyond 0.50% produces warnings."""
-        diff_candidates = [
-            CandidateResult("gustavo_petro", 1_000_000, 0.395),  # 0.50% lower
-            CandidateResult("rodolfo_hernandez", 750_000, 0.305),  # 0.50% higher
-        ]
+        """Verify candidate share mismatch beyond 0.50% produces warnings (0.60pp diff)."""
+        diff_candidates = (
+            CandidateResult(
+                "gustavo_petro", 1_000_000, 0.394
+            ),  # 0.60pp lower (unambiguously > 0.50pp)
+            CandidateResult("rodolfo_hernandez", 750_000, 0.306),  # 0.60pp higher
+        )
         moe = RoundResult(
             round_number=1,
             date=ELECTION_DATE_ROUND1,
-            total_valid_votes=2_500_000,
-            total_votes_incl_blank=2_500_000,
+            total_valid_votes=1_750_000,
+            total_votes_incl_blank=2_560_000,
             registered_voters=5_000_000,
             polling_stations=100,
             candidates=diff_candidates,
-            blank_votes=500_000,
+            blank_votes=250_000,
             null_votes=50_000,
             unmarked_votes=10_000,
         )
@@ -270,19 +273,19 @@ class TestConsolidateRound:
     @pytest.fixture
     def reg_result(self) -> RoundResult:
         """Return a canonical Registraduría result."""
-        candidates = [
+        candidates = (
             CandidateResult("gustavo_petro", 1_000_000, 0.40),
             CandidateResult("rodolfo_hernandez", 750_000, 0.30),
-        ]
+        )
         return RoundResult(
             round_number=1,
             date=ELECTION_DATE_ROUND1,
-            total_valid_votes=2_500_000,
-            total_votes_incl_blank=2_500_000,
+            total_valid_votes=1_750_000,
+            total_votes_incl_blank=2_560_000,
             registered_voters=5_000_000,
             polling_stations=100,
             candidates=candidates,
-            blank_votes=500_000,
+            blank_votes=250_000,
             null_votes=50_000,
             unmarked_votes=10_000,
         )
@@ -307,10 +310,10 @@ class TestConsolidateRound:
             total_votes_incl_blank=200_000,
             registered_voters=5_000_000,
             polling_stations=100,
-            candidates=[
+            candidates=(
                 CandidateResult("gustavo_petro", 100_000, 0.50),
                 CandidateResult("rodolfo_hernandez", 100_000, 0.50),
-            ],
+            ),
             blank_votes=0,
             null_votes=0,
             unmarked_votes=0,

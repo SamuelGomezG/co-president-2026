@@ -61,12 +61,12 @@ class RoundResult:
     Attributes:
         round_number: 1 for first round, 2 for runoff.
         date: Election date.
-        total_valid_votes: Sum of candidate + blank votes (excludes null/unmarked).
-        total_votes_incl_blank: Same as ``total_valid_votes`` (included for
-            interface consistency).
+        total_valid_votes: Sum of candidate votes (excludes blank, null, unmarked).
+        total_votes_incl_blank: Sum of total_valid_votes + blank + null + unmarked
+            (total votes cast).
         registered_voters: Total registered voters from participation data.
         polling_stations: Unique polling stations from participation data.
-        candidates: List of ``CandidateResult`` for each active candidate.
+        candidates: Tuple of ``CandidateResult`` for each active candidate.
         blank_votes: Blank vote count.
         null_votes: Null vote count.
         unmarked_votes: Unmarked vote count.
@@ -79,7 +79,7 @@ class RoundResult:
     total_votes_incl_blank: int
     registered_voters: int
     polling_stations: int
-    candidates: list[CandidateResult]
+    candidates: tuple[CandidateResult, ...]
     blank_votes: int
     null_votes: int
     unmarked_votes: int
@@ -261,7 +261,10 @@ def _aggregate_and_map(
         normalized = _normalize_coalition_name(str(raw_name))
         key = COALITION_TO_CANDIDATE.get(normalized)
         if key is None:
-            logger.warning("Unmapped coalition name: %r -> %r", raw_name, normalized)
+            logger.warning(
+                "Unmapped coalition name: %r -> %r — accumulating into 'rest'", raw_name, normalized
+            )
+            result["rest"] = result.get("rest", 0) + int(votes)
             continue
         result[key] = result.get(key, 0) + int(votes)
     result_df = pd.DataFrame(list(result.items()), columns=["candidate_key", "votes"])
@@ -320,32 +323,38 @@ def _build_round_result(
         existing = int(candidate_df.loc["rest", "votes"]) if "rest" in candidate_df.index else 0  # pyright: ignore[reportArgumentType]
         candidate_df.loc["rest", "votes"] = existing + blanco_count
 
-    # Compute total_valid_votes = candidate votes + blank votes
-    total_valid_votes = int(candidate_df["votes"].sum())  # pyright: ignore[reportArgumentType]
+    # Sums: total_valid keeps candidate votes only; total_votes_incl_blank adds
+    # blank votes back (= candidates + blank, matching official Colombian
+    # denominator for vote-share calculation).
+    candidate_total = int(candidate_df["votes"].sum())  # pyright: ignore[reportArgumentType]
+    total_valid_votes = candidate_total - blank_votes
+    total_votes_incl_blank = candidate_total  # candidate_votes + blank_votes
     if total_valid_votes == 0:
         msg = f"Round {round_number} has zero total valid votes after aggregation"
         raise ValueError(msg)
 
-    # Compute vote shares, sorted by votes descending
+    # Compute vote shares, sorted by votes descending.
+    # Denominator is total_votes_incl_blank (= candidates + blank), which
+    # matches the official Colombian percentage calculation.
     sorted_pairs = sorted(
         ((idx, row) for idx, row in candidate_df.iterrows()),
         key=lambda pair: int(pair[1]["votes"]),  # pyright: ignore[reportArgumentType]
         reverse=True,
     )
-    candidates: list[CandidateResult] = [
+    candidates = tuple(
         CandidateResult(
             candidate_key=str(idx),
             votes=int(row["votes"]),  # pyright: ignore[reportArgumentType]
-            vote_share=int(row["votes"]) / total_valid_votes,  # pyright: ignore[reportArgumentType]
+            vote_share=int(row["votes"]) / total_votes_incl_blank,  # pyright: ignore[reportArgumentType]
         )
         for idx, row in sorted_pairs
-    ]
+    )
 
     return RoundResult(
         round_number=round_number,
         date=election_date,
         total_valid_votes=total_valid_votes,
-        total_votes_incl_blank=total_valid_votes,
+        total_votes_incl_blank=total_votes_incl_blank,
         registered_voters=registered_voters,
         polling_stations=polling_stations,
         candidates=candidates,
