@@ -54,6 +54,12 @@ make test-model   # Fast model tests only (graph + prior predictive)
 make test-model-slow  # Slow MCMC tests only (convergence + sanity)
 ```
 
+### Security scanning
+```bash
+make sec          # Runs pip-audit + bandit
+```
+Also available: `pre-commit run --all-files` for pre-push validation.
+
 ### One-test shortcuts
 ```bash
 uv run pytest tests/test_config.py -v                # Single file
