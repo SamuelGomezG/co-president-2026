@@ -66,8 +66,15 @@ jobs:
       # Fast model tests (graph + prior predictive) run without coverage
       # to avoid overwriting coverage.xml from make ci. Slow MCMC tests
       # (convergence + sanity) run nightly via .github/workflows/slow-tests.yml.
+      # The bash conditional skips gracefully until tests/test_model.py is
+      # created in SPEC-06.
       - name: Run fast model tests
-        run: uv run pytest tests/test_model.py -v -m "not slow" -p no:cov
+        run: |
+          if [ -f tests/test_model.py ]; then
+            uv run pytest tests/test_model.py -v -m "not slow" -p no:cov
+          else
+            echo "tests/test_model.py not found — skipping (SPEC-06 not yet implemented)"
+          fi
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

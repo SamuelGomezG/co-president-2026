@@ -35,9 +35,8 @@ extend-exclude = ["notebooks", ".venv"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "D100",     # Missing module docstring — MVP_SPECS_GUIDE.md is the documentation
-    "D104",     # Missing package docstring
-    "S101",     # assert allowed in tests via per-file-ignores
+    "D100",     # Missing module docstring — module layout and usage are documented in MVP_SPECS_GUIDE.md; only functions/classes get docstrings
+    "D104",     # Missing package docstring — __init__.py files are minimal stubs
     "D203",     # Conflicts with D211 (Google-style blank line before class)
     "D213",     # Conflicts with D212 (Google-style summary on first line)
     "COM812",   # Conflicts with ruff format trailing comma handling; intentional with isort force-sort-within-sections
