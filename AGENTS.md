@@ -12,7 +12,7 @@ This file tells AI agents how to work with this codebase without making avoidabl
 
 ## 2. Branch Strategy
 
-```
+```text
 main                    ← Only merged when the full pipeline is working
   └── dev               ← Long-lived development branch; all feature branches fork from here
         └── feat/*      ← One feature branch per SPEC (e.g., feat/project-scaffolding)
@@ -64,7 +64,7 @@ uv run pytest tests/test_config.py::test_project_exists -v  # Single test
 
 ## 4. TDD Cycle (non-negotiable)
 
-```
+```text
 RED        →  Write a failing test
 GREEN      →  Write minimum code to pass
 REFACTOR   →  Clean up, add docstrings, annotate types
@@ -101,7 +101,7 @@ COMMIT     →  Only after all gates pass
 
 ## 7. Commit Format
 
-```
+```text
 feat(SPEC-02): add Candidate dataclass and pollster ratings
 test(SPEC-02): add model config default value tests
 fix(SPEC-04): correct Invamer date normalization edge case
