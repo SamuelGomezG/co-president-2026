@@ -101,14 +101,20 @@ The model is implemented in **PyMC** using the NUTS sampler. MCMC diagnostics (R
 |------|--------|------|---------|-------------|----------|
 | `encuestas_2022.csv` | recetas-electorales.com (Nelson Amaya) | 46 | 27 | National polls | UTF-8, comma-delimited |
 | `consultas.csv` | recetas-electorales.com | 65 | 7 | Coalition internal polls | ISO-8859-1, comma-delimited |
-| `MMV_NACIONAL_PRESIDENTE_2022_1v.csv` | Registraduría Nacional | 727,510 | 16 | Polling-station-level | ISO-8859-1, semicolon-delimited |
-| `MMV_NACIONAL_PRESIDENTE_2022_2v.csv` | Registraduría Nacional | 398,387 | 16 | Polling-station-level | ISO-8859-1, semicolon-delimited |
+| `MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz` | Registraduría Nacional | 727,510 | 16 | Polling-station-level | ISO-8859-1, semicolon-delimited |
+| `MMV_NACIONAL_PRESIDENTE_2022_2v.csv.gz` | Registraduría Nacional | 398,387 | 16 | Polling-station-level | ISO-8859-1, semicolon-delimited |
 | `moe_vuelta1.csv` | MOE | 11,864 | 15 | Municipal-level | UTF-8, comma-delimited |
 | `moe_vuelta2.csv` | MOE | 5,550 | 15 | Municipal-level | UTF-8, comma-delimited |
 | `reg_participacion_vuelta1.csv` | Registraduría Nacional | ~33,000 | 17 | Polling-station-level | UTF-8-BOM, comma-delimited |
 | `reg_participacion_vuelta2.csv` | Registraduría Nacional | ~33,000 | 17 | Polling-station-level | UTF-8-BOM, comma-delimited |
 
 Polls are entirely national-level — no departmental or regional breakdowns. Results data is aggregated from station/municipal level to national totals for cross-validation and model anchoring.
+
+> **Note:** The two large Registraduría MMV files (`MMV_NACIONAL_PRESIDENTE_2022_*v.csv`, ~190 MB combined) are stored as gzip-compressed `.csv.gz` to stay within GitHub's file size limits. Before running the pipeline, decompress them:
+> ```bash
+> gunzip data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*.csv.gz
+> ```
+> The `.gitignore` ignores the uncompressed CSVs to prevent accidental re-commits. The `Makefile` `sync` target does NOT auto-decompress — it's a manual one-time step after cloning.
 
 ---
 
