@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "Makefile"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "Makefile"
+      - ".pre-commit-config.yaml"
+      - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for large files in diff
+        run: |
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            diff_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null)
+            for f in $diff_files; do
+              if [ -f "$f" ]; then
+                size=$(stat -c%s "$f" 2>/dev/null)
+                if [ "$size" -gt 1048576 ]; then
+                  echo "ERROR: $f exceeds 1 MB ($(numfmt --to=iec $size))"
+                  exit 1
+                fi
+              fi
+            done
+            echo "Large file check passed."
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra dev
+          uv pip install -e .
+
+      - name: Run quality gates
+        run: make ci
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+
+  secrets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
