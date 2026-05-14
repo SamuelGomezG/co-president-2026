@@ -9,6 +9,8 @@ notebooks/
 results/
 *.nc
 reference/
+*.egg-info/
+*.egg
 
 # Large CSV files stored as .gz; decompress before use
 data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*v.csv
