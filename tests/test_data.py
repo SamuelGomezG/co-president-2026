@@ -436,10 +436,10 @@ class TestParticipationLoaders:
 class TestLoadActualResults:
     """Tests for the full load_actual_results() pipeline."""
 
-    @pytest.fixture(autouse=True)
-    def _results(self, data_dir: Path) -> None:
+    @pytest.fixture(autouse=True, scope="class")
+    def _results(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
         """Load canonical results once per test class."""
-        self.round1, self.round2 = load_actual_results(data_dir)
+        request.cls.round1, request.cls.round2 = load_actual_results(data_dir)
 
     # ── Round structure ──
 

@@ -27,10 +27,12 @@ def _find_data_dir() -> Path:
     return fallback
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def data_dir() -> Path:
     """Path to the project's data directory.
 
-    All test data files are relative to this directory.
+    All test data files are relative to this directory. Session-scoped
+    because the data directory path is deterministic and never changes
+    during a test run.
     """
     return _find_data_dir()

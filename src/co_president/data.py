@@ -62,8 +62,8 @@ class RoundResult:
         round_number: 1 for first round, 2 for runoff.
         date: Election date.
         total_valid_votes: Sum of candidate votes (excludes blank, null, unmarked).
-        total_votes_incl_blank: Sum of total_valid_votes + blank + null + unmarked
-            (total votes cast).
+        total_votes_incl_blank: Sum of candidate + blank votes (vote share
+            denominator, also used for turnout).
         registered_voters: Total registered voters from participation data.
         polling_stations: Unique polling stations from participation data.
         candidates: Tuple of ``CandidateResult`` for each active candidate.
