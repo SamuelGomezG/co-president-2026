@@ -54,6 +54,14 @@ make test-model   # Fast model tests only (graph + prior predictive)
 make test-model-slow  # Slow MCMC tests only (convergence + sanity)
 ```
 
+### Security scanning
+
+```bash
+make sec          # Runs pip-audit + bandit
+```
+
+Also available: `pre-commit run --all-files` for pre-push validation.
+
 ### One-test shortcuts
 ```bash
 uv run pytest tests/test_config.py -v                # Single file
@@ -78,7 +86,7 @@ COMMIT     →  Only after all gates pass
 
 - **Google-style docstrings** on every public function, class, and module. Module docstrings start with `"""SPEC-XX: ..."""`.
 - **Full type annotations** on all parameters, returns, and class attributes. No `Any` unless mathematically justified.
-- **ruff rules**: `ALL` enabled. Globally ignored: `D100`, `D104`, `S101`. Tests additionally ignore `PLR2004`.
+- **ruff rules**: `ALL` enabled. Globally ignored: `D100`, `D104`. Tests additionally ignore `S101`, `PLR2004`.
 - **Line length**: 100. **Quotes**: double. **Line endings**: LF.
 - **Imports**: isort with `known-first-party = ["co_president"]`, `force-sort-within-sections = true`.
 - Prefix internal helpers with `_`.

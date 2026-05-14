@@ -60,8 +60,13 @@ All packages used in this project are pinned to compatible versions with Python 
 | Package | Version | Documentation | Purpose |
 |---|---|---|---|
 | **pytest** | ≥8.0 | [docs.pytest.org](https://docs.pytest.org/) | Test framework — fixtures, parametrization, conftest |
+| **pytest-cov** | ≥5.0 | [pytest-cov.readthedocs.io](https://pytest-cov.readthedocs.io/) | Coverage reporting for pytest |
 | **ruff** | ≥0.4 | [docs.astral.sh/ruff](https://docs.astral.sh/ruff/) | Linting (all rules) + formatting + isort |
 | **pyright** | ≥1.1 | [microsoft.github.io/pyright](https://microsoft.github.io/pyright/) | Static type checking (strict mode) |
+| **pandas-stubs** | ≥2.2 | [pypi.org/project/pandas-stubs](https://pypi.org/project/pandas-stubs/) | Type stubs for pandas |
+| **pre-commit** | ≥3.8 | [pre-commit.com](https://pre-commit.com/) | Git hook framework |
+| **pip-audit** | ≥2.7 | [pypi.org/project/pip-audit](https://pypi.org/project/pip-audit/) | Vulnerability scanning for Python packages |
+| **bandit** | ≥1.7 | [bandit.readthedocs.io](https://bandit.readthedocs.io/) | Static security analysis |
 
 ### 2.3 Tooling References
 
@@ -257,9 +262,13 @@ This project follows a strict TDD discipline. Every spec MUST be implemented in 
     [project.optional-dependencies]
     dev = [
         "pytest>=8.0",
+        "pytest-cov>=5.0",
         "ruff>=0.4",
         "pyright>=1.1",
         "pandas-stubs>=2.2",
+        "pre-commit>=3.8",
+        "pip-audit>=2.7",
+        "bandit>=1.7",
     ]
    ```
 
