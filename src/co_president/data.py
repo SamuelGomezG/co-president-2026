@@ -11,6 +11,7 @@ analysis-ready ``CleanPolls`` container.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -180,13 +181,6 @@ _SHARE_COLS_EXCLUDED = {
 }
 """Set of metadata column names excluded from undecided redistribution."""
 
-_ROUND1_CANDIDATE_KEYS = {c.key for c in get_active_candidates(1)}
-_ROUND2_CANDIDATE_KEYS = {c.key for c in get_active_candidates(2)}
-"""Precomputed active candidate key sets for round classification."""
-
-_NORMALIZED_CONSULTATION_MAP: dict[str, str] = {}
-"""Normalized-lookup cache for CONSULTATION_KEY_MAP, built on first call."""
-
 
 def _normalize_consultation_name(name: str) -> str:
     """Normalize a candidate name for accent-insensitive lookup.
@@ -199,14 +193,12 @@ def _normalize_consultation_name(name: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c)).lower()
 
 
+@cache
 def _build_normalized_consultation_map() -> dict[str, str]:
-    """Build and cache a normalized-key version of CONSULTATION_KEY_MAP."""
-    if _NORMALIZED_CONSULTATION_MAP:
-        return _NORMALIZED_CONSULTATION_MAP
+    """Build a cached, normalized-key version of CONSULTATION_KEY_MAP."""
     result: dict[str, str] = {}
     for raw_name, key in CONSULTATION_KEY_MAP.items():
         result[_normalize_consultation_name(raw_name)] = key
-    _NORMALIZED_CONSULTATION_MAP.update(result)
     return result
 
 
@@ -326,7 +318,7 @@ class CleanPolls:
         """Defensive-copy DataFrames and validate minimum pollster diversity.
 
         Stores copies of all DataFrames to prevent external in-place mutation.
-        Raises ``AssertionError`` if round pollster diversity is too low.
+        Raises ``ValueError`` if round pollster diversity is too low.
         """
         for field in ("round1", "round2", "all_polls"):
             object.__setattr__(self, field, getattr(self, field).copy())
@@ -336,10 +328,10 @@ class CleanPolls:
         round2_pollsters = self.round2["encuestadora"].nunique()
         if round1_pollsters < _MIN_ROUND1_POLLSTERS:
             msg = f"Round 1 needs >= {_MIN_ROUND1_POLLSTERS} pollsters, got {round1_pollsters}"
-            raise AssertionError(msg)
+            raise ValueError(msg)
         if round2_pollsters < _MIN_ROUND2_POLLSTERS:
             msg = f"Round 2 needs >= {_MIN_ROUND2_POLLSTERS} pollsters, got {round2_pollsters}"
-            raise AssertionError(msg)
+            raise ValueError(msg)
 
 
 def _normalize_coalition_name(name: str) -> str:
@@ -900,7 +892,7 @@ def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
         errors="coerce",
     )
     if df["int_voto"].isna().any():
-        bad_rows = df["int_voto"].isna()[df["int_voto"].isna()].index.tolist()
+        bad_rows = df.index[df["int_voto"].isna()].tolist()
         msg = f"Failed to parse int_voto in rows: {bad_rows}"
         raise ValueError(msg)
     df["muestra"] = pd.to_numeric(df["muestra"], errors="coerce").astype("Int64")
@@ -948,10 +940,8 @@ def parse_consultations(df: pd.DataFrame) -> list[ConsultationPoll]:
             candidate=str(row["candidato"]).strip(),
             candidate_key=candidate_key,
             share=float(row["int_voto"]),
-            sample_size=int(row["muestra"]) if pd.notna(row.get("muestra")) else 0,
-            margin_of_error=(
-                float(row["margen_error"]) if pd.notna(row.get("margen_error")) else None
-            ),
+            sample_size=int(row["muestra"]) if pd.notna(row["muestra"]) else 0,
+            margin_of_error=(float(row["margen_error"]) if pd.notna(row["margen_error"]) else None),
         )
         results.append(cp)
 
@@ -1036,26 +1026,7 @@ def _renormalize_rows(
     share_cols: list[str],
     indices: set[int],
 ) -> None:
-    """Renormalise rows to sum to 100 if they drifted after undecided redistribution."""
-    for idx in indices:
-        vals = [df.loc[idx, col] for col in share_cols]  # pyright: ignore[reportUnknownVariableType]
-        row_sum = sum(v for v in vals if isinstance(v, (int, float)) and not pd.isna(v))
-        if row_sum <= 0:
-            continue
-        if abs(row_sum - 100.0) > _RENORMALIZE_THRESHOLD:
-            fix_scale = 100.0 / row_sum
-            for col in share_cols:
-                val = df.loc[idx, col]  # pyright: ignore[reportUnknownVariableType]
-                if isinstance(val, (int, float)) and not pd.isna(val):
-                    df.loc[idx, col] = val * fix_scale
-
-
-def _renormalize_all_rows(
-    df: pd.DataFrame,
-    share_cols: list[str],
-    indices: set[int],
-) -> None:
-    """Renormalise rows to sum to 100, handling rounding in raw data."""
+    """Renormalise rows so share columns sum to 100, handling rounding drift."""
     for idx in indices:
         vals = [df.loc[idx, col] for col in share_cols]  # pyright: ignore[reportUnknownVariableType]
         row_sum = sum(v for v in vals if isinstance(v, (int, float)) and not pd.isna(v))
@@ -1112,9 +1083,8 @@ def normalize_undecided(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     share_cols = [c for c in result.columns if c not in _SHARE_COLS_EXCLUDED]
     normalized_indices, skipped_100 = _normalize_share_rows(result, share_cols)
-    _renormalize_rows(result, share_cols, normalized_indices)
     all_check = set(result.index) - skipped_100
-    _renormalize_all_rows(result, share_cols, all_check)
+    _renormalize_rows(result, share_cols, all_check)
     _validate_normalized_rows(result, share_cols, normalized_indices)
     return result
 
@@ -1243,6 +1213,8 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
 
     result = df.copy()
     # Create a temporary effective sample column
+    if "muestra_int_voto" not in result.columns:
+        result["muestra_int_voto"] = result["muestra"]
     temp_sample = result["muestra_int_voto"].fillna(result["muestra"])
     result["_eff_sample"] = temp_sample
 
@@ -1334,9 +1306,9 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
 
     # Step 8b: Renormalise round DFs to 100% (retain_active_candidates may have
     # dropped pre-consultation share columns that were part of the renormalisation).
-    for df_round, _round_keys in [(round1_df, r1_keys), (round2_df, r2_keys)]:
+    for df_round in [round1_df, round2_df]:
         round_share_cols = [c for c in df_round.columns if c not in _SHARE_COLS_EXCLUDED]
-        _renormalize_all_rows(df_round, round_share_cols, set(df_round.index))
+        _renormalize_rows(df_round, round_share_cols, set(df_round.index))
 
     # Step 9: Consultation data
     consultas_df = load_raw_consultas(data_dir=data_dir)

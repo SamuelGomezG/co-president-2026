@@ -1379,24 +1379,24 @@ class TestCleanPolls:
         ap["gustavo_petro"] = 999.0
         assert cp.all_polls["gustavo_petro"].iloc[0] == 40.0
 
-    def test_raises_assertion_when_round1_has_fewer_than_5_pollsters(
+    def test_raises_valueerror_when_round1_has_fewer_than_5_pollsters(
         self,
         valid_data: tuple,
     ) -> None:
         """Verify __post_init__ validates minimum round1 pollster diversity."""
         r1, r2, cons, ap = valid_data
         r1_bad = r1.iloc[:4].copy()  # only 4 unique pollsters
-        with pytest.raises(AssertionError, match="5"):
+        with pytest.raises(ValueError, match="5"):
             CleanPolls(round1=r1_bad, round2=r2, consultation=cons, all_polls=ap)
 
-    def test_raises_assertion_when_round2_has_fewer_than_2_pollsters(
+    def test_raises_valueerror_when_round2_has_fewer_than_2_pollsters(
         self,
         valid_data: tuple,
     ) -> None:
         """Verify __post_init__ validates minimum round2 pollster diversity."""
         r1, r2, cons, ap = valid_data
         r2_bad = r2.iloc[:1].copy()  # only 1 unique pollster
-        with pytest.raises(AssertionError, match="2"):
+        with pytest.raises(ValueError, match="2"):
             CleanPolls(round1=r1, round2=r2_bad, consultation=cons, all_polls=ap)
 
 
@@ -1474,10 +1474,9 @@ class TestLoadAndCleanAll:
         invamer_round1 = self.clean_polls.round1[
             self.clean_polls.round1["encuestadora"].str.strip() == "Invamer"
         ]
-        if not invamer_round1.empty:
-            # All Invamer round 1 dates should be >= April 29 (earliest non-buggy date)
-            min_date = invamer_round1["fecha"].min()
-            assert min_date >= pd.Timestamp("2022-04-29")
+        assert not invamer_round1.empty, "No Invamer polls found in round 1"
+        min_date = invamer_round1["fecha"].min()
+        assert min_date >= pd.Timestamp("2022-04-29")
 
     def test_no_duplicate_pollster_date_in_round1(self) -> None:
         """Verify no pollster appears more than once per date in round 1."""
