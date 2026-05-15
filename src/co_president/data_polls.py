@@ -55,24 +55,29 @@ _MIN_ROUND2_POLLSTERS = 2
 _NORMALIZATION_TOLERANCE_PCT = 1.0
 _RENORMALIZE_THRESHOLD = 0.01
 
-_SHARE_COLS_EXCLUDED = {
-    "n",
-    "encuestadora",
-    "fecha",
-    "muestra",
-    "tasa_respuesta",
-    "margen_error",
-    "fuente",
-    "link",
-    "muestreo",
-    "hipotesis",
-    "tipo",
-    "muestra_int_voto",
-    "municipios",
-    "ns_nr",
-    "round_number",
-}
-"""Set of metadata column names excluded from undecided redistribution."""
+_SHARE_COLS_EXCLUDED = frozenset(
+    {
+        "n",
+        "encuestadora",
+        "fecha",
+        "muestra",
+        "tasa_respuesta",
+        "margen_error",
+        "fuente",
+        "link",
+        "muestreo",
+        "hipotesis",
+        "tipo",
+        "muestra_int_voto",
+        "municipios",
+        "ns_nr",
+        "round_number",
+    }
+)
+"""Set of metadata column names excluded from undecided redistribution.
+
+``round_number`` is not in the raw CSV; it is added by ``infer_round_number``
+and excluded from share normalization."""
 
 
 def _normalize_consultation_name(name: str) -> str:
@@ -284,6 +289,13 @@ def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
         msg = f"Failed to parse fecha in rows: {bad_rows}"
         raise ValueError(msg)
 
+    # Validate required columns exist
+    required_poll_cols = {"fecha", "encuestadora", "muestra", "gustavo_petro", "rodolfo_hernandez"}
+    missing = required_poll_cols - set(df.columns)
+    if missing:
+        msg = f"load_raw_polls: missing required columns: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
+
     # Coerce numeric columns
     df["muestra"] = pd.to_numeric(df["muestra"], errors="coerce").astype("Int64")
     if "muestra_int_voto" in df.columns:
@@ -317,6 +329,20 @@ def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
     resolved = _resolve_data_dir(data_dir)
     path = resolved / "2022-polls" / "consultas.csv"
     df = pd.read_csv(path, encoding="latin-1", low_memory=False)
+
+    # Validate required columns exist
+    required_consultas_cols = {
+        "fecha",
+        "encuestadora",
+        "consulta",
+        "candidato",
+        "int_voto",
+        "muestra",
+    }
+    missing = required_consultas_cols - set(df.columns)
+    if missing:
+        msg = f"load_raw_consultas: missing required columns: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
 
     # Parse fecha (M/D/YYYY format)
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
@@ -624,16 +650,18 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
 
     """
     result = df.copy()
-    round_numbers: list[int | float] = []
+    round_numbers: list[int] = []
     for _, row in result.iterrows():
         if _is_round1_candidate(row, result.columns):
             round_numbers.append(1)
         elif _is_round2_candidate(row, result.columns):
             round_numbers.append(2)
         else:
-            round_numbers.append(float("nan"))
-    result["round_number"] = round_numbers
-    result["round_number"] = result["round_number"].astype("Int64")
+            round_numbers.append(0)
+    result["round_number"] = pd.array(
+        [x if x > 0 else pd.NA for x in round_numbers],
+        dtype="Int64",
+    )
     return result
 
 
@@ -752,8 +780,11 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
     # Step 8b: Renormalise round DFs to 100% (retain_active_candidates may have
     # dropped pre-consultation share columns that were part of the renormalisation).
     for df_round in [round1_df, round2_df]:
+        if df_round.empty:
+            continue
         round_share_cols = [c for c in df_round.columns if c not in _SHARE_COLS_EXCLUDED]
         _renormalize_rows(df_round, round_share_cols, set(df_round.index))
+        _validate_normalized_rows(df_round, round_share_cols, set(df_round.index))
 
     # Step 9: Consultation data
     consultas_df = load_raw_consultas(data_dir=data_dir)
