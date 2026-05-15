@@ -1,14 +1,17 @@
-"""SPEC-03: Tests for election results data consolidation.
+"""SPEC-03+04: Tests for election results consolidation and poll data loading.
 
-Tests cover CandidateResult/RoundResult dataclasses, data loaders,
-cross-validation, consolidation, and end-to-end load_actual_results().
+Tests cover CandidateResult/RoundResult/CandidateShares dataclasses,
+data loaders, cross-validation, consolidation, poll cleaning functions,
+and end-to-end load_actual_results() / load_and_clean_all().
 """
 
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from datetime import date
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import pytest
 
 if TYPE_CHECKING:
@@ -21,17 +24,32 @@ from co_president.config import (
 )
 from co_president.data import (
     CandidateResult,
+    CandidateShares,
+    CleanPolls,
+    ConsultationPoll,
+    PollRow,
     RoundResult,
+    UnclassifiedPollRow,
     _build_round_result,
     consolidate_round,
     cross_validate,
+    deduplicate_polls,
+    fix_invamer_date,
+    infer_round_number,
     load_actual_results,
+    load_and_clean_all,
     load_moe_round1,
     load_moe_round2,
     load_participation_round1,
     load_participation_round2,
+    load_raw_consultas,
+    load_raw_polls,
     load_registraduria_round1,
     load_registraduria_round2,
+    map_consultation_name_to_key,
+    normalize_undecided,
+    parse_consultations,
+    retain_active_candidates,
 )
 
 # ═══════════════════════════════════════════════════════════════════
@@ -560,3 +578,935 @@ class TestLoadActualResults:
         """Verify round 2 candidate vote shares sum to ~1.0 (rest includes blanco)."""
         total = sum(c.vote_share for c in self.round2.candidates)
         assert total == pytest.approx(1.0, abs=0.01)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SPEC-04: Poll Data Loading & Cleaning
+# ═══════════════════════════════════════════════════════════════════
+
+# ── CandidateShares dataclass ──
+
+
+class TestCandidateShares:
+    """Tests for the CandidateShares frozen dataclass."""
+
+    def test_instantiation(self) -> None:
+        """Verify CandidateShares creates with all fields."""
+        cs = CandidateShares(
+            candidates={"gustavo_petro": 40.0, "rodolfo_hernandez": 30.0},
+            ns_nr=0.0,
+            blanco=10.0,
+            otros=5.0,
+        )
+        assert cs.candidates == {"gustavo_petro": 40.0, "rodolfo_hernandez": 30.0}
+        assert cs.ns_nr == 0.0
+        assert cs.blanco == 10.0
+        assert cs.otros == 5.0
+
+    def test_immutability(self) -> None:
+        """Verify frozen dataclass rejects attribute assignment."""
+        cs = CandidateShares(candidates={}, ns_nr=0.0, blanco=0.0, otros=0.0)
+        with pytest.raises(FrozenInstanceError):
+            cs.ns_nr = 5.0  # type: ignore[misc]
+
+    def test_total(self) -> None:
+        """Verify total() sums all fields including candidates."""
+        cs = CandidateShares(
+            candidates={"gustavo_petro": 40.0, "rodolfo_hernandez": 35.0},
+            ns_nr=0.0,
+            blanco=15.0,
+            otros=10.0,
+        )
+        assert cs.total() == pytest.approx(100.0)
+
+    def test_total_with_ns_nr(self) -> None:
+        """Verify total() includes ns_nr when present."""
+        cs = CandidateShares(
+            candidates={"gustavo_petro": 36.0, "rodolfo_hernandez": 27.0},
+            ns_nr=10.0,
+            blanco=15.0,
+            otros=12.0,
+        )
+        assert cs.total() == pytest.approx(100.0)
+
+
+# ── PollRow dataclass ──
+
+
+class TestPollRow:
+    """Tests for the PollRow frozen dataclass (classified polls)."""
+
+    @pytest.fixture
+    def shares(self) -> CandidateShares:
+        """Provide a standard CandidateShares fixture."""
+        return CandidateShares(
+            candidates={"gustavo_petro": 40.0},
+            ns_nr=0.0,
+            blanco=5.0,
+            otros=5.0,
+        )
+
+    def test_instantiation(self, shares: CandidateShares) -> None:
+        """Verify PollRow creates with all fields."""
+        row = PollRow(
+            date=date(2022, 5, 1),
+            pollster="Invamer",
+            sample_size=2000,
+            sample_voting=1409,
+            margin_of_error=2.1,
+            survey_method="presencial",
+            round_number=1,
+            shares=shares,
+        )
+        assert row.date == date(2022, 5, 1)
+        assert row.pollster == "Invamer"
+        assert row.sample_size == 2000
+        assert row.sample_voting == 1409
+        assert row.margin_of_error == 2.1
+        assert row.survey_method == "presencial"
+        assert row.round_number == 1
+        assert row.shares is shares
+
+    def test_immutability(self, shares: CandidateShares) -> None:
+        """Verify frozen dataclass rejects attribute assignment."""
+        row = PollRow(
+            date=date(2022, 5, 1),
+            pollster="CNC",
+            sample_size=2206,
+            sample_voting=None,
+            margin_of_error=None,
+            survey_method="presencial",
+            round_number=1,
+            shares=shares,
+        )
+        with pytest.raises(FrozenInstanceError):
+            row.pollster = "Invamer"  # type: ignore[misc]
+
+    def test_round_number_type(self, shares: CandidateShares) -> None:
+        """Verify round_number accepts only 1 or 2."""
+        row1 = PollRow(
+            date=date(2022, 5, 1),
+            pollster="CNC",
+            sample_size=100,
+            sample_voting=None,
+            margin_of_error=None,
+            survey_method="telefonica",
+            round_number=1,
+            shares=shares,
+        )
+        row2 = PollRow(
+            date=date(2022, 6, 1),
+            pollster="CNC",
+            sample_size=100,
+            sample_voting=None,
+            margin_of_error=None,
+            survey_method="telefonica",
+            round_number=2,
+            shares=shares,
+        )
+        assert row1.round_number == 1
+        assert row2.round_number == 2
+
+    def test_nullable_fields(self, shares: CandidateShares) -> None:
+        """Verify optional fields accept None."""
+        row = PollRow(
+            date=date(2022, 5, 1),
+            pollster="CNC",
+            sample_size=2206,
+            sample_voting=None,
+            margin_of_error=None,
+            survey_method="presencial",
+            round_number=1,
+            shares=shares,
+        )
+        assert row.sample_voting is None
+        assert row.margin_of_error is None
+
+
+# ── UnclassifiedPollRow dataclass ──
+
+
+class TestUnclassifiedPollRow:
+    """Tests for the UnclassifiedPollRow frozen dataclass."""
+
+    @pytest.fixture
+    def shares(self) -> CandidateShares:
+        """Provide a standard CandidateShares fixture."""
+        return CandidateShares(candidates={}, ns_nr=0.0, blanco=0.0, otros=0.0)
+
+    def test_instantiation(self, shares: CandidateShares) -> None:
+        """Verify UnclassifiedPollRow creates without round_number."""
+        row = UnclassifiedPollRow(
+            date=date(2022, 2, 1),
+            pollster="CNC",
+            sample_size=2206,
+            sample_voting=None,
+            margin_of_error=2.1,
+            survey_method="presencial",
+            shares=shares,
+        )
+        assert row.date == date(2022, 2, 1)
+        assert row.pollster == "CNC"
+        assert not hasattr(row, "round_number")
+
+    def test_immutability(self, shares: CandidateShares) -> None:
+        """Verify frozen dataclass rejects attribute assignment."""
+        row = UnclassifiedPollRow(
+            date=date(2022, 2, 1),
+            pollster="CNC",
+            sample_size=2206,
+            sample_voting=None,
+            margin_of_error=None,
+            survey_method="telefonica",
+            shares=shares,
+        )
+        with pytest.raises(FrozenInstanceError):
+            row.pollster = "Invamer"  # type: ignore[misc]
+
+
+# ── ConsultationPoll dataclass ──
+
+
+class TestConsultationPoll:
+    """Tests for the ConsultationPoll frozen dataclass."""
+
+    def test_instantiation(self) -> None:
+        """Verify ConsultationPoll creates with all fields."""
+        cp = ConsultationPoll(
+            date=date(2022, 2, 5),
+            pollster="CNC",
+            coalition="Pacto Historico",
+            candidate="Gustavo Petro",
+            candidate_key="gustavo_petro",
+            share=77.0,
+            sample_size=2206,
+            margin_of_error=2.1,
+        )
+        assert cp.date == date(2022, 2, 5)
+        assert cp.pollster == "CNC"
+        assert cp.coalition == "Pacto Historico"
+        assert cp.candidate == "Gustavo Petro"
+        assert cp.candidate_key == "gustavo_petro"
+        assert cp.share == 77.0
+        assert cp.sample_size == 2206
+        assert cp.margin_of_error == 2.1
+
+    def test_immutability(self) -> None:
+        """Verify frozen dataclass rejects attribute assignment."""
+        cp = ConsultationPoll(
+            date=date(2022, 2, 5),
+            pollster="CNC",
+            coalition="Pacto Historico",
+            candidate="Gustavo Petro",
+            candidate_key="gustavo_petro",
+            share=77.0,
+            sample_size=2206,
+            margin_of_error=None,
+        )
+        with pytest.raises(FrozenInstanceError):
+            cp.candidate = "Changed"  # type: ignore[misc]
+
+    def test_nullable_margen_error(self) -> None:
+        """Verify margin_of_error can be None."""
+        cp = ConsultationPoll(
+            date=date(2022, 2, 5),
+            pollster="CNC",
+            coalition="Pacto Historico",
+            candidate="Gustavo Petro",
+            candidate_key="gustavo_petro",
+            share=77.0,
+            sample_size=2206,
+            margin_of_error=None,
+        )
+        assert cp.margin_of_error is None
+
+
+# ── fix_invamer_date ──
+
+
+class TestFixInvamerDate:
+    """Tests for the fix_invamer_date function."""
+
+    def test_corrects_invamer_april_19(self) -> None:
+        """Verify Invamer poll dated 2022-04-19 is corrected to 2022-05-19."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Invamer", "CNC", "Invamer"],
+                "fecha": pd.to_datetime(["2022-04-19", "2022-04-19", "2022-05-01"]),
+                "muestra": [2000, 2206, 2000],
+            }
+        )
+        result = fix_invamer_date(df)
+        # Only the Invamer+April19 row should change
+        assert result.loc[0, "fecha"] == pd.Timestamp("2022-05-19")
+        assert result.loc[1, "fecha"] == pd.Timestamp("2022-04-19")  # unchanged
+        assert result.loc[2, "fecha"] == pd.Timestamp("2022-05-01")  # unchanged
+
+    def test_no_invamer_april_19_unchanged(self) -> None:
+        """Verify no changes when no Invamer+April 19 row exists."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Invamer", "CNC"],
+                "fecha": pd.to_datetime(["2022-05-01", "2022-04-19"]),
+                "muestra": [2000, 2206],
+            }
+        )
+        result = fix_invamer_date(df)
+        assert result["fecha"].iloc[0] == pd.Timestamp("2022-05-01")
+        assert result["fecha"].iloc[1] == pd.Timestamp("2022-04-19")
+
+    def test_returns_copy(self) -> None:
+        """Verify the function returns a copy, not the original."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Invamer"],
+                "fecha": pd.to_datetime(["2022-04-19"]),
+                "muestra": [2000],
+            }
+        )
+        result = fix_invamer_date(df)
+        assert result is not df
+
+
+# ── normalize_undecided ──
+
+
+class TestNormalizeUndecided:
+    """Tests for the normalize_undecided function."""
+
+    def test_redistributes_undecided_proportionally(self) -> None:
+        """Verify shares are scaled by 100/(100-ns_nr) and sum to 100."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0, 50.0],
+                "rodolfo_hernandez": [25.0, 30.0],
+                "blanco": [15.0, 10.0],
+                "otros": [10.0, 10.0],
+                "ns_nr": [10.0, 0.0],
+                "muestra": [2000, 2206],
+            }
+        )
+        result = normalize_undecided(df)
+        # Row 0: ns_nr=10, 100-ns_nr=90. Scale: *100/90.
+        # petro=40*100/90≈44.44, hernandez=25*100/90≈27.78,
+        # blanco=15*100/90≈16.67, otros=10*100/90≈11.11, ns_nr=0
+        assert result.loc[0, "gustavo_petro"] == pytest.approx(44.4444, abs=0.01)
+        assert result.loc[0, "rodolfo_hernandez"] == pytest.approx(27.7778, abs=0.01)
+        assert result.loc[0, "blanco"] == pytest.approx(16.6667, abs=0.01)
+        assert result.loc[0, "otros"] == pytest.approx(11.1111, abs=0.01)
+        assert result.loc[0, "ns_nr"] == 0.0
+        # Row 1: ns_nr=0 → unchanged (raw sum = 50+30+10+10 = 100)
+        assert result.loc[1, "gustavo_petro"] == 50.0
+        assert result.loc[1, "rodolfo_hernandez"] == 30.0
+        assert result.loc[1, "ns_nr"] == 0.0
+        # Row 0 sum should be 100
+        row0_sum = (
+            result.loc[0, "gustavo_petro"]
+            + result.loc[0, "rodolfo_hernandez"]
+            + result.loc[0, "blanco"]
+            + result.loc[0, "otros"]
+        )
+        assert row0_sum == pytest.approx(100.0, abs=1.0)
+
+    def test_na_ns_nr_treated_as_zero(self) -> None:
+        """Verify NA ns_nr is treated as 0 (no redistribution)."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [30.0],
+                "blanco": [15.0],
+                "otros": [15.0],
+                "ns_nr": [float("nan")],
+                "muestra": [2000],
+            }
+        )
+        result = normalize_undecided(df)
+        assert result.loc[0, "gustavo_petro"] == 40.0
+        assert result.loc[0, "rodolfo_hernandez"] == 30.0
+        assert result.loc[0, "ns_nr"] == 0.0
+
+    def test_ns_nr_100_skipped_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify ns_nr=100 row is skipped with a warning, not crashed."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [30.0],
+                "blanco": [10.0],
+                "otros": [5.0],
+                "ns_nr": [100.0],
+                "muestra": [2000],
+            }
+        )
+        result = normalize_undecided(df)
+        assert result.loc[0, "gustavo_petro"] == 40.0  # unchanged
+        assert any("ns_nr" in msg and "100" in msg for msg in caplog.messages)
+
+
+# ── retain_active_candidates ──
+
+
+class TestRetainActiveCandidates:
+    """Tests for the retain_active_candidates function."""
+
+    def test_drops_all_na_candidate_columns(self) -> None:
+        """Verify candidate columns that are all-NA are dropped."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0, 50.0],
+                "alejandro_gaviria": [None, None],
+                "federico_gutierrez": [25.0, None],
+                "blanco": [10.0, 10.0],
+                "otros": [10.0, 5.0],
+                "ns_nr": [0.0, 0.0],
+                "encuestadora": ["CNC", "Invamer"],
+            }
+        )
+        candidates = ["gustavo_petro", "federico_gutierrez"]
+        result = retain_active_candidates(df, candidates)
+        # alejandro_gaviria should be dropped (all-NA and not in list)
+        assert "alejandro_gaviria" not in result.columns
+        # gustavo_petro kept (has non-NA values and is in list)
+        assert "gustavo_petro" in result.columns
+        # federico_gutierrez kept (has some non-NA and is in list)
+        assert "federico_gutierrez" in result.columns
+        # Metadata preserved
+        assert "encuestadora" in result.columns
+        assert "blanco" in result.columns
+        assert "otros" in result.columns
+        assert "ns_nr" in result.columns
+
+    def test_preserves_non_candidate_columns(self) -> None:
+        """Verify blanco, otros, ns_nr, and metadata survive."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "blanco": [10.0],
+                "otros": [5.0],
+                "ns_nr": [0.0],
+                "encuestadora": ["CNC"],
+                "muestra": [2206],
+            }
+        )
+        result = retain_active_candidates(df, ["gustavo_petro"])
+        assert "blanco" in result.columns
+        assert "otros" in result.columns
+        assert "ns_nr" in result.columns
+        assert "encuestadora" in result.columns
+        assert "muestra" in result.columns
+
+    def test_drops_non_active_candidate_columns(self) -> None:
+        """Verify columns not in the candidates list are dropped."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "alejandro_gaviria": [5.0],
+                "blanco": [10.0],
+                "encuestadora": ["CNC"],
+            }
+        )
+        result = retain_active_candidates(df, ["gustavo_petro"])
+        assert "gustavo_petro" in result.columns
+        assert "alejandro_gaviria" not in result.columns
+        assert "blanco" in result.columns
+
+    def test_all_active_all_na(self) -> None:
+        """Verify active columns with all-NA are still dropped."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [None, None],
+                "federico_gutierrez": [25.0, 30.0],
+                "blanco": [10.0, 10.0],
+            }
+        )
+        result = retain_active_candidates(df, ["gustavo_petro", "federico_gutierrez"])
+        assert "gustavo_petro" not in result.columns  # all-NA
+        assert "federico_gutierrez" in result.columns  # has values
+
+
+# ── infer_round_number ──
+
+
+class TestInferRoundNumber:
+    """Tests for the infer_round_number function."""
+
+    def test_round1_relaxed_criteria(self) -> None:
+        """Verify round 1 classification with relaxed criteria (3+1)."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "federico_gutierrez": [25.0],
+                "rodolfo_hernandez": [30.0],
+                "sergio_fajardo": [5.0],
+                "ingrid_betancourt": [None],
+                "fecha": pd.to_datetime(["2022-04-01"]),
+            }
+        )
+        result = infer_round_number(df)
+        assert result.loc[0, "round_number"] == 1
+
+    def test_round1_with_betancourt_instead_of_fajardo(self) -> None:
+        """Verify round 1 with betancourt but no fajardo (relaxed: at least 1)."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "federico_gutierrez": [25.0],
+                "rodolfo_hernandez": [30.0],
+                "sergio_fajardo": [None],
+                "ingrid_betancourt": [3.0],
+                "fecha": pd.to_datetime(["2022-04-01"]),
+            }
+        )
+        result = infer_round_number(df)
+        assert result.loc[0, "round_number"] == 1
+
+    def test_round2_only_petro_hernandez(self) -> None:
+        """Verify round 2 when only Petro and Hernández have values."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.0],
+                "rodolfo_hernandez": [45.0],
+                "federico_gutierrez": [None],
+                "sergio_fajardo": [None],
+                "ingrid_betancourt": [None],
+                "fecha": pd.to_datetime(["2022-06-20"]),
+            }
+        )
+        result = infer_round_number(df)
+        assert result.loc[0, "round_number"] == 2
+
+    def test_pre_consultation_returns_none(self) -> None:
+        """Verify pre-consultation polls (before CONSULTATION_DATE) return None."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "federico_gutierrez": [25.0],
+                "rodolfo_hernandez": [30.0],
+                "sergio_fajardo": [5.0],
+                "ingrid_betancourt": [3.0],
+                "fecha": pd.to_datetime(["2022-02-01"]),
+            }
+        )
+        result = infer_round_number(df)
+        assert pd.isna(result.loc[0, "round_number"])
+
+    def test_missing_column_handled_gracefully(self) -> None:
+        """Verify function handles missing candidate columns."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [30.0],
+                "fecha": pd.to_datetime(["2022-04-01"]),
+            }
+        )
+        result = infer_round_number(df)
+        assert pd.isna(result.loc[0, "round_number"])
+
+    def test_round_none_for_ambiguous_data(self) -> None:
+        """Verify ambiguous data (mixed round 1 + round 2 columns) returns None."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.0],
+                "federico_gutierrez": [None],
+                "rodolfo_hernandez": [45.0],
+                "sergio_fajardo": [5.0],  # fajardo non-NA but federico is NA → not round 1 or 2
+                "ingrid_betancourt": [None],
+                "fecha": pd.to_datetime(["2022-06-20"]),
+            }
+        )
+        result = infer_round_number(df)
+        assert pd.isna(result.loc[0, "round_number"])
+
+    def test_date_before_round1_rejects_round2(self) -> None:
+        """Verify round 2 candidate pattern but date before round 1 → None."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.0],
+                "rodolfo_hernandez": [45.0],
+                "federico_gutierrez": [None],
+                "sergio_fajardo": [None],
+                "ingrid_betancourt": [None],
+                "fecha": pd.to_datetime(["2022-05-10"]),  # before May 29
+            }
+        )
+        result = infer_round_number(df)
+        # Should be None: candidate pattern = round 2, but date < ELECTION_DATE_ROUND1
+        assert pd.isna(result.loc[0, "round_number"])
+
+
+# ── deduplicate_polls ──
+
+
+class TestDeduplicatePolls:
+    """Tests for the deduplicate_polls function."""
+
+    def test_keeps_largest_muestra_int_voto(self) -> None:
+        """Verify duplicate pollster+date keeps row with largest muestra_int_voto."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [2206, 2206],
+                "muestra_int_voto": [1800, 2206],
+                "n": [1, 2],
+            }
+        )
+        result = deduplicate_polls(df)
+        assert len(result) == 1
+        assert result.iloc[0]["n"] == 2  # kept the row with larger muestra_int_voto
+
+    def test_tie_keeps_first(self) -> None:
+        """Verify tie in muestra_int_voto keeps the first row."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [2206, 2206],
+                "muestra_int_voto": [2206, 2206],
+                "n": [1, 2],
+            }
+        )
+        result = deduplicate_polls(df)
+        assert len(result) == 1
+        assert result.iloc[0]["n"] == 1  # first row kept
+
+    def test_different_pollsters_all_kept(self) -> None:
+        """Verify different pollsters on same date are both kept."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [2206, 2000],
+                "muestra_int_voto": [2206, 2000],
+            }
+        )
+        result = deduplicate_polls(df)
+        assert len(result) == 2
+
+    def test_na_muestra_int_voto_fills_from_muestra(self) -> None:
+        """Verify NA muestra_int_voto is filled from muestra before ranking."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [1000, 2206],
+                "muestra_int_voto": [None, None],
+                "n": [1, 2],
+            }
+        )
+        result = deduplicate_polls(df)
+        assert len(result) == 1
+        assert result.iloc[0]["n"] == 2  # muestra=2206 > muestra=1000
+
+    def test_both_samples_na_keeps_first_with_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verify when both sample columns are NA, keep first with warning."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [None, None],
+                "muestra_int_voto": [None, None],
+                "n": [1, 2],
+            }
+        )
+        result = deduplicate_polls(df)
+        assert len(result) == 1
+        assert result.iloc[0]["n"] == 1  # first kept
+        assert any("muestra_int_voto" in msg and "NA" in msg.upper() for msg in caplog.messages)
+
+
+# ── map_consultation_name_to_key ──
+
+
+class TestMapConsultationNameToKey:
+    """Tests for the map_consultation_name_to_key function."""
+
+    def test_known_name_returns_key(self) -> None:
+        """Verify a known name returns the correct canonical key."""
+        result = map_consultation_name_to_key("Gustavo Petro")
+        assert result == "gustavo_petro"
+
+    def test_accent_normalization(self) -> None:
+        """Verify accent-insensitive matching (Gutierrez vs Gutiérrez)."""
+        result = map_consultation_name_to_key("Federico Gutierrez")
+        assert result == "federico_gutierrez"
+
+    def test_unknown_name_raises_valueerror(self) -> None:
+        """Verify an unrecognized name raises ValueError."""
+        with pytest.raises(ValueError, match="Francia Marquez"):
+            map_consultation_name_to_key("Francia Marquez")
+
+
+# ── parse_consultations ──
+
+
+class TestParseConsultations:
+    """Tests for the parse_consultations function."""
+
+    def test_returns_list_of_consultation_poll(self) -> None:
+        """Verify parse_consultations returns typed ConsultationPoll objects."""
+        df = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime(["2/5/2022"]),
+                "encuestadora": ["CNC"],
+                "consulta": ["Pacto Historico"],
+                "candidato": ["Gustavo Petro"],
+                "int_voto": [77.0],
+                "muestra": [2206],
+                "margen_error": [2.1],
+            }
+        )
+        result = parse_consultations(df)
+        assert len(result) == 1
+        cp = result[0]
+        assert isinstance(cp, ConsultationPoll)
+        assert cp.candidate_key == "gustavo_petro"
+        assert cp.share == 77.0
+        assert cp.sample_size == 2206
+        assert cp.margin_of_error == 2.1
+
+    def test_skips_unrecognized_names_with_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verify unrecognized candidate names are skipped with a warning."""
+        df = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime(["2/5/2022", "2/5/2022"]),
+                "encuestadora": ["CNC", "CNC"],
+                "consulta": ["Pacto Historico", "Pacto Historico"],
+                "candidato": ["Gustavo Petro", "Francia Marquez"],
+                "int_voto": [77.0, 12.0],
+                "muestra": [2206, 2206],
+                "margen_error": [2.1, 2.1],
+            }
+        )
+        result = parse_consultations(df)
+        assert len(result) == 1  # only Petro
+        assert any("Francia Marquez" in msg for msg in caplog.messages)
+
+    def test_all_unrecognized_raises_valueerror(self) -> None:
+        """Verify ValueError when ALL rows are unrecognized."""
+        df = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime(["2/5/2022"]),
+                "encuestadora": ["CNC"],
+                "consulta": ["Pacto Historico"],
+                "candidato": ["Francia Marquez"],
+                "int_voto": [12.0],
+                "muestra": [2206],
+                "margen_error": [2.1],
+            }
+        )
+        with pytest.raises(ValueError, match="unrecognized"):
+            parse_consultations(df)
+
+
+# ── CleanPolls dataclass ──
+
+
+class TestCleanPolls:
+    """Tests for the CleanPolls frozen dataclass."""
+
+    @pytest.fixture
+    def valid_data(self) -> tuple[pd.DataFrame, pd.DataFrame, list[ConsultationPoll], pd.DataFrame]:
+        """Provide valid CleanPolls constructor data."""
+        round1 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer", "Guarumo", "YanHaas", "CELAG"],
+                "round_number": [1] * 5,
+                "gustavo_petro": [40.0] * 5,
+            }
+        )
+        round2 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer"],
+                "round_number": [2] * 2,
+                "gustavo_petro": [50.0, 52.0],
+            }
+        )
+        consultations = [
+            ConsultationPoll(
+                date=date(2022, 2, 5),
+                pollster="CNC",
+                coalition="Pacto Historico",
+                candidate="Gustavo Petro",
+                candidate_key="gustavo_petro",
+                share=77.0,
+                sample_size=2206,
+                margin_of_error=2.1,
+            ),
+        ]
+        all_polls = pd.DataFrame({"encuestadora": ["CNC"], "gustavo_petro": [40.0]})
+        return round1, round2, consultations, all_polls
+
+    def test_instantiation(self, valid_data: tuple) -> None:
+        """Verify CleanPolls creates with valid data."""
+        r1, r2, cons, ap = valid_data
+        cp = CleanPolls(round1=r1, round2=r2, consultation=cons, all_polls=ap)
+        assert cp.round1 is not None
+        assert cp.round2 is not None
+        assert len(cp.consultation) == 1
+        assert cp.all_polls is not None
+
+    def test_immutability(self, valid_data: tuple) -> None:
+        """Verify frozen dataclass rejects attribute assignment."""
+        r1, r2, cons, ap = valid_data
+        cp = CleanPolls(round1=r1, round2=r2, consultation=cons, all_polls=ap)
+        with pytest.raises(FrozenInstanceError):
+            cp.round1 = pd.DataFrame()  # type: ignore[misc]
+
+    def test_defensive_copy_round1(self, valid_data: tuple) -> None:
+        """Verify modifying external DataFrame does NOT alter stored one."""
+        r1, r2, cons, ap = valid_data
+        cp = CleanPolls(round1=r1, round2=r2, consultation=cons, all_polls=ap)
+        r1["gustavo_petro"] = 999.0
+        assert cp.round1["gustavo_petro"].iloc[0] == 40.0  # original retained
+
+    def test_defensive_copy_round2(self, valid_data: tuple) -> None:
+        """Verify modifying external round2 DataFrame does NOT alter stored one."""
+        r1, r2, cons, ap = valid_data
+        cp = CleanPolls(round1=r1, round2=r2, consultation=cons, all_polls=ap)
+        r2.loc[0, "gustavo_petro"] = 999.0
+        assert cp.round2["gustavo_petro"].iloc[0] == 50.0
+
+    def test_defensive_copy_all_polls(self, valid_data: tuple) -> None:
+        """Verify modifying external all_polls DataFrame does NOT alter stored one."""
+        r1, r2, cons, ap = valid_data
+        cp = CleanPolls(round1=r1, round2=r2, consultation=cons, all_polls=ap)
+        ap["gustavo_petro"] = 999.0
+        assert cp.all_polls["gustavo_petro"].iloc[0] == 40.0
+
+    def test_raises_valueerror_when_round1_has_fewer_than_5_pollsters(
+        self,
+        valid_data: tuple,
+    ) -> None:
+        """Verify __post_init__ validates minimum round1 pollster diversity."""
+        r1, r2, cons, ap = valid_data
+        r1_bad = r1.iloc[:4].copy()  # only 4 unique pollsters
+        with pytest.raises(ValueError, match="5"):
+            CleanPolls(round1=r1_bad, round2=r2, consultation=cons, all_polls=ap)
+
+    def test_raises_valueerror_when_round2_has_fewer_than_2_pollsters(
+        self,
+        valid_data: tuple,
+    ) -> None:
+        """Verify __post_init__ validates minimum round2 pollster diversity."""
+        r1, r2, cons, ap = valid_data
+        r2_bad = r2.iloc[:1].copy()  # only 1 unique pollster
+        with pytest.raises(ValueError, match="2"):
+            CleanPolls(round1=r1, round2=r2_bad, consultation=cons, all_polls=ap)
+
+
+# ── load_raw_polls integration ──
+
+
+class TestLoadRawPolls:
+    """Integration tests for load_raw_polls."""
+
+    def test_returns_dataframe_with_expected_columns(self, data_dir: Path) -> None:
+        """Verify load_raw_polls returns a DataFrame with key columns."""
+        df = load_raw_polls(data_dir)
+        assert "fecha" in df.columns
+        assert "encuestadora" in df.columns
+        assert "muestra" in df.columns
+        assert "gustavo_petro" in df.columns
+        assert "rodolfo_hernandez" in df.columns
+        assert "ns_nr" in df.columns
+
+    def test_fecha_parsed_as_datetime(self, data_dir: Path) -> None:
+        """Verify fecha column is parsed to datetime (no NaT)."""
+        df = load_raw_polls(data_dir)
+        assert pd.api.types.is_datetime64_any_dtype(df["fecha"])
+        assert df["fecha"].isna().sum() == 0, "Found NaT dates"
+
+
+# ── load_raw_consultas integration ──
+
+
+class TestLoadRawConsultas:
+    """Integration tests for load_raw_consultas."""
+
+    def test_returns_dataframe(self, data_dir: Path) -> None:
+        """Verify load_raw_consultas returns a DataFrame."""
+        df = load_raw_consultas(data_dir)
+        assert "fecha" in df.columns
+        assert "encuestadora" in df.columns
+        assert "consulta" in df.columns
+        assert "candidato" in df.columns
+
+    def test_fecha_parsed_as_datetime(self, data_dir: Path) -> None:
+        """Verify fecha is parsed to datetime."""
+        df = load_raw_consultas(data_dir)
+        assert pd.api.types.is_datetime64_any_dtype(df["fecha"])
+        assert df["fecha"].isna().sum() == 0, "Found NaT dates"
+
+
+# ── load_and_clean_all integration ──
+
+
+class TestLoadAndCleanAll:
+    """Integration tests for the full load_and_clean_all pipeline."""
+
+    @pytest.fixture(autouse=True, scope="class")
+    def _clean_polls(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
+        """Load and clean polls once per test class."""
+        request.cls.clean_polls = load_and_clean_all(data_dir)
+
+    def test_returns_clean_polls(self) -> None:
+        """Verify load_and_clean_all returns a CleanPolls instance."""
+        assert isinstance(self.clean_polls, CleanPolls)
+
+    def test_round1_has_at_least_5_pollsters(self) -> None:
+        """Verify round 1 has >= 5 unique pollsters."""
+        unique_pollsters = self.clean_polls.round1["encuestadora"].nunique()
+        assert unique_pollsters >= 5, f"Round 1 has {unique_pollsters} pollsters, need >= 5"
+
+    def test_round2_has_at_least_2_pollsters(self) -> None:
+        """Verify round 2 has >= 2 unique pollsters."""
+        unique_pollsters = self.clean_polls.round2["encuestadora"].nunique()
+        assert unique_pollsters >= 2, f"Round 2 has {unique_pollsters} pollsters, need >= 2"
+
+    def test_invamer_date_corrected(self) -> None:
+        """Verify Invamer April 19 poll is corrected to May 19."""
+        invamer_round1 = self.clean_polls.round1[
+            self.clean_polls.round1["encuestadora"].str.strip() == "Invamer"
+        ]
+        assert not invamer_round1.empty, "No Invamer polls found in round 1"
+        min_date = invamer_round1["fecha"].min()
+        assert min_date >= pd.Timestamp("2022-04-29")
+
+    def test_no_duplicate_pollster_date_in_round1(self) -> None:
+        """Verify no pollster appears more than once per date in round 1."""
+        dups = self.clean_polls.round1.duplicated(subset=["encuestadora", "fecha"], keep=False)
+        assert not dups.any(), "Duplicate pollster+date found in round 1"
+
+    def test_no_duplicate_pollster_date_in_round2(self) -> None:
+        """Verify no pollster appears more than once per date in round 2."""
+        dups = self.clean_polls.round2.duplicated(subset=["encuestadora", "fecha"], keep=False)
+        assert not dups.any(), "Duplicate pollster+date found in round 2"
+
+    def test_normalized_shares_sum_to_100(self) -> None:
+        """Verify candidate+blanco+otros sum to ~100% after normalization."""
+        share_cols = [
+            c
+            for c in self.clean_polls.round1.columns
+            if c in {cand.key for cand in get_active_candidates(1)} or c in ("blanco", "otros")
+        ]
+        for idx, row in self.clean_polls.round1.iterrows():
+            row_sum = row[share_cols].sum()
+            assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
+
+    def test_ns_nr_is_zero_after_normalization(self) -> None:
+        """Verify ns_nr is 0.0 in both rounds after normalization."""
+        assert self.clean_polls.round1["ns_nr"].sum() == 0.0
+        assert self.clean_polls.round2["ns_nr"].sum() == 0.0
+
+    def test_all_polls_includes_unclassified_and_all_columns(self) -> None:
+        """Verify all_polls includes pre-consultation columns and unclassified rows."""
+        assert "alejandro_gaviria" in self.clean_polls.all_polls.columns
+        assert "round_number" in self.clean_polls.all_polls.columns
+        unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
+        assert len(unclassified) > 0
