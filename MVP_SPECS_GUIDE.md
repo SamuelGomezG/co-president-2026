@@ -526,8 +526,8 @@ CONSULTATION_KEY_MAP: dict[str, str] = {
     - `get_active_candidates(1)` count and naming
     - `get_active_candidates(2)` count and naming
     - `CONSULTATION_VOTES` has correct keys and non-negative values
-- `consultation_log_share_prior()` returns finite values for all candidates (no -inf for zero-vote candidates)
-     - `consultation_log_share_prior()` for a candidate with non-zero votes > log-share for a zero-vote candidate
+    - `consultation_log_share_prior()` returns finite values for all candidates (no -inf for zero-vote candidates)
+    - `consultation_log_share_prior()` for a candidate with non-zero votes > log-share for a zero-vote candidate
 2. **Green**: Implement `config.py`.
 3. **Type-check + Lint + Commit**.
 
@@ -908,7 +908,7 @@ actual ~ DirichletMultinomial(
    - Build time indices: `days_before_election = (ELECTION_DATE - poll_date).days`
    - Create integer time indices mapping each unique `days_before_election` value to `0, 1, ..., n_time_points - 1` where `0` maps to `days_before_election = 0` (election day)
    - Build pollster indices: unique pollster names → integer indices `0, 1, ..., P-1`
-       - Implement the reverse-time random walk: initialize `θ[T-1]` with a Normal prior whose mean comes from `consultation_log_share_prior()` (computed from `CONSULTATION_VOTES` in config) and sigma from `config.consultation_prior_strength`. Then create a chain of `pm.Normal` variables with `θ[t] ~ Normal(θ[t+1], σ_rw)` for t in T-2, ..., 0.
+    - Implement the reverse-time random walk: initialize `θ[T-1]` with a Normal prior whose mean comes from `consultation_log_share_prior()` (computed from `CONSULTATION_VOTES` in config) and sigma from `config.consultation_prior_strength`. Then create a chain of `pm.Normal` variables with `θ[t] ~ Normal(θ[t+1], σ_rw)` for t in T-2, ..., 0.
    - Implement hierarchical house effects as raw effects with a zero-sum deterministic transform
    - If `results is not None`, observe the election result likelihood
    - If `results is None`, do not include the election likelihood (this is the "forecast" mode where we only have polls)
@@ -1010,7 +1010,7 @@ actual ~ DirichletMultinomial(
     - **Phase C (full model)**: 3-row synthetic DataFrame with 3 pollsters, 3 candidates. Model builds with expected RV count. `pm.sample_prior_predictive` returns shares in [0, 1].
     - **Phase D (forecast mode)**: `results=None` → no election likelihood term present in model.
      - **Phase E (backtest mode)**: `results=something` → election likelihood term present.
-     - **Consultation prior**: `consultation_log_share_prior()` returns log-ratios derived from `CONSULTATION_VOTES`. For a candidate with zero consultation votes, the return value is `log(min_nonzero / 2)`, not `-inf`. In Phase C, the theta prior mean matches the consultation log-shares for the synthetic candidates.
+     - **Consultation prior**: `consultation_log_share_prior()` returns log-shares derived from `CONSULTATION_VOTES`. For a candidate with zero consultation votes, the return value is `log(min_nonzero / 2)`, not `-inf`. In Phase C, the theta prior mean matches the consultation log-shares for the synthetic candidates.
      - `CandidateForecast` and `Round1Forecast` dataclass validation: all probabilities in [0, 1]; mean_share >= 0.
      - `Round1Forecast.to_json()` / `Round1Forecast.from_json()` roundtrip: serialized → deserialized values match original (no CI precision loss).
      - `forecast_round1` on a manually constructed `InferenceData` with 2 candidates: verifies CI width is positive.
