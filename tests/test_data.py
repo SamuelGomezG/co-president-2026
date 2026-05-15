@@ -45,7 +45,7 @@ from co_president.data_results import (
     _build_round_result,
     consolidate_round,
     cross_validate,
-    load_actual_results,
+    load_canonical_results,
     load_moe_round1,
     load_moe_round2,
     load_participation_round1,
@@ -453,13 +453,13 @@ class TestParticipationLoaders:
 # ═══════════════════════════════════════════════════════════════════
 
 
-class TestLoadActualResults:
+class TestLoadCanonicalResults:
     """Tests for the full load_actual_results() pipeline."""
 
     @pytest.fixture(autouse=True, scope="class")
     def _results(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
         """Load canonical results once per test class."""
-        request.cls.round1, request.cls.round2 = load_actual_results(data_dir)
+        request.cls.round1, request.cls.round2 = load_canonical_results(data_dir)
 
     # ── Round structure ──
 
