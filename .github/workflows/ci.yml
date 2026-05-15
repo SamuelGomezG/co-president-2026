@@ -76,12 +76,6 @@ jobs:
             echo "tests/test_model.py not found — skipping (SPEC-06 not yet implemented)"
           fi
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage.xml
-          fail_ci_if_error: false
-
   secrets:
     runs-on: ubuntu-latest
     permissions:

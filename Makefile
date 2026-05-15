@@ -27,7 +27,11 @@ test-model-slow:
 	uv run pytest tests/test_model.py -v -m "slow"
 
 dev:
-	uv run python -m co_president run --no-sample
+	@if [ -f src/co_president/__main__.py ]; then \
+		uv run python -m co_president run --no-sample; \
+	else \
+		echo "dev: __main__.py not yet implemented (SPEC-10 pending)"; exit 1; \
+	fi
 
 sec:
 	uv run pip-audit
