@@ -425,6 +425,12 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
         result["fecha"] == pd.Timestamp("2022-04-19")
     )
     result.loc[mask, "fecha"] = pd.Timestamp("2022-05-19")
+    n_corrected = int(mask.sum())
+    if n_corrected:
+        logger.info(
+            "fix_invamer_date: corrected %d row(s) from 2022-04-19 to 2022-05-19",
+            n_corrected,
+        )
     return result
 
 
@@ -656,6 +662,8 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
+    n_before = len(df)
+
     result = df.copy()
     # Create a temporary effective sample column
     if "muestra_int_voto" not in result.columns:
@@ -679,7 +687,16 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
     deduped = result.groupby(["encuestadora", "fecha"], sort=False).head(1).reset_index(drop=True)
 
     # Drop the temporary column
-    return deduped.drop(columns=["_eff_sample"])
+    deduped = deduped.drop(columns=["_eff_sample"])
+    n_after = len(deduped)
+    if n_before != n_after:
+        logger.info(
+            "deduplicate_polls: %d -> %d rows (%d duplicates removed)",
+            n_before,
+            n_after,
+            n_before - n_after,
+        )
+    return deduped
 
 
 # ═══════════════════════════════════════════════════════════════════
