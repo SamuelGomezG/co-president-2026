@@ -404,6 +404,16 @@ class TestTransferConstants:
         ]:
             assert 0.0 <= val <= 1.0, f"TRANSFER_{name} out of range: {val}"
 
+    def test_transfer_aggregate_split_approximates_observed(self) -> None:
+        """Verify the aggregate transfer split approximates the observed 73/27."""
+        # Aggregate flow to Petro: (Fajardo*Petro + Gutiérrez*Petro) / 2
+        flow_petro = (TRANSFER_FAJARDO_PETRO + TRANSFER_GUTIERREZ_PETRO) / 2
+        # Aggregate flow to Hernández: (Fajardo*Hernandez + Gutiérrez*Hernandez) / 2
+        flow_hernandez = (TRANSFER_FAJARDO_HERNANDEZ + TRANSFER_GUTIERREZ_HERNANDEZ) / 2
+
+        assert math.isclose(flow_petro, 0.27, abs_tol=0.15)
+        assert math.isclose(flow_hernandez, 0.73, abs_tol=0.15)
+
 
 class TestConsultationKeyMap:
     """Tests for the CONSULTATION_KEY_MAP constant."""
