@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 import logging
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 import unicodedata
 
@@ -114,7 +115,7 @@ class CandidateShares:
 
     def __post_init__(self) -> None:
         """Defensive-copy the candidates mapping to prevent external mutation."""
-        object.__setattr__(self, "candidates", dict(self.candidates))
+        object.__setattr__(self, "candidates", MappingProxyType(dict(self.candidates)))
 
     def total(self) -> float:
         """Sum all shares including ``ns_nr``, ``blanco``, and ``otros``.
