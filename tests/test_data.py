@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from datetime import date
+import logging
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -1014,6 +1015,32 @@ class TestFixInvamerDate:
         result = fix_invamer_date(df)
         assert result is not df
 
+    def test_logs_correction(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify logger.info is emitted when Invamer rows are corrected."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Invamer"],
+                "fecha": pd.to_datetime(["2022-04-19"]),
+                "muestra": [2000],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            fix_invamer_date(df)
+        assert any("corrected" in msg for msg in caplog.messages)
+
+    def test_no_log_when_no_correction(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify no logger.info when no Invamer April-19 rows exist."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC"],
+                "fecha": pd.to_datetime(["2022-04-19"]),
+                "muestra": [2000],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            fix_invamer_date(df)
+        assert not any("corrected" in msg for msg in caplog.messages)
+
 
 # ── normalize_undecided ──
 
@@ -1371,6 +1398,34 @@ class TestDeduplicatePolls:
         result = deduplicate_polls(df)
         assert result.empty
         assert result is not df  # must be a copy, not the same reference
+
+    def test_logs_deduplication_summary(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify logger.info is emitted with before/after counts."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [1000, 2206],
+                "muestra_int_voto": [1000, 2206],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            deduplicate_polls(df)
+        assert any("duplicates removed" in msg for msg in caplog.messages)
+
+    def test_no_log_when_no_duplicates(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify no logger.info when input has no duplicates."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [2206, 2000],
+                "muestra_int_voto": [2206, 2000],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            deduplicate_polls(df)
+        assert not any("duplicates removed" in msg for msg in caplog.messages)
 
 
 # ── map_consultation_name_to_key ──
