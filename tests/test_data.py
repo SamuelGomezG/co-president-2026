@@ -1908,14 +1908,13 @@ class TestLoadAndCleanAll:
     def test_gad3_final_wave_not_duplicated(self) -> None:
         """Verify the final GAD3 tracking wave appears only once in round 2.
 
-        The final wave (2022-06-10) had muestra=5236 and was corrected from
-        an erroneous 2022-06-11 date to avoid duplication.
+        The final wave (2022-06-10) was corrected from an erroneous 2022-06-11
+        date to avoid duplication.
         """
         gad3_round2 = self.clean_polls.round2[
             self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
         ]
-        # Final wave: 2022-06-10, n=5236 (largest sample, last tracking day)
-        final_wave = gad3_round2[gad3_round2["muestra"] == 5236]
+        final_wave = gad3_round2[gad3_round2["fecha"] == pd.Timestamp("2022-06-10")]
         assert len(final_wave) == 1
 
     def test_ns_nr_is_zero_after_normalization(self) -> None:
@@ -1930,18 +1929,13 @@ class TestLoadAndCleanAll:
         unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
         assert len(unclassified) > 0
 
-    def test_all_polls_dates_monotonic_except_invamer(self) -> None:
-        """Verify dates are non-decreasing except for the known Invamer anomaly."""
-        fechas = self.clean_polls.all_polls["fecha"]
-        diffs = fechas.diff()
-        out_of_order = diffs[diffs < pd.Timedelta(0)]
-        if out_of_order.empty:
-            return
-        offending_rows = self.clean_polls.all_polls.loc[out_of_order.index]
-        assert (
-            (offending_rows["encuestadora"].str.strip() == "Invamer")
-            & (offending_rows["fecha"] == pd.Timestamp("2022-04-19"))
-        ).all()
+    def test_all_polls_dates_monotonic(self) -> None:
+        """Verify dates are non-decreasing in the cleaned output.
+
+        fix_invamer_date corrects the known Invamer anomaly before all_polls
+        is constructed, so no exception is needed here.
+        """
+        assert self.clean_polls.all_polls["fecha"].is_monotonic_increasing
 
 
 # ── schema verification ──
