@@ -20,6 +20,7 @@ not empirically identified parameters.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 from dataclasses import dataclass
 from datetime import date
@@ -65,7 +66,7 @@ class Candidate:
     Attributes:
         key: Internal key matching column names in polls.
         display_name: Human-readable name.
-        coalition: Coalition the candidate runs under (e.g. "Pacto Hist\u00f3rico").
+        coalition: Coalition the candidate runs under (e.g. "Pacto Histórico").
         first_round: Whether the candidate ran in the first round.
         runoff: Whether the candidate made the runoff.
 
@@ -366,10 +367,14 @@ def get_computed_consultation_prior_strengths() -> dict[str, float]:
     return compute_consultation_prior_strength()
 
 
-# Backward-compatible alias for the memoized function result.
-COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = (
-    get_computed_consultation_prior_strengths()
-)
+def _get_strengths_safe() -> dict[str, float]:
+    """Compute consultation prior strengths, returning empty dict on failure."""
+    with contextlib.suppress(FileNotFoundError, KeyError, ValueError):
+        return get_computed_consultation_prior_strengths()
+    return {}
+
+
+COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = _get_strengths_safe()
 
 
 POLLSTER_RATINGS: dict[str, float] = {
