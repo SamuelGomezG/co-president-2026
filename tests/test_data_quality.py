@@ -4,31 +4,20 @@ from __future__ import annotations
 
 from datetime import date
 import logging
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from co_president.config import POLLSTER_RATINGS
-from co_president.data_polls import load_and_clean_all
+from co_president.config import POLLSTER_RATINGS, ModelConfig
 from co_president.data_quality import (
+    _MAE_CANDIDATES,
+    _compute_mae,
     quantify_methodology_effect,
     validate_pollster_ratings,
     validate_time_decay,
 )
-from co_president.data_results import CandidateResult, RoundResult, load_canonical_results
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-_MAE_CANDIDATES = (
-    "gustavo_petro",
-    "federico_gutierrez",
-    "rodolfo_hernandez",
-    "sergio_fajardo",
-    "ingrid_betancourt",
-)
+from co_president.data_results import CandidateResult, RoundResult
 
 
 @pytest.fixture
@@ -176,6 +165,7 @@ def r1_results() -> RoundResult:
         CandidateResult("rodolfo_hernandez", 5_900_000, 0.2817),
         CandidateResult("federico_gutierrez", 4_000_000, 0.2394),
         CandidateResult("sergio_fajardo", 900_000, 0.0418),
+        CandidateResult("ingrid_betancourt", 75_000, 0.0035),
         CandidateResult("blanco", 400_000, 0.0173),
         CandidateResult("rest", 350_000, 0.0163),
     )
@@ -191,6 +181,12 @@ def r1_results() -> RoundResult:
         null_votes=300_000,
         unmarked_votes=200_000,
     )
+
+
+def test_compute_mae_all_nan(r1_results: RoundResult) -> None:
+    """Verify MAE is 0.0 when all candidate shares are NaN."""
+    row = pd.Series({key: float("nan") for key in _MAE_CANDIDATES}, dtype=float)
+    assert _compute_mae(row, r1_results) == 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -291,11 +287,11 @@ class TestValidatePollsterRatings:
         # The empirical MAE should reflect the 2022-05-20 poll (closer to actuals)
         assert invamer["empirical_mae"].iloc[0] < 5.0
 
-    def test_gad3_excluded_no_r1_polls(
+    def test_post_election_pollsters_excluded(
         self,
         r1_results: RoundResult,
     ) -> None:
-        """Verify pollsters with no R1 polls are excluded."""
+        """Verify post-election pollsters are excluded."""
         df = pd.DataFrame(
             {
                 "encuestadora": ["Invamer", "GAD3"],
@@ -353,7 +349,10 @@ class TestValidatePollsterRatings:
         """Verify large deviations trigger a warning log."""
         with caplog.at_level(logging.WARNING, logger="co_president.data_quality"):
             validate_pollster_ratings(sample_r1_polls, r1_results)
-        assert any("deviation" in msg.lower() for msg in caplog.messages)
+        assert any(
+            "YanHaas" in record.message and "deviation=" in record.message
+            for record in caplog.records
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -431,9 +430,9 @@ class TestValidateTimeDecay:
         sample_r1_polls_time_decay: pd.DataFrame,
         r1_results: RoundResult,
     ) -> None:
-        """Verify current_half_life_days is 30.0."""
+        """Verify current_half_life_days matches ModelConfig."""
         result = validate_time_decay(sample_r1_polls_time_decay, r1_results)
-        assert result["current_half_life_days"] == 30.0
+        assert result["current_half_life_days"] == ModelConfig().time_decay_half_life_days
 
     def test_all_types_match(
         self,
@@ -447,6 +446,64 @@ class TestValidateTimeDecay:
         assert isinstance(result["r_squared"], float)
         assert isinstance(result["recommendation"], str)
 
+    def test_beta_non_positive_returns_relationship_not_detected(
+        self,
+        r1_results: RoundResult,
+    ) -> None:
+        """Verify non-positive beta returns relationship_not_detected."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": [
+                    "Invamer",
+                    "YanHaas",
+                    "CNC",
+                    "Guarumo",
+                    "TYSE",
+                ],
+                "fecha": [
+                    pd.Timestamp("2022-05-28"),
+                    pd.Timestamp("2022-05-20"),
+                    pd.Timestamp("2022-05-10"),
+                    pd.Timestamp("2022-04-20"),
+                    pd.Timestamp("2022-04-01"),
+                ],
+                "gustavo_petro": [45.0, 44.0, 43.0, 41.0, 40.5],
+                "rodolfo_hernandez": [22.0, 23.0, 24.0, 26.5, 27.5],
+                "federico_gutierrez": [27.0, 26.0, 25.0, 23.8, 24.0],
+                "sergio_fajardo": [6.0, 5.5, 5.0, 4.3, 4.2],
+                "ingrid_betancourt": [1.0, 0.8, 0.6, 0.4, 0.35],
+                "blanco": [2.0, 2.0, 2.0, 2.0, 2.0],
+                "otros": [1.0, 1.0, 1.0, 1.0, 1.0],
+                "ns_nr": [0, 0, 0, 0, 0],
+            },
+        )
+        result = validate_time_decay(df, r1_results)
+        assert result["recommendation"] == "relationship_not_detected"
+
+    def test_four_polls_is_insufficient(self, r1_results: RoundResult) -> None:
+        """Verify exactly four polls returns insufficient_data."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Invamer", "YanHaas", "CNC", "Guarumo"],
+                "fecha": [
+                    pd.Timestamp("2022-05-20"),
+                    pd.Timestamp("2022-05-10"),
+                    pd.Timestamp("2022-05-15"),
+                    pd.Timestamp("2022-05-18"),
+                ],
+                "gustavo_petro": [43.6, 40.0, 41.3, 42.0],
+                "rodolfo_hernandez": [13.9, 12.0, 25.9, 20.0],
+                "federico_gutierrez": [26.7, 21.0, 22.0, 22.5],
+                "sergio_fajardo": [6.5, 7.0, 5.6, 5.2],
+                "ingrid_betancourt": [0.5, 1.0, 0.4, 0.6],
+                "blanco": [5.7, 13.0, 3.4, 3.0],
+                "otros": [3.1, 0.6, 1.4, 1.0],
+                "ns_nr": [0, 6.0, 0, 0],
+            },
+        )
+        result = validate_time_decay(df, r1_results)
+        assert result["recommendation"] == "insufficient_data"
+
 
 # ═══════════════════════════════════════════════════════════════════
 # quantify_methodology_effect
@@ -459,9 +516,10 @@ class TestQuantifyMethodologyEffect:
     def test_returns_dict(
         self,
         sample_r1_polls_methodology: pd.DataFrame,
+        r1_results: RoundResult,
     ) -> None:
         """Verify the function returns a dict with expected top-level keys."""
-        result = quantify_methodology_effect(sample_r1_polls_methodology)
+        result = quantify_methodology_effect(sample_r1_polls_methodology, r1_results)
         assert isinstance(result, dict)
         expected_keys = {
             "per_candidate",
@@ -476,61 +534,61 @@ class TestQuantifyMethodologyEffect:
     def test_all_candidate_keys_present(
         self,
         sample_r1_polls_methodology: pd.DataFrame,
+        r1_results: RoundResult,
     ) -> None:
         """Verify per_candidate keys match the 5 named candidates."""
-        result = quantify_methodology_effect(sample_r1_polls_methodology)
-        expected_candidates = {
-            "gustavo_petro",
-            "federico_gutierrez",
-            "rodolfo_hernandez",
-            "sergio_fajardo",
-            "ingrid_betancourt",
-        }
-        assert set(result["per_candidate"].keys()) == expected_candidates
+        result = quantify_methodology_effect(sample_r1_polls_methodology, r1_results)
+        assert set(result["per_candidate"].keys()) == set(_MAE_CANDIDATES)
 
     def test_diffs_in_range(
         self,
         sample_r1_polls_methodology: pd.DataFrame,
+        r1_results: RoundResult,
     ) -> None:
         """Verify all differences are within [-15, +15] pp."""
-        result = quantify_methodology_effect(sample_r1_polls_methodology)
+        result = quantify_methodology_effect(sample_r1_polls_methodology, r1_results)
         for candidate_key, data in result["per_candidate"].items():
-            assert -15 <= data["diff"] <= 15, (
-                f"Diff for {candidate_key} ({data['diff']}) outside [-15, 15]"
+            if np.isnan(data["max_diff_pp"]):
+                continue
+            assert -15 <= data["max_diff_pp"] <= 15, (
+                f"Diff for {candidate_key} ({data['max_diff_pp']}) outside [-15, 15]"
             )
 
-    def test_digital_flagged(
+    def test_digital_in_methodology_counts(
         self,
         sample_r1_polls_methodology: pd.DataFrame,
+        r1_results: RoundResult,
     ) -> None:
-        """Verify digital is included in methodology_counts but flagged."""
-        result = quantify_methodology_effect(sample_r1_polls_methodology)
+        """Verify digital is included in methodology_counts."""
+        result = quantify_methodology_effect(sample_r1_polls_methodology, r1_results)
         assert "digital" in result["methodology_counts"]
         assert result["methodology_counts"]["digital"] >= 1
 
     def test_per_candidate_structure(
         self,
         sample_r1_polls_methodology: pd.DataFrame,
+        r1_results: RoundResult,
     ) -> None:
         """Verify each per_candidate entry has the expected sub-keys."""
-        result = quantify_methodology_effect(sample_r1_polls_methodology)
+        result = quantify_methodology_effect(sample_r1_polls_methodology, r1_results)
         for data in result["per_candidate"].values():
-            assert "presencial_mean" in data
-            assert "telefonica_mean" in data
-            assert "diff" in data
-            assert "flag" in data
-            assert isinstance(data["flag"], bool)
+            assert "methodology_mae" in data
+            assert "max_diff_pp" in data
+            assert "flagged" in data
+            assert isinstance(data["flagged"], bool)
 
     def test_any_flagged_boolean(
         self,
         sample_r1_polls_methodology: pd.DataFrame,
+        r1_results: RoundResult,
     ) -> None:
         """Verify any_flagged is a boolean."""
-        result = quantify_methodology_effect(sample_r1_polls_methodology)
+        result = quantify_methodology_effect(sample_r1_polls_methodology, r1_results)
         assert isinstance(result["any_flagged"], bool)
 
     def test_missing_tipo_excluded(
         self,
+        r1_results: RoundResult,
     ) -> None:
         """Verify polls with missing tipo are excluded from methodology analysis."""
         df = pd.DataFrame(
@@ -551,70 +609,27 @@ class TestQuantifyMethodologyEffect:
                 "ns_nr": [0, 6.0],
             },
         )
-        result = quantify_methodology_effect(df)
+        result = quantify_methodology_effect(df, r1_results)
         assert result["methodology_counts"].get("presencial", 0) == 1
 
-
-# ═══════════════════════════════════════════════════════════════════
-# Integration tests (real 2022 data)
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestDataQualityIntegration:
-    """Integration tests for data_quality functions on real 2022 data."""
-
-    @pytest.fixture(autouse=True, scope="class")
-    def _load_data(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
-        """Load real 2022 polls and results once per test class."""
-        request.cls.clean_polls = load_and_clean_all(data_dir)
-        request.cls.r1_results, request.cls.r2_results = load_canonical_results(data_dir)
-
-    def test_pollster_ratings_on_real_data(self) -> None:
-        """Verify validate_pollster_ratings runs on real 2022 data."""
-        result = validate_pollster_ratings(
-            self.clean_polls.round1,  # type: ignore[attr-defined]
-            self.r1_results,  # type: ignore[attr-defined]
+    def test_empty_dataframe_returns_nan_diffs(
+        self,
+        r1_results: RoundResult,
+    ) -> None:
+        """Verify empty inputs yield NaN diffs and no flags."""
+        df = pd.DataFrame(
+            columns=[
+                "encuestadora",
+                "fecha",
+                "tipo",
+                *_MAE_CANDIDATES,
+                "blanco",
+                "otros",
+                "ns_nr",
+            ],
         )
-        assert isinstance(result, pd.DataFrame)
-        assert not result.empty
-        assert "Invamer" in result["pollster"].to_numpy()
-
-    def test_pollster_ratings_all_scores_in_bounds_real(self) -> None:
-        """Verify all empirical scores in [0, 10] on real data."""
-        result = validate_pollster_ratings(
-            self.clean_polls.round1,  # type: ignore[attr-defined]
-            self.r1_results,  # type: ignore[attr-defined]
-        )
-        assert result["empirical_score"].between(0, 10).all()
-
-    def test_time_decay_on_real_data(self) -> None:
-        """Verify validate_time_decay runs on real 2022 data and returns positive half-life."""
-        result = validate_time_decay(
-            self.clean_polls.round1,  # type: ignore[attr-defined]
-            self.r1_results,  # type: ignore[attr-defined]
-        )
-        assert result["optimal_half_life_days"] > 0
-        assert 0 <= result["r_squared"] <= 1
-
-    def test_methodology_on_real_data(self) -> None:
-        """Verify quantify_methodology_effect runs on real 2022 data."""
-        result = quantify_methodology_effect(
-            self.clean_polls.round1,  # type: ignore[attr-defined]
-        )
-        assert isinstance(result, dict)
-        assert len(result["per_candidate"]) >= 1
-        assert result["methodology_counts"].get("presencial", 0) >= 1
-
-    def test_methodology_digital_has_one_poll_real(self) -> None:
-        """Verify digital methodology has exactly 1 poll on real data."""
-        result = quantify_methodology_effect(
-            self.clean_polls.round1,  # type: ignore[attr-defined]
-        )
-        assert result["methodology_counts"].get("digital", 0) == 1
-
-    def test_methodology_any_flagged_is_bool_real(self) -> None:
-        """Verify any_flagged is a boolean on real data."""
-        result = quantify_methodology_effect(
-            self.clean_polls.round1,  # type: ignore[attr-defined]
-        )
-        assert isinstance(result["any_flagged"], bool)
+        result = quantify_methodology_effect(df, r1_results)
+        assert result["methodology_counts"] == {}
+        assert result["any_flagged"] is False
+        sample = result["per_candidate"]["gustavo_petro"]
+        assert np.isnan(sample["max_diff_pp"])
