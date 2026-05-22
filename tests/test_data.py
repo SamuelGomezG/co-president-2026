@@ -1871,22 +1871,8 @@ class TestLoadAndCleanAllEmptyRounds:
             result["round_number"] = result["round_number"].astype("Int64")
             return result
 
-        class _StubCleanPolls:
-            def __init__(
-                self,
-                round1: pd.DataFrame,
-                round2: pd.DataFrame,
-                consultation: list[ConsultationPoll],
-                all_polls: pd.DataFrame,
-            ) -> None:
-                self.round1 = round1
-                self.round2 = round2
-                self.consultation = consultation
-                self.all_polls = all_polls
-
         monkeypatch.setattr("co_president.data_polls.infer_round_number", fake_infer_round_number)
-
-        monkeypatch.setattr("co_president.data_polls.CleanPolls", _StubCleanPolls)
+        monkeypatch.setattr("co_president.data_polls._MIN_ROUND2_POLLSTERS", 0)
 
         clean = load_and_clean_all(data_dir)
         assert clean.round2.empty
