@@ -173,12 +173,26 @@ def validate_pollster_ratings(
             empirical_score
             deviation
 
+    Raises:
+        KeyError: If a candidate in ``_MAE_CANDIDATES`` is not present in
+            ``results.candidates``.
+
+    Examples:
+        >>> result = validate_pollster_ratings(polls, r1_results)
+        >>> isinstance(result, pd.DataFrame)
+        True
+
     """
     # Exclude post-election tracking polls with different assumptions.
     cutoff = pd.Timestamp(ELECTION_DATE_ROUND1) - pd.Timedelta(days=1)
     pre_election = polls[polls["fecha"] <= cutoff].copy()
 
-    last_polls = pre_election.sort_values("fecha").groupby("encuestadora", sort=False).last()
+    last_polls = (
+        pre_election.sort_values("fecha")
+        .groupby("encuestadora", sort=False)
+        .tail(1)
+        .set_index("encuestadora")
+    )
 
     # Compute MAE per pollster (iterate rows to satisfy pyright)
     mae_values: list[float] = []
@@ -220,15 +234,16 @@ def validate_pollster_ratings(
     result = pd.DataFrame(rows)
 
     # Flag large deviations
-    large_dev = result[result["deviation"].abs() > _FLAG_DEVIATION_THRESHOLD]
-    for _, row in large_dev.iterrows():
-        logger.warning(
-            "Pollster %s: deviation=%.2f (empirical=%.2f, rating=%.2f)",
-            row["pollster"],
-            row["deviation"],
-            row["empirical_score"],
-            row["la_silla_rating"],
-        )
+    if not result.empty and "deviation" in result.columns:
+        large_dev = result[result["deviation"].abs() > _FLAG_DEVIATION_THRESHOLD]
+        for _, row in large_dev.iterrows():
+            logger.warning(
+                "Pollster %s: deviation=%.2f (empirical=%.2f, rating=%.2f)",
+                row["pollster"],
+                row["deviation"],
+                row["empirical_score"],
+                row["la_silla_rating"],
+            )
 
     return result
 
@@ -253,6 +268,15 @@ def validate_time_decay(
             current_half_life_days
             r_squared
             recommendation
+
+    Raises:
+        KeyError: If a candidate in ``_MAE_CANDIDATES`` is not present in
+            ``results.candidates``.
+
+    Examples:
+        >>> result = validate_time_decay(polls, r1_results)
+        >>> isinstance(result, dict)
+        True
 
     """
     election_date_ts = pd.Timestamp(ELECTION_DATE_ROUND1)
@@ -343,6 +367,15 @@ def quantify_methodology_effect(
             methodology_counts: count of polls per methodology
             flag_threshold_pp: threshold for flagging (default 3.0)
             any_flagged: whether any candidate exceeded the threshold
+
+    Raises:
+        KeyError: If a candidate in ``_MAE_CANDIDATES`` is not present in
+            ``results.candidates``.
+
+    Examples:
+        >>> result = quantify_methodology_effect(polls, r1_results)
+        >>> isinstance(result, dict)
+        True
 
     """
     consultation_ts = pd.Timestamp(CONSULTATION_DATE)
