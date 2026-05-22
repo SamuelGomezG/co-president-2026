@@ -446,7 +446,17 @@ def _normalize_share_rows(
 
     **Warning:** Mutates ``df`` in-place. Caller must pass a copy.
 
-    Returns ``(normalized_indices, skipped_100_indices)``.
+    For rows where ``ns_nr == 100``, no normalization occurs and the row is
+    recorded as skipped.
+
+    Args:
+        df: Poll DataFrame with ``ns_nr`` and share columns.
+        share_cols: Columns to redistribute (candidate shares plus ``blanco``/``otros``).
+
+    Returns:
+        Tuple of ``(normalized_indices, skipped_100_indices)`` describing which
+        rows were normalized and which were skipped due to ``ns_nr == 100``.
+
     """
     normalized: set[int] = set()
     skipped_100: set[int] = set()
@@ -478,6 +488,17 @@ def _renormalize_rows(
     """Renormalise rows so share columns sum to 100, handling rounding drift.
 
     **Warning:** Mutates ``df`` in-place. Caller must pass a copy.
+
+    Rows with a non-positive share sum are skipped.
+
+    Args:
+        df: Poll DataFrame with share columns.
+        share_cols: Columns to renormalize.
+        indices: Row indices to renormalize.
+
+    Returns:
+        None.
+
     """
     for idx in indices:
         vals = [df.loc[idx, col] for col in share_cols]  # pyright: ignore[reportUnknownVariableType]

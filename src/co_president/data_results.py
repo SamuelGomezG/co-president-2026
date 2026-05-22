@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 import unicodedata
 
 if TYPE_CHECKING:
     from datetime import date
-    from pathlib import Path
 
 import pandas as pd
 
@@ -23,7 +23,6 @@ from co_president.config import (
     ELECTION_DATE_ROUND1,
     ELECTION_DATE_ROUND2,
 )
-from co_president.paths import resolve_data_dir
 
 __all__ = [
     "CandidateResult",
@@ -42,8 +41,8 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-_TOLERANCE_VALID_VOTES_PCT_DIFF = 0.10  # % difference in total valid votes → WARNING
-_TOLERANCE_CANDIDATE_SHARE_PP = 0.50  # % point difference in vote share → WARNING
+_TOLERANCE_VALID_VOTES_PCT = 0.10  # % difference in total valid votes → WARNING
+_TOLERANCE_CANDIDATE_SHARE_PCT = 0.50  # % point difference in vote share → WARNING
 _MIN_CANDIDATES_FOR_TOP_TWO = 2  # minimum candidates needed for top_two()
 _ROUND_TWO = 2  # second (runoff) round identifier
 
@@ -185,6 +184,29 @@ def _normalize_coalition_name(name: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c))
 
 
+def _resolve_data_dir(data_dir: Path | None) -> Path:
+    """Locate the project data directory.
+
+    When ``data_dir`` is provided, returns it directly. Otherwise resolves
+    relative to the installed package, falling back to a file-relative path.
+    """
+    if data_dir is not None:
+        return data_dir
+    try:
+        import co_president  # noqa: PLC0415
+
+        candidate = Path(co_president.__file__).resolve().parent.parent / "data"
+        if candidate.is_dir():
+            return candidate
+    except (ImportError, AttributeError):
+        pass
+    fallback = Path(__file__).resolve().parent.parent.parent / "data"
+    if not fallback.is_dir():
+        msg = f"data/ directory not found at {fallback}"
+        raise FileNotFoundError(msg)
+    return fallback
+
+
 def _resolve_mmv_path(results_dir: Path, stem: str) -> Path:
     """Resolve the MMV file path, preferring decompressed .csv over .csv.gz."""
     csv_path = results_dir / f"{stem}.csv"
@@ -202,30 +224,18 @@ def _read_mmv(path: Path) -> pd.DataFrame:
 
     Handles both ``.csv`` and ``.csv.gz``, latin-1 encoding, semicolon delimiter.
     """
-    df = pd.read_csv(
+    return pd.read_csv(
         path,
         encoding="latin-1",
         sep=";",
         low_memory=False,
         dtype=None,
     )
-    required_cols = {"PARNOMBRE", "VOTOS"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        msg = f"MMV file {path} missing columns: {', '.join(sorted(missing))}"
-        raise ValueError(msg)
-    return df
 
 
 def _read_moe(path: Path) -> pd.DataFrame:
     """Read an MOE results file (UTF-8, comma-delimited)."""
-    df = pd.read_csv(path, encoding="utf-8")
-    required_cols = {"nomparti", "votos"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        msg = f"MOE file {path} missing columns: {', '.join(sorted(missing))}"
-        raise ValueError(msg)
-    return df
+    return pd.read_csv(path, encoding="utf-8")
 
 
 def _read_participation(path: Path) -> pd.DataFrame:
@@ -275,88 +285,6 @@ def _aggregate_and_map(
     return result_df.set_index("candidate_key")
 
 
-def _extract_excluded_votes(aggregated: pd.DataFrame) -> tuple[int, int, int]:
-    """Extract null, unmarked, and blank votes from aggregated results.
-
-    Args:
-        aggregated: DataFrame with candidate_key index and votes column.
-
-    Returns:
-        Tuple of ``(null_votes, unmarked_votes, blank_votes)``.
-
-    """
-    null_votes: int = (
-        int(aggregated.loc["nulos", "votes"])  # pyright: ignore[reportArgumentType]
-        if "nulos" in aggregated.index
-        else 0
-    )
-    unmarked_votes: int = (
-        int(aggregated.loc["no_marcados", "votes"])  # pyright: ignore[reportArgumentType]
-        if "no_marcados" in aggregated.index
-        else 0
-    )
-    blank_votes: int = (
-        int(aggregated.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
-        if "blanco" in aggregated.index
-        else 0
-    )
-    return null_votes, unmarked_votes, blank_votes
-
-
-def _merge_blanco_into_rest(candidate_df: pd.DataFrame, round_number: int) -> pd.DataFrame:
-    """Merge blanco votes into rest for round 2.
-
-    In round 2 there is no separate blanco candidate, so blanco votes are
-    merged into the ``"rest"`` category.
-
-    Args:
-        candidate_df: DataFrame with candidate_key index and votes column.
-        round_number: 1 or 2.
-
-    Returns:
-        Modified DataFrame with blanco merged into rest if applicable.
-
-    """
-    if round_number != _ROUND_TWO or "blanco" not in candidate_df.index:
-        return candidate_df
-    blanco_count = int(candidate_df.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
-    candidate_df = candidate_df.drop(index="blanco")
-    existing = int(candidate_df.loc["rest", "votes"]) if "rest" in candidate_df.index else 0  # pyright: ignore[reportArgumentType]
-    candidate_df.loc["rest", "votes"] = existing + blanco_count
-    return candidate_df
-
-
-def _compute_candidate_results(
-    candidate_df: pd.DataFrame,
-    total_votes_incl_blank: int,
-) -> tuple[CandidateResult, ...]:
-    """Compute sorted CandidateResult objects from candidate vote data.
-
-    Args:
-        candidate_df: DataFrame with candidate_key index and votes column
-            (candidate-only votes after excluded types are removed).
-        total_votes_incl_blank: Total votes including blank (denominator for
-            vote share).
-
-    Returns:
-        Tuple of ``CandidateResult`` sorted by votes descending.
-
-    """
-    sorted_pairs = sorted(
-        ((idx, row) for idx, row in candidate_df.iterrows()),
-        key=lambda pair: int(pair[1]["votes"]),  # pyright: ignore[reportArgumentType]
-        reverse=True,
-    )
-    return tuple(
-        CandidateResult(
-            candidate_key=str(idx),
-            votes=int(row["votes"]),  # pyright: ignore[reportArgumentType]
-            vote_share=int(row["votes"]) / total_votes_incl_blank,  # pyright: ignore[reportArgumentType]
-        )
-        for idx, row in sorted_pairs
-    )
-
-
 def _build_round_result(
     aggregated: pd.DataFrame,
     round_number: Literal[1, 2],
@@ -380,19 +308,61 @@ def _build_round_result(
     """
     election_date = ELECTION_DATE_ROUND1 if round_number == 1 else ELECTION_DATE_ROUND2
 
-    null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+    # Separate excluded vote types (convert numpy scalars to Python int)
+    null_votes: int = (
+        int(aggregated.loc["nulos", "votes"])  # pyright: ignore[reportArgumentType]
+        if "nulos" in aggregated.index
+        else 0
+    )
+    unmarked_votes: int = (
+        int(aggregated.loc["no_marcados", "votes"])  # pyright: ignore[reportArgumentType]
+        if "no_marcados" in aggregated.index
+        else 0
+    )
 
+    # Remove excluded types from the working set
     candidate_df = aggregated.drop(index=["nulos", "no_marcados"], errors="ignore")
-    candidate_df = _merge_blanco_into_rest(candidate_df, round_number)
 
+    # Track blank votes before any round-specific merging
+    blank_votes: int = (
+        int(candidate_df.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
+        if "blanco" in candidate_df.index
+        else 0
+    )
+
+    # For round 2: merge blanco into rest (round 2 has no separate blanco candidate)
+    if round_number == _ROUND_TWO and "blanco" in candidate_df.index:
+        blanco_count = int(candidate_df.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
+        candidate_df = candidate_df.drop(index="blanco")
+        existing = int(candidate_df.loc["rest", "votes"]) if "rest" in candidate_df.index else 0  # pyright: ignore[reportArgumentType]
+        candidate_df.loc["rest", "votes"] = existing + blanco_count
+
+    # Sums: total_valid keeps candidate votes only; total_votes_incl_blank adds
+    # blank votes back (= candidates + blank, matching official Colombian
+    # denominator for vote-share calculation).
     candidate_total = int(candidate_df["votes"].sum())  # pyright: ignore[reportArgumentType]
     total_valid_votes = candidate_total - blank_votes
-    total_votes_incl_blank = candidate_total
+    total_votes_incl_blank = candidate_total  # candidate_votes + blank_votes
     if total_valid_votes == 0:
         msg = f"Round {round_number} has zero total valid votes after aggregation"
         raise ValueError(msg)
 
-    candidates = _compute_candidate_results(candidate_df, total_votes_incl_blank)
+    # Compute vote shares, sorted by votes descending.
+    # Denominator is total_votes_incl_blank (= candidates + blank), which
+    # matches the official Colombian percentage calculation.
+    sorted_pairs = sorted(
+        ((idx, row) for idx, row in candidate_df.iterrows()),
+        key=lambda pair: int(pair[1]["votes"]),  # pyright: ignore[reportArgumentType]
+        reverse=True,
+    )
+    candidates = tuple(
+        CandidateResult(
+            candidate_key=str(idx),
+            votes=int(row["votes"]),  # pyright: ignore[reportArgumentType]
+            vote_share=int(row["votes"]) / total_votes_incl_blank,  # pyright: ignore[reportArgumentType]
+        )
+        for idx, row in sorted_pairs
+    )
 
     return RoundResult(
         round_number=round_number,
@@ -423,7 +393,7 @@ def load_registraduria_round1(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
     results_dir = resolved / "2022-presidential-results"
     path = _resolve_mmv_path(results_dir, "MMV_NACIONAL_PRESIDENTE_2022_1v")
     df = _read_mmv(path)
@@ -440,7 +410,7 @@ def load_registraduria_round2(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
     results_dir = resolved / "2022-presidential-results"
     path = _resolve_mmv_path(results_dir, "MMV_NACIONAL_PRESIDENTE_2022_2v")
     df = _read_mmv(path)
@@ -457,7 +427,7 @@ def load_moe_round1(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "moe_vuelta1.csv"
     df = _read_moe(path)
     return _aggregate_and_map(df, "nomparti", "votos")
@@ -473,7 +443,7 @@ def load_moe_round2(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "moe_vuelta2.csv"
     df = _read_moe(path)
     return _aggregate_and_map(df, "nomparti", "votos")
@@ -489,7 +459,7 @@ def load_participation_round1(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame with columns including ``Total censo`` and ``Código Puesto``.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "reg_participacion_vuelta1.csv"
     return _read_participation(path)
 
@@ -504,7 +474,7 @@ def load_participation_round2(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame with columns including ``Total censo`` and ``Código Puesto``.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "reg_participacion_vuelta2.csv"
     return _read_participation(path)
 
@@ -539,7 +509,7 @@ def cross_validate(
         / registraduria.total_valid_votes
         * 100
     )
-    if diff_pct > _TOLERANCE_VALID_VOTES_PCT_DIFF:
+    if diff_pct > _TOLERANCE_VALID_VOTES_PCT:
         warnings.append(
             f"Total valid votes differ by {diff_pct:.4f}% "
             f"(Reg: {registraduria.total_valid_votes}, "
@@ -554,7 +524,7 @@ def cross_validate(
         reg_val = reg_shares.get(key, 0.0)
         moe_val = moe_shares.get(key, 0.0)
         diff_pp = abs(reg_val - moe_val) * 100  # difference in percentage points
-        if diff_pp > _TOLERANCE_CANDIDATE_SHARE_PP:
+        if diff_pp > _TOLERANCE_CANDIDATE_SHARE_PCT:
             warnings.append(
                 f"Candidate {key!r} share differs by {diff_pp:.4f}pp "
                 f"(Reg: {reg_val:.4f}, MOE: {moe_val:.4f})"
@@ -616,7 +586,7 @@ def load_canonical_results(
         ``(round1, round2)`` as ``RoundResult`` objects.
 
     """
-    resolved = resolve_data_dir(data_dir)
+    resolved = _resolve_data_dir(data_dir)
 
     # Load Registraduría data
     reg1_df = load_registraduria_round1(resolved)
