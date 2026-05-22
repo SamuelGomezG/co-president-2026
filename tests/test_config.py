@@ -209,6 +209,14 @@ class TestGetDefaultPollsterWeight:
         """Verify two calls return the same value."""
         assert get_default_pollster_weight() == get_default_pollster_weight()
 
+    def test_formula_result(self) -> None:
+        """Verify get_default_pollster_weight uses median of ratings.
+
+        Median of 13 ratings is 5.4 (AtlasIntel).
+        Formula: 5.4 * 0.02 + 0.8 = 0.908.
+        """
+        assert get_default_pollster_weight() == 0.908
+
 
 class TestGetActiveCandidates:
     """Tests for the get_active_candidates helper."""
