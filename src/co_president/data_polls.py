@@ -876,15 +876,6 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
     all_polls["round_number"] = polls["round_number"]
     all_polls["forced_choice"] = polls["forced_choice"]
 
-    # Step 4: Retain active candidates (round 1 superset)
-    r1_keys = [c.key for c in get_active_candidates(1)]
-    polls = retain_active_candidates(polls, r1_keys)
-
-    # Step 5: Infer round number
-    polls = infer_round_number(polls)
-    polls["forced_choice"] = _detect_forced_choice(polls)
-    all_polls = polls.copy()
-
     # Step 6: Split by round
     mask_r1 = polls["round_number"] == 1
     mask_r2 = (polls["round_number"] == _ROUND_TWO) & (~polls["forced_choice"])
