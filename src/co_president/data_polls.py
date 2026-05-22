@@ -113,7 +113,7 @@ class CandidateShares:
     otros: float
 
     def __post_init__(self) -> None:
-        """Defensive copy of candidates dict to preserve immutability."""
+        """Defensive-copy the candidates mapping to prevent external mutation."""
         object.__setattr__(self, "candidates", dict(self.candidates))
 
     def total(self) -> float:

@@ -454,7 +454,7 @@ class TestParticipationLoaders:
 
 
 class TestLoadCanonicalResults:
-    """Tests for the full load_actual_results() pipeline."""
+    """Tests for the full load_canonical_results() pipeline."""
 
     @pytest.fixture(autouse=True, scope="class")
     def _results(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
@@ -610,6 +610,13 @@ class TestCandidateShares:
         cs = CandidateShares(candidates={}, ns_nr=0.0, blanco=0.0, otros=0.0)
         with pytest.raises(FrozenInstanceError):
             cs.ns_nr = 5.0  # type: ignore[misc]
+
+    def test_defensive_copy_candidates(self) -> None:
+        """Verify external dict mutation does not affect stored candidates."""
+        candidates = {"gustavo_petro": 40.0, "rodolfo_hernandez": 30.0}
+        cs = CandidateShares(candidates=candidates, ns_nr=0.0, blanco=10.0, otros=5.0)
+        candidates["gustavo_petro"] = 999.0
+        assert cs.candidates["gustavo_petro"] == 40.0
 
     def test_total(self) -> None:
         """Verify total() sums all fields including candidates."""
