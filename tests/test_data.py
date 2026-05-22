@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from datetime import date
+import logging
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -45,6 +46,12 @@ from co_president.data_results import (
     CandidateResult,
     RoundResult,
     _build_round_result,
+    _compute_candidate_results,
+    _extract_excluded_votes,
+    _merge_blanco_into_rest,
+    _read_mmv,
+    _read_moe,
+    _read_participation,
     consolidate_round,
     cross_validate,
     load_canonical_results,
@@ -262,7 +269,7 @@ class TestCrossValidate:
         assert any("total valid votes" in w.lower() for w in warnings)
 
     def test_differing_shares_returns_warnings(self, base_result: RoundResult) -> None:
-        """Verify candidate share mismatch beyond 0.50% produces warnings (0.60pp diff)."""
+        """Verify candidate share mismatch beyond 0.50pp produces warnings (0.60pp diff)."""
         diff_candidates = (
             CandidateResult(
                 "gustavo_petro", 1_000_000, 0.394
@@ -343,6 +350,124 @@ class TestConsolidateRound:
         )
         with pytest.raises(ValueError, match=r"[Cc]onsolidation"):
             consolidate_round(reg_result, bad_moe, 1)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Helper unit tests
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestResultHelpers:
+    """Tests for internal result helper functions."""
+
+    def test_read_mmv_missing_parnombre_raises(self, tmp_path: Path) -> None:
+        """Verify missing PARNOMBRE column raises ValueError."""
+        path = tmp_path / "mmv.csv"
+        df = pd.DataFrame({"VOTOS": [1, 2, 3]})
+        df.to_csv(path, sep=";", index=False, encoding="latin-1")
+        with pytest.raises(ValueError, match="PARNOMBRE"):
+            _read_mmv(path)
+
+    def test_read_mmv_missing_votos_raises(self, tmp_path: Path) -> None:
+        """Verify missing VOTOS column raises ValueError."""
+        path = tmp_path / "mmv.csv"
+        df = pd.DataFrame({"PARNOMBRE": ["A", "B"]})
+        df.to_csv(path, sep=";", index=False, encoding="latin-1")
+        with pytest.raises(ValueError, match="VOTOS"):
+            _read_mmv(path)
+
+    def test_read_moe_missing_nomparti_raises(self, tmp_path: Path) -> None:
+        """Verify missing nomparti column raises ValueError."""
+        path = tmp_path / "moe.csv"
+        df = pd.DataFrame({"votos": [10, 20]})
+        df.to_csv(path, index=False, encoding="utf-8")
+        with pytest.raises(ValueError, match="nomparti"):
+            _read_moe(path)
+
+    def test_read_moe_missing_votos_raises(self, tmp_path: Path) -> None:
+        """Verify missing votos column raises ValueError."""
+        path = tmp_path / "moe.csv"
+        df = pd.DataFrame({"nomparti": ["A", "B"]})
+        df.to_csv(path, index=False, encoding="utf-8")
+        with pytest.raises(ValueError, match="votos"):
+            _read_moe(path)
+
+    def test_read_participation_missing_total_censo_raises(self, tmp_path: Path) -> None:
+        """Verify missing Total censo column raises ValueError."""
+        path = tmp_path / "participation.csv"
+        df = pd.DataFrame({"Código Puesto": [1, 2]})
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        with pytest.raises(ValueError, match="Total censo"):
+            _read_participation(path)
+
+    def test_read_participation_missing_codigo_puesto_raises(self, tmp_path: Path) -> None:
+        """Verify missing Código Puesto column raises ValueError."""
+        path = tmp_path / "participation.csv"
+        df = pd.DataFrame({"Total censo": [100, 200]})
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        with pytest.raises(ValueError, match="Código Puesto"):
+            _read_participation(path)
+
+    def test_extract_excluded_votes_all_present(self) -> None:
+        """Verify excluded votes are extracted when all keys exist."""
+        aggregated = pd.DataFrame(
+            {"votes": [10, 5, 3, 100]},
+            index=["nulos", "no_marcados", "blanco", "gustavo_petro"],
+        )
+        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+        assert null_votes == 10
+        assert unmarked_votes == 5
+        assert blank_votes == 3
+
+    def test_extract_excluded_votes_some_missing(self) -> None:
+        """Verify missing keys default to 0 when extracting excluded votes."""
+        aggregated = pd.DataFrame({"votes": [7, 200]}, index=["nulos", "rest"])
+        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+        assert null_votes == 7
+        assert unmarked_votes == 0
+        assert blank_votes == 0
+
+    def test_extract_excluded_votes_all_missing(self) -> None:
+        """Verify all excluded votes default to 0 when keys are absent."""
+        aggregated = pd.DataFrame({"votes": [200]}, index=["rest"])
+        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+        assert null_votes == 0
+        assert unmarked_votes == 0
+        assert blank_votes == 0
+
+    def test_merge_blanco_round2_merges(self) -> None:
+        """Verify blanco is merged into rest in round 2."""
+        candidate_df = pd.DataFrame({"votes": [100, 50]}, index=["rest", "blanco"])
+        result = _merge_blanco_into_rest(candidate_df, 2)
+        assert "blanco" not in result.index
+        assert int(result.loc["rest", "votes"]) == 150
+
+    def test_merge_blanco_round1_ignored(self) -> None:
+        """Verify blanco is not merged in round 1."""
+        candidate_df = pd.DataFrame({"votes": [100, 50]}, index=["rest", "blanco"])
+        result = _merge_blanco_into_rest(candidate_df, 1)
+        assert result is not candidate_df
+        assert "blanco" in result.index
+        assert int(result.loc["rest", "votes"]) == 100
+
+    def test_merge_blanco_no_blanco_noop(self) -> None:
+        """Verify no blanco key returns a copy unchanged."""
+        candidate_df = pd.DataFrame({"votes": [100]}, index=["rest"])
+        result = _merge_blanco_into_rest(candidate_df, 2)
+        assert result is not candidate_df
+        assert int(result.loc["rest", "votes"]) == 100
+
+    def test_compute_candidate_results_sorted_descending(self) -> None:
+        """Verify candidate results are sorted by votes descending."""
+        candidate_df = pd.DataFrame({"votes": [300, 600, 100]}, index=["b", "a", "rest"])
+        results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
+        assert [c.candidate_key for c in results] == ["a", "b", "rest"]
+
+    def test_compute_candidate_results_vote_share_math(self) -> None:
+        """Verify vote_share uses votes / total_votes_incl_blank."""
+        candidate_df = pd.DataFrame({"votes": [250]}, index=["gustavo_petro"])
+        results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
+        assert results[0].vote_share == pytest.approx(0.25)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -893,6 +1018,32 @@ class TestFixInvamerDate:
         result = fix_invamer_date(df)
         assert result is not df
 
+    def test_logs_correction(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify logger.info is emitted when Invamer rows are corrected."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Invamer"],
+                "fecha": pd.to_datetime(["2022-04-19"]),
+                "muestra": [2000],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            fix_invamer_date(df)
+        assert any("corrected" in msg for msg in caplog.messages)
+
+    def test_no_log_when_no_correction(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify no logger.info when no Invamer April-19 rows exist."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC"],
+                "fecha": pd.to_datetime(["2022-04-19"]),
+                "muestra": [2000],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            fix_invamer_date(df)
+        assert not any("corrected" in msg for msg in caplog.messages)
+
 
 # ── normalize_undecided ──
 
@@ -1250,6 +1401,34 @@ class TestDeduplicatePolls:
         result = deduplicate_polls(df)
         assert result.empty
         assert result is not df  # must be a copy, not the same reference
+
+    def test_logs_deduplication_summary(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify logger.info is emitted with before/after counts."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [1000, 2206],
+                "muestra_int_voto": [1000, 2206],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            deduplicate_polls(df)
+        assert any("duplicates removed" in msg for msg in caplog.messages)
+
+    def test_no_log_when_no_duplicates(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Verify no logger.info when input has no duplicates."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [2206, 2000],
+                "muestra_int_voto": [2206, 2000],
+            }
+        )
+        with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
+            deduplicate_polls(df)
+        assert not any("duplicates removed" in msg for msg in caplog.messages)
 
 
 # ── map_consultation_name_to_key ──

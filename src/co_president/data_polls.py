@@ -461,6 +461,12 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
         result["fecha"] == pd.Timestamp("2022-04-19")
     )
     result.loc[mask, "fecha"] = pd.Timestamp("2022-05-19")
+    n_corrected = int(mask.sum())
+    if n_corrected:
+        logger.info(
+            "fix_invamer_date: corrected %d row(s) from 2022-04-19 to 2022-05-19",
+            n_corrected,
+        )
     return result
 
 
@@ -475,7 +481,17 @@ def _normalize_share_rows(
 
     **Warning:** Mutates ``df`` in-place. Caller must pass a copy.
 
-    Returns ``(normalized_indices, skipped_100_indices)``.
+    For rows where ``ns_nr == 100``, no normalization occurs and the row is
+    recorded as skipped.
+
+    Args:
+        df: Poll DataFrame with ``ns_nr`` and share columns.
+        share_cols: Columns to redistribute (candidate shares plus ``blanco``/``otros``).
+
+    Returns:
+        Tuple of ``(normalized_indices, skipped_100_indices)`` describing which
+        rows were normalized and which were skipped due to ``ns_nr == 100``.
+
     """
     normalized: set[int] = set()
     skipped_100: set[int] = set()
@@ -507,6 +523,17 @@ def _renormalize_rows(
     """Renormalise rows so share columns sum to 100, handling rounding drift.
 
     **Warning:** Mutates ``df`` in-place. Caller must pass a copy.
+
+    Rows with a non-positive share sum are skipped.
+
+    Args:
+        df: Poll DataFrame with share columns.
+        share_cols: Columns to renormalize.
+        indices: Row indices to renormalize.
+
+    Returns:
+        None.
+
     """
     for idx in indices:
         vals = [df.loc[idx, col] for col in share_cols]  # pyright: ignore[reportUnknownVariableType]
@@ -695,6 +722,8 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
 
+    n_before = len(df)
+
     result = df.copy()
     # Create a temporary effective sample column
     if "muestra_int_voto" not in result.columns:
@@ -718,7 +747,16 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
     deduped = result.groupby(["encuestadora", "fecha"], sort=False).head(1).reset_index(drop=True)
 
     # Drop the temporary column
-    return deduped.drop(columns=["_eff_sample"])
+    deduped = deduped.drop(columns=["_eff_sample"])
+    n_after = len(deduped)
+    if n_before != n_after:
+        logger.info(
+            "deduplicate_polls: %d -> %d rows (%d duplicates removed)",
+            n_before,
+            n_after,
+            n_before - n_after,
+        )
+    return deduped
 
 
 # ═══════════════════════════════════════════════════════════════════
