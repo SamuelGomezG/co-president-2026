@@ -281,25 +281,27 @@ This project follows a strict TDD discipline. Every spec MUST be implemented in 
    extend-exclude = ["notebooks", ".venv"]
 
    [tool.ruff.lint]
-   select = ["ALL"]
-   ignore = [
-        "D100",  # Missing docstring in public module (MVP_SPECS_GUIDE is the documentation)
-       "D104",  # Missing docstring in public package
-       "S101",  # Use of assert (allowed in tests via per-file ignores)
-   ]
+    select = ["ALL"]
+    ignore = [
+        "D100",     # Missing module docstring — module layout and usage are documented in MVP_SPECS_GUIDE; only functions/classes get docstrings
+        "D104",     # Missing package docstring — __init__.py files are minimal stubs
+        "D203",     # Conflicts with D211 (Google-style blank line before class)
+        "D213",     # Conflicts with D212 (Google-style summary on first line)
+        "COM812",   # Conflicts with ruff format trailing comma handling; intentional with isort force-sort-within-sections
+    ]
 
-   [tool.ruff.lint.per-file-ignores]
-   "tests/**/*.py" = ["S101", "PLR2004"]
+    [tool.ruff.lint.per-file-ignores]
+    "tests/**/*.py" = ["S101", "PLR2004"]
 
-   [tool.ruff.format]
-   quote-style = "double"
-   indent-style = "space"
-   skip-magic-trailing-comma = false
-   line-ending = "lf"
+    [tool.ruff.format]
+    quote-style = "double"
+    indent-style = "space"
+    skip-magic-trailing-comma = false
+    line-ending = "lf"
 
-   [tool.ruff.lint.isort]
-   known-first-party = ["co_president"]
-   force-sort-within-type-sections = true
+    [tool.ruff.lint.isort]
+    known-first-party = ["co_president"]
+    force-sort-within-sections = true
    ```
 
    **`[tool.pyright]` block**:
@@ -439,7 +441,7 @@ CONSULTATION_VOTES: dict[str, int] = {
 
 Values are approximate (±200K) and only rough proxies for coalition base support. They are used as a **soft** prior — the model can deviate if the poll data disagrees.
 
-`consultation_prior_logits() -> dict[str, float]` computes `log(share)` for each candidate with non-zero consultation votes, where `share = votes / sum(votes)`. For candidates with zero consultation votes, returns the log of the minimum non-zero share divided by 2 (a small placeholder). This ensures every candidate has a prior while respecting the known consultation signal.
+`consultation_log_share_prior() -> dict[str, float]` computes `log(share)` for each candidate with non-zero consultation votes, where `share = votes / sum(votes)`. For candidates with zero consultation votes, returns the log of the minimum non-zero share divided by 2 (a small placeholder). This ensures every candidate has a prior while respecting the known consultation signal.
 
 #### 5.1.6 Pollster Ratings
 
@@ -524,8 +526,8 @@ CONSULTATION_KEY_MAP: dict[str, str] = {
     - `get_active_candidates(1)` count and naming
     - `get_active_candidates(2)` count and naming
     - `CONSULTATION_VOTES` has correct keys and non-negative values
-    - `consultation_prior_logits()` returns finite values for all candidates (no -inf for zero-vote candidates)
-    - `consultation_prior_logits()` for a candidate with non-zero votes > logit for a zero-vote candidate
+    - `consultation_log_share_prior()` returns finite values for all candidates (no -inf for zero-vote candidates)
+    - `consultation_log_share_prior()` for a candidate with non-zero votes > log-share for a zero-vote candidate
 2. **Green**: Implement `config.py`.
 3. **Type-check + Lint + Commit**.
 
@@ -546,7 +548,7 @@ CONSULTATION_KEY_MAP: dict[str, str] = {
    - Group by `CANNOMBRE`, sum `VOTOS`
    - Map result candidate names to canonical keys via `COALITION_TO_CANDIDATE`
    - Exclude `VOTOS NULOS`, `VOTOS NO MARCADOS` from valid vote total (track separately)
-   - Compute `vote_share = votes / total_valid_votes`
+   - Compute `vote_share = votes / total_votes_incl_blank` (candidates + blank votes, matching the official Colombian percentage calculation)
 
  2. **`load_registraduria_round2() -> pd.DataFrame`**: Same for `MMV_NACIONAL_PRESIDENTE_2022_2v.csv`.
 
@@ -577,7 +579,7 @@ class CandidateResult:
     """A single candidate's result in an election round."""
     candidate_key: str
     votes: int
-    vote_share: float  # votes / total_valid_votes in that round
+    vote_share: float  # votes / total_votes_incl_blank in that round
 
 
 @dataclass(frozen=True)
@@ -589,7 +591,7 @@ class RoundResult:
     total_votes_incl_blank: int
     registered_voters: int       # From reg_participacion_vueltaX.csv: sum of Total censo
     polling_stations: int        # From reg_participacion_vueltaX.csv: count of unique Código Puesto
-    candidates: list[CandidateResult]
+    candidates: tuple[CandidateResult, ...]
     blank_votes: int
     null_votes: int
     unmarked_votes: int
@@ -725,7 +727,7 @@ class ConsultationPoll:
 5. **`retain_active_candidates(df: DataFrame, candidates: list[str]) -> DataFrame`**: Drop candidate columns whose share is `NA` for all rows (post-consultation, many candidates drop out). Keep only the columns corresponding to candidates who are `active` per `get_active_candidates()`.
 
 6. **`infer_round_number(df: DataFrame) -> DataFrame`**: Assign `round_number` as:
-   - `1` for polls where `federico_gutierrez`, `sergio_fajardo`, `ingrid_betancourt` have non-NA values AND `gustavo_petro` and `rodolfo_hernandez` also have values. Date must be after `CONSULTATION_DATE`.
+   - `1` for polls where `gustavo_petro`, `federico_gutierrez`, `rodolfo_hernandez` are non-NA, and at least one of `sergio_fajardo` or `ingrid_betancourt` is also non-NA. Date must be after `CONSULTATION_DATE`. This relaxed criteria handles polls where some post-consultation candidates have NA shares.
    - `2` for polls where `gustavo_petro` and `rodolfo_hernandez` have non-NA values AND `federico_gutierrez`, `sergio_fajardo`, `ingrid_betancourt` are ALL NA. Date must be after `ELECTION_DATE_ROUND1`.
    - `None` for polls that don't fit either category (pre-consultation, mixed, etc.).
    Use the candidate column presence/absence as the primary signal; use dates as a secondary check.
@@ -745,10 +747,14 @@ class CleanPolls:
 
     def __post_init__(self) -> None:
         """Validate minimum pollster diversity per round."""
-        round1_pollsters = self.round1["pollster"].nunique()
-        round2_pollsters = self.round2["pollster"].nunique()
-        assert round1_pollsters >= 5, f"Round 1 needs >= 5 pollsters, got {round1_pollsters}"
-        assert round2_pollsters >= 2, f"Round 2 needs >= 2 pollsters, got {round2_pollsters}"
+        round1_pollsters = self.round1["encuestadora"].nunique()
+        round2_pollsters = self.round2["encuestadora"].nunique()
+        if round1_pollsters < 5:
+            msg = f"Round 1 needs >= 5 pollsters, got {round1_pollsters}"
+            raise ValueError(msg)
+        if round2_pollsters < 2:
+            msg = f"Round 2 needs >= 2 pollsters, got {round2_pollsters}"
+            raise ValueError(msg)
 ```
 
 #### 7.1.7 Orchestration
@@ -902,7 +908,7 @@ actual ~ DirichletMultinomial(
    - Build time indices: `days_before_election = (ELECTION_DATE - poll_date).days`
    - Create integer time indices mapping each unique `days_before_election` value to `0, 1, ..., n_time_points - 1` where `0` maps to `days_before_election = 0` (election day)
    - Build pollster indices: unique pollster names → integer indices `0, 1, ..., P-1`
-    - Implement the reverse-time random walk: initialize `θ[T-1]` with a Normal prior whose mean comes from `consultation_prior_logits()` (computed from `CONSULTATION_VOTES` in config) and sigma from `config.consultation_prior_strength`. Then create a chain of `pm.Normal` variables with `θ[t] ~ Normal(θ[t+1], σ_rw)` for t in T-2, ..., 0.
+    - Implement the reverse-time random walk: initialize `θ[T-1]` with a Normal prior whose mean comes from `consultation_log_share_prior()` (computed from `CONSULTATION_VOTES` in config) and sigma from `config.consultation_prior_strength`. Then create a chain of `pm.Normal` variables with `θ[t] ~ Normal(θ[t+1], σ_rw)` for t in T-2, ..., 0.
    - Implement hierarchical house effects as raw effects with a zero-sum deterministic transform
    - If `results is not None`, observe the election result likelihood
    - If `results is None`, do not include the election likelihood (this is the "forecast" mode where we only have polls)
@@ -1004,7 +1010,7 @@ actual ~ DirichletMultinomial(
     - **Phase C (full model)**: 3-row synthetic DataFrame with 3 pollsters, 3 candidates. Model builds with expected RV count. `pm.sample_prior_predictive` returns shares in [0, 1].
     - **Phase D (forecast mode)**: `results=None` → no election likelihood term present in model.
      - **Phase E (backtest mode)**: `results=something` → election likelihood term present.
-     - **Consultation prior**: `consultation_prior_logits()` returns log-ratios derived from `CONSULTATION_VOTES`. For a candidate with zero consultation votes, the return value is `log(min_nonzero / 2)`, not `-inf`. In Phase C, the theta prior mean matches the consultation logits for the synthetic candidates.
+     - **Consultation prior**: `consultation_log_share_prior()` returns log-shares derived from `CONSULTATION_VOTES`. For a candidate with zero consultation votes, the return value is `log(min_nonzero / 2)`, not `-inf`. In Phase C, the theta prior mean matches the consultation log-shares for the synthetic candidates.
      - `CandidateForecast` and `Round1Forecast` dataclass validation: all probabilities in [0, 1]; mean_share >= 0.
      - `Round1Forecast.to_json()` / `Round1Forecast.from_json()` roundtrip: serialized → deserialized values match original (no CI precision loss).
      - `forecast_round1` on a manually constructed `InferenceData` with 2 candidates: verifies CI width is positive.

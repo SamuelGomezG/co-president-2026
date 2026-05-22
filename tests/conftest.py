@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from co_president.data_results import _resolve_data_dir  # pyright: ignore[reportPrivateUsage]
+from co_president.paths import resolve_data_dir
 
 __all__ = ["data_dir"]
 
@@ -17,4 +17,4 @@ def data_dir() -> Path:
     because the data directory path is deterministic and never changes
     during a test run.
     """
-    return _resolve_data_dir(None)
+    return resolve_data_dir(None)
