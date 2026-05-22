@@ -17,7 +17,7 @@ repos:
 
       - id: pip-audit
         name: pip-audit
-        entry: uv run pip-audit
+        entry: uv run pip-audit --skip-editable
         language: system
         pass_filenames: false
 

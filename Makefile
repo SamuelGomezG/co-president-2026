@@ -34,7 +34,7 @@ dev:
 	fi
 
 sec:
-	uv run pip-audit
+	uv run pip-audit --skip-editable
 	uv run bandit -c pyproject.toml -r src/
 
 ci: fmt-check lint typecheck test-fast sec
