@@ -230,6 +230,7 @@ class CleanPolls:
 
         round1_pollsters = self.round1["encuestadora"].nunique()
         round2_pollsters = self.round2["encuestadora"].nunique()
+
         if round1_pollsters < _MIN_ROUND1_POLLSTERS:
             msg = f"Round 1 needs >= {_MIN_ROUND1_POLLSTERS} pollsters, got {round1_pollsters}"
             raise ValueError(msg)
@@ -467,6 +468,74 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
             "fix_invamer_date: corrected %d row(s) from 2022-04-19 to 2022-05-19",
             n_corrected,
         )
+    return result
+
+
+def _detect_forced_choice(df: pd.DataFrame) -> pd.Series:
+    """Detect forced-choice R2 polls.
+
+    Flags rows where blanco is NA, ns_nr is absent or zero, and
+    petro+hernandez sum to 100% ± 1pp.
+
+    Handles detection both before and after ``normalize_undecided``
+    (which fills NaN ns_nr values with 0.0).
+
+    Args:
+        df: Poll DataFrame with candidate share columns.
+
+    Returns:
+        Boolean Series indexed like ``df``, True for forced-choice polls.
+
+    """
+    petro = df["gustavo_petro"].fillna(0)
+    hernandez = df["rodolfo_hernandez"].fillna(0)
+    both_present = df["gustavo_petro"].notna() & df["rodolfo_hernandez"].notna()
+
+    blanco_na = df["blanco"].isna()
+    ns_nr_zero = df["ns_nr"].fillna(0) == 0
+    sum_check = (petro + hernandez - 100).abs() <= 1
+
+    return blanco_na & ns_nr_zero & sum_check & both_present
+
+
+def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
+    """Correct YanHaas 103% sum anomaly on 2022-06-11.
+
+    Redistributes ns_nr (10.0pp) proportionally to Petro, Hernandez, Blanco.
+    If total > 100% ± 0.01%, renormalizes rows.
+    """
+    result = df.copy()
+    mask = (result["encuestadora"].str.strip() == "YanHaas") & (
+        result["fecha"] == pd.Timestamp("2022-06-11")
+    )
+    if not mask.any():
+        return result
+
+    share_cols = ["gustavo_petro", "rodolfo_hernandez", "blanco"]
+    for idx in result.index[mask]:
+        ns_nr = result.loc[idx, "ns_nr"]
+        if not isinstance(ns_nr, (int, float)) or pd.isna(ns_nr):
+            continue
+        if ns_nr >= _NS_NR_HUNDRED:
+            continue
+
+        # Proportional redistribution
+        scale = 100.0 / (100.0 - ns_nr)
+        for col in share_cols:
+            raw = result.loc[idx, col]
+            if isinstance(raw, (int, float)) and not pd.isna(raw):
+                result.loc[idx, col] = raw * scale
+
+        result.loc[idx, "ns_nr"] = 0.0
+        logger.info(
+            "_fix_yanhaas_20220611: redistributed %.1fpp ns_nr for row %s",
+            ns_nr,
+            idx,
+        )
+
+    # Renormalize if total > 100% ± 0.01%
+    _renormalize_rows(result, [*share_cols, "otros"], set(result.index[mask]))
+
     return result
 
 
@@ -792,6 +861,7 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
 
     # Step 2: Fix Invamer date
     polls = fix_invamer_date(polls)
+    polls = _fix_yanhaas_20220611(polls)
 
     # Step 3: Normalize undecided
     polls = normalize_undecided(polls)
@@ -805,11 +875,13 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
 
     # Step 5: Infer round number
     polls = infer_round_number(polls)
+    polls["forced_choice"] = _detect_forced_choice(polls)
     all_polls["round_number"] = polls["round_number"]
+    all_polls["forced_choice"] = polls["forced_choice"]
 
     # Step 6: Split by round
     mask_r1 = polls["round_number"] == 1
-    mask_r2 = polls["round_number"] == _ROUND_TWO
+    mask_r2 = (polls["round_number"] == _ROUND_TWO) & (~polls["forced_choice"])
     round1_df = polls[mask_r1].copy()
     round2_df = polls[mask_r2].copy()
 

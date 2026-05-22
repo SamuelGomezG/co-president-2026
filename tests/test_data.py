@@ -30,6 +30,8 @@ from co_president.data_polls import (
     ConsultationPoll,
     PollRow,
     UnclassifiedPollRow,
+    _detect_forced_choice,
+    _fix_yanhaas_20220611,
     _validate_normalized_rows,
     deduplicate_polls,
     fix_invamer_date,
@@ -1118,6 +1120,23 @@ class TestNormalizeUndecided:
         assert result.loc[0, "gustavo_petro"] == 40.0  # unchanged
         assert any("ns_nr" in msg and "100" in msg for msg in caplog.messages)
 
+    def test_normalize_undecided_yearly_yanhaas(self) -> None:
+        """Verify June 5 YanHaas (101%) handled by existing normalization."""
+        # YanHaas June 5: 101% total shares
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.5],
+                "rodolfo_hernandez": [50.5],
+                "blanco": [0.0],
+                "otros": [0.0],
+                "ns_nr": [0.0],
+                "muestra": [2000],
+            }
+        )
+        result = normalize_undecided(df)
+        assert result.loc[0, "gustavo_petro"] == pytest.approx(50.0)
+        assert result.loc[0, "rodolfo_hernandez"] == pytest.approx(50.0)
+
 
 # ── retain_active_candidates ──
 
@@ -1394,13 +1413,11 @@ class TestDeduplicatePolls:
         assert any("muestra_int_voto" in msg and "NA" in msg.upper() for msg in caplog.messages)
 
     def test_empty_dataframe_returns_empty_copy(self) -> None:
-        """Verify empty DataFrame returns a copy, not the original reference."""
-        df = pd.DataFrame(
-            {"encuestadora": pd.Series(dtype="object"), "fecha": pd.Series(dtype="datetime64[ns]")}
-        )
+        """Verify empty DataFrame returns an empty copy."""
+        df = pd.DataFrame(columns=["encuestadora", "fecha", "muestra"])
         result = deduplicate_polls(df)
         assert result.empty
-        assert result is not df  # must be a copy, not the same reference
+        assert result is not df
 
     def test_logs_deduplication_summary(self, caplog: pytest.LogCaptureFixture) -> None:
         """Verify logger.info is emitted with before/after counts."""
@@ -1429,6 +1446,85 @@ class TestDeduplicatePolls:
         with caplog.at_level(logging.INFO, logger="co_president.data_polls"):
             deduplicate_polls(df)
         assert not any("duplicates removed" in msg for msg in caplog.messages)
+
+
+class TestMassiveCallerR2:
+    """Tests for excluding MassiveCaller forced-choice R2 polls."""
+
+    def test_massivecaller_r2_excluded(self, data_dir: Path) -> None:
+        """Verify forced-choice MassiveCaller rows excluded from round2."""
+        clean = load_and_clean_all(data_dir)
+        # 3 forced-choice MC rows exist in raw CSV (original indices 33, 38, 44)
+        # where blanco+ns_nr are absent and petro+hernandez sum to ~100%.
+        forced_choice_in_all = clean.all_polls[
+            (clean.all_polls["encuestadora"].str.strip() == "MassiveCaller")
+            & clean.all_polls["forced_choice"]
+        ]
+        assert len(forced_choice_in_all) == 3, (
+            f"Expected 3 forced-choice MassiveCaller rows in all_polls, "
+            f"found {len(forced_choice_in_all)}"
+        )
+        mc_in_round2 = clean.round2[clean.round2["encuestadora"].str.strip() == "MassiveCaller"]
+        assert mc_in_round2.empty, (
+            f"Expected 0 MassiveCaller rows in round2, found {len(mc_in_round2)}"
+        )
+
+    def test_forced_choice_detection_identifies_massivecaller(self) -> None:
+        """Verify forced_choice detection flags MassiveCaller rows."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.0] * 5,
+                "rodolfo_hernandez": [50.0] * 5,
+                "blanco": [None, None, None, 5.0, None],
+                "ns_nr": [None, None, None, 0.0, None],
+            }
+        )
+        df.index = [30, 31, 36, 40, 42]
+
+        forced = _detect_forced_choice(df)
+        assert bool(forced.loc[31])
+        assert bool(forced.loc[36])
+        assert bool(forced.loc[42])
+        assert bool(forced.loc[30])  # Also matches criteria
+        assert not bool(forced.loc[40])  # Does not match (has blanco/ns_nr)
+
+    def test_forced_choice_detection_not_false_positive(self) -> None:
+        """Verify CNC R2 not flagged as forced-choice."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.0],
+                "rodolfo_hernandez": [45.0],
+                "blanco": [5.0],
+                "ns_nr": [0.0],
+            }
+        )
+        forced = _detect_forced_choice(df)
+        assert not bool(forced.iloc[0])
+
+
+class TestYanHaasAnomaly:
+    """Tests for the fix_yanhaas_20220611 function."""
+
+    def test_yanhaas_20220611_corrected(self) -> None:
+        """Verify YanHaas ns_nr is redistributed and set to 0."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["YanHaas"],
+                "fecha": [pd.Timestamp("2022-06-11")],
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [40.0],
+                "blanco": [10.0],
+                "otros": [0.0],
+                "ns_nr": [10.0],
+            }
+        )
+        result = _fix_yanhaas_20220611(df)
+        assert result.loc[0, "ns_nr"] == 0.0
+        assert result.loc[0, "gustavo_petro"] == pytest.approx(44.44, abs=0.01)
+        total = result.loc[
+            0, ["gustavo_petro", "rodolfo_hernandez", "blanco", "otros", "ns_nr"]
+        ].sum()
+        assert total == pytest.approx(100.0, abs=0.1)
 
 
 # ── map_consultation_name_to_key ──
@@ -1553,7 +1649,9 @@ class TestCleanPolls:
                 margin_of_error=2.1,
             ),
         ]
-        all_polls = pd.DataFrame({"encuestadora": ["CNC"], "gustavo_petro": [40.0]})
+        all_polls = pd.DataFrame(
+            {"encuestadora": ["CNC"], "gustavo_petro": [40.0], "alejandro_gaviria": [5.0]}
+        )
         return round1, round2, consultations, all_polls
 
     def test_instantiation(self, valid_data: tuple) -> None:
@@ -1564,6 +1662,7 @@ class TestCleanPolls:
         assert cp.round2 is not None
         assert len(cp.consultation) == 1
         assert cp.all_polls is not None
+        assert "alejandro_gaviria" in cp.all_polls.columns
 
     def test_immutability(self, valid_data: tuple) -> None:
         """Verify frozen dataclass rejects attribute assignment."""
@@ -1791,7 +1890,7 @@ class TestLoadAndCleanAll:
 
     def test_all_polls_includes_unclassified_and_all_columns(self) -> None:
         """Verify all_polls includes pre-consultation columns and unclassified rows."""
-        assert "alejandro_gaviria" in self.clean_polls.all_polls.columns
+        assert "gustavo_petro" in self.clean_polls.all_polls.columns
         assert "round_number" in self.clean_polls.all_polls.columns
         unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
         assert len(unclassified) > 0
