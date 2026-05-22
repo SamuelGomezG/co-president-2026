@@ -474,7 +474,11 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
 def _detect_forced_choice(df: pd.DataFrame) -> pd.Series:
     """Detect forced-choice R2 polls.
 
-    Flags rows where blanco and ns_nr are NA, and petro+hernandez sum to 100±0.01%.
+    Flags rows where blanco is NA, ns_nr is absent or zero, and
+    petro+hernandez sum to 100% ± 1pp.
+
+    Handles detection both before and after ``normalize_undecided``
+    (which fills NaN ns_nr values with 0.0).
 
     Args:
         df: Poll DataFrame with candidate share columns.
@@ -488,10 +492,10 @@ def _detect_forced_choice(df: pd.DataFrame) -> pd.Series:
     both_present = df["gustavo_petro"].notna() & df["rodolfo_hernandez"].notna()
 
     blanco_na = df["blanco"].isna()
-    ns_nr_na = df["ns_nr"].isna()
-    sum_check = (petro + hernandez - 100).abs() <= _RENORMALIZE_THRESHOLD
+    ns_nr_zero = df["ns_nr"].fillna(0) == 0
+    sum_check = (petro + hernandez - 100).abs() <= 1
 
-    return blanco_na & ns_nr_na & sum_check & both_present
+    return blanco_na & ns_nr_zero & sum_check & both_present
 
 
 def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:

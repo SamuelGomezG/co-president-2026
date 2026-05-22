@@ -1451,10 +1451,21 @@ class TestDeduplicatePolls:
 class TestMassiveCallerR2:
     """Tests for excluding MassiveCaller forced-choice R2 polls."""
 
-    def test_massivecaller_r2_excluded(self) -> None:
-        """Verify 0 MassiveCaller rows in CleanPolls.round2."""
-        # Need to simulate the pipeline to check this
-        pytest.skip("Integration test needs pipeline mock")
+    def test_massivecaller_r2_excluded(self, data_dir: Path) -> None:
+        """Verify forced-choice MassiveCaller rows excluded from round2."""
+        clean = load_and_clean_all(data_dir)
+        forced_choice_in_all = clean.all_polls[
+            (clean.all_polls["encuestadora"].str.strip() == "MassiveCaller")
+            & clean.all_polls["forced_choice"]
+        ]
+        assert len(forced_choice_in_all) == 3, (
+            f"Expected 3 forced-choice MassiveCaller rows in all_polls, "
+            f"found {len(forced_choice_in_all)}"
+        )
+        mc_in_round2 = clean.round2[clean.round2["encuestadora"].str.strip() == "MassiveCaller"]
+        assert mc_in_round2.empty, (
+            f"Expected 0 MassiveCaller rows in round2, found {len(mc_in_round2)}"
+        )
 
     def test_forced_choice_detection_identifies_massivecaller(self) -> None:
         """Verify forced_choice detection flags MassiveCaller rows."""
