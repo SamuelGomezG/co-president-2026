@@ -49,13 +49,13 @@ class TestCandidate:
         candidate = Candidate(
             key="gustavo_petro",
             display_name="Gustavo Petro",
-            coalition="Pacto Hist\u00f3rico",
+            coalition="Pacto Histórico",
             first_round=True,
             runoff=True,
         )
         assert candidate.key == "gustavo_petro"
         assert candidate.display_name == "Gustavo Petro"
-        assert candidate.coalition == "Pacto Hist\u00f3rico"
+        assert candidate.coalition == "Pacto Histórico"
         assert candidate.first_round is True
         assert candidate.runoff is True
 
@@ -141,17 +141,17 @@ class TestFirstRoundCandidates:
         """Verify Gustavo Petro entry has correct coalition and runoff flag."""
         petro = FIRST_ROUND_CANDIDATES["gustavo_petro"]
         assert petro.display_name == "Gustavo Petro"
-        assert petro.coalition == "Pacto Hist\u00f3rico"
+        assert petro.coalition == "Pacto Histórico"
         assert petro.first_round is True
         assert petro.runoff is True
 
     def test_gutierrez_not_runoff(self) -> None:
-        """Verify Federico Guti\u00e9rrez is not in runoff."""
+        """Verify Federico Gutiérrez is not in runoff."""
         gz = FIRST_ROUND_CANDIDATES["federico_gutierrez"]
         assert gz.runoff is False
 
     def test_hernandez_is_runoff(self) -> None:
-        """Verify Rodolfo Hern\u00e1ndez is flagged for runoff."""
+        """Verify Rodolfo Hernández is flagged for runoff."""
         rodolfo = FIRST_ROUND_CANDIDATES["rodolfo_hernandez"]
         assert rodolfo.runoff is True
 
@@ -341,7 +341,7 @@ class TestConsultationVotes:
         assert CONSULTATION_VOTES["gustavo_petro"] > 0
 
     def test_hernandez_zero(self) -> None:
-        """Verify Hern\u00e1ndez has zero (independent, no consultation)."""
+        """Verify Hernández has zero (independent, no consultation)."""
         assert CONSULTATION_VOTES["rodolfo_hernandez"] == 0
 
 
@@ -372,7 +372,7 @@ class TestConsultationLogSharePrior:
             assert math.isfinite(v), f"Log-share for {k} is not finite: {v}"
 
     def test_non_zero_candidate_larger_than_zero(self) -> None:
-        """Verify Petro (non-zero votes) has a higher log-share than Hern\u00e1ndez (zero)."""
+        """Verify Petro (non-zero votes) has a higher log-share than Hernández (zero)."""
         shares = consultation_log_share_prior()
         assert shares["gustavo_petro"] > shares["rodolfo_hernandez"]
 
@@ -438,13 +438,16 @@ class TestConsultationPriorStrength:
         assert result["gustavo_petro"] == 0.10
 
     def test_hernandez_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify Hern\u00e1ndez (absent from data) gets mean * 1.5 fallback."""
+        """Verify Hernández (absent from data) gets mean * 1.5 fallback."""
         self._patch_open(monkeypatch, self.CSV_MULTI)
         result = compute_consultation_prior_strength()
         assert "rodolfo_hernandez" in result
-        # Fallback = mean of existing strengths * 1.5
-        mean_existing = statistics.mean([v for k, v in result.items() if k != "rodolfo_hernandez"])
-        assert math.isclose(result["rodolfo_hernandez"], mean_existing * 1.5)
+        # Fallback = mean of CSV-derived strengths * 1.5 (all zero-vote candidates
+        # get the same base-mean fallback, so exclude them from the base).
+        mean_base = statistics.mean(
+            [v for k, v in result.items() if CONSULTATION_VOTES.get(k, 0) > 0]
+        )
+        assert math.isclose(result["rodolfo_hernandez"], mean_base * 1.5)
 
     def test_contains_all_expected_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify candidates with non-zero CONSULTATION_VOTES have results."""
@@ -480,8 +483,7 @@ class TestConsultationPriorStrength:
 
     def test_missing_key_raises_valueerror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify a missing CSV name for a mapped key raises ValueError."""
-        # CSV has "Federico Gutierrez" but map has "Federico Guti\u00e9rrez" — wait,
-        # we fixed the accent. Instead, test with data missing a key entirely.
+        # CSV missing Fajardo data entirely for a candidate with non-zero CONSULTATION_VOTES.
         csv_missing_fajardo = self.CSV_HEADER + "Gustavo Petro,77.0\n" + "Federico Gutierrez,81.0\n"
         self._patch_open(monkeypatch, csv_missing_fajardo)
         with pytest.raises(ValueError, match="No consultation data found"):
@@ -574,7 +576,7 @@ class TestTransferConstants:
         assert TRANSFER_FAJARDO_PETRO + TRANSFER_FAJARDO_HERNANDEZ == 1.0
 
     def test_gutierrez_transfers_sum_to_one(self) -> None:
-        """Verify Guti\u00e9rrez voter transfers partition correctly."""
+        """Verify Gutiérrez voter transfers partition correctly."""
         assert TRANSFER_GUTIERREZ_HERNANDEZ + TRANSFER_GUTIERREZ_PETRO == 1.0
 
     def test_all_in_unit_interval(self) -> None:
@@ -589,10 +591,13 @@ class TestTransferConstants:
             assert 0.0 <= val <= 1.0, f"TRANSFER_{name} out of range: {val}"
 
     def test_transfer_aggregate_split_approximates_observed(self) -> None:
-        """Verify the aggregate transfer split approximates the observed 73/27 within \u00b15pp."""
-        # Aggregate flow to Petro: (Fajardo*Petro + Guti\u00e9rrez*Petro) / 2
+        """Verify the aggregate transfer split approximates the observed 73/27 within ±5pp.
+
+        Note: The simple average assumes equal electorate sizes for Fajardo
+        and Gutiérrez. This is a calibration sanity check, not the true
+        weighted aggregate (which would use each candidate's vote share).
+        """
         flow_petro = (TRANSFER_FAJARDO_PETRO + TRANSFER_GUTIERREZ_PETRO) / 2
-        # Aggregate flow to Hern\u00e1ndez: (Fajardo*Hernandez + Guti\u00e9rrez*Hernandez) / 2
         flow_hernandez = (TRANSFER_FAJARDO_HERNANDEZ + TRANSFER_GUTIERREZ_HERNANDEZ) / 2
 
         assert math.isclose(flow_petro, 0.27, abs_tol=0.05)
@@ -609,7 +614,7 @@ class TestConsultationKeyMap:
             "Federico Gutierrez",
             "Sergio Fajardo",
             "Ingrid Betancourt",
-            "Rodolfo Hern\u00e1ndez",
+            "Rodolfo Hernández",
         }
         assert set(CONSULTATION_KEY_MAP) == expected
 

@@ -6,12 +6,12 @@ downstream modules import from this module rather than hardcoding values.
 Transfer-heuristic constants for the runoff vote flow
 -----------------------------------------------------
 Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
-  ~73% of eliminated-candidate votes flow to Hern\u00e1ndez
+  ~73% of eliminated-candidate votes flow to Hernández
   ~27% flow to Petro
 
 Per-candidate constants were calibrated to match this aggregate split.
 Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
-Petro and Hern\u00e1ndez).
+Petro and Hernández).
 
 Ecological inference limitation: per-candidate transfer rates cannot be
 identified from aggregate data alone. The constants below are heuristics,
@@ -29,6 +29,7 @@ import math
 from pathlib import Path
 import statistics
 from typing import Literal
+import unicodedata
 
 from co_president.paths import resolve_data_dir
 
@@ -124,21 +125,21 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
     "gustavo_petro": Candidate(
         key="gustavo_petro",
         display_name="Gustavo Petro",
-        coalition="Pacto Hist\u00f3rico",
+        coalition="Pacto Histórico",
         first_round=True,
         runoff=True,
     ),
     "federico_gutierrez": Candidate(
         key="federico_gutierrez",
-        display_name="Federico Guti\u00e9rrez",
+        display_name="Federico Gutiérrez",
         coalition="Equipo por Colombia",
         first_round=True,
         runoff=False,
     ),
     "rodolfo_hernandez": Candidate(
         key="rodolfo_hernandez",
-        display_name="Rodolfo Hern\u00e1ndez",
-        coalition="Liga de Gobernantes Anticorrupci\u00f3n",
+        display_name="Rodolfo Hernández",
+        coalition="Liga de Gobernantes Anticorrupción",
         first_round=True,
         runoff=True,
     ),
@@ -210,10 +211,21 @@ CONSULTATION_KEY_MAP: dict[str, str] = {
     "Federico Gutierrez": "federico_gutierrez",
     "Sergio Fajardo": "sergio_fajardo",
     "Ingrid Betancourt": "ingrid_betancourt",
-    "Rodolfo Hern\u00e1ndez": "rodolfo_hernandez",
+    "Rodolfo Hernández": "rodolfo_hernandez",
 }
 
-# Note: Values are approximate (\u00b1200K) and serve as rough proxies for
+
+def _normalize_name(name: str) -> str:
+    """Normalize name for case-insensitive, accent-insensitive comparison."""
+    return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").casefold()
+
+
+_NORMALIZED_CONSULTATION_MAP: dict[str, str] = {
+    _normalize_name(k): v for k, v in CONSULTATION_KEY_MAP.items()
+}
+
+
+# Note: Values are approximate (±200K) and serve as rough proxies for
 # coalition base support. The model can deviate if poll data disagrees.
 
 
@@ -280,9 +292,9 @@ def compute_consultation_prior_strength() -> dict[str, float]:
     with csv_path.open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            name = row["candidato"]
-            if name in CONSULTATION_KEY_MAP:
-                key = CONSULTATION_KEY_MAP[name]
+            name = _normalize_name(row["candidato"])
+            key = _NORMALIZED_CONSULTATION_MAP.get(name)
+            if key is not None:
                 strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
 
     results: dict[str, float] = {}
@@ -292,15 +304,17 @@ def compute_consultation_prior_strength() -> dict[str, float]:
         else:
             results[key] = 0.10
 
-    # Fallback for Hern\u00e1ndez (independent, no consultation data)
-    if "rodolfo_hernandez" not in results and results:
-        results["rodolfo_hernandez"] = statistics.mean(results.values()) * 1.5
+    # Fallback for candidates with zero consultation votes (independents)
+    if results:
+        mean_strength = statistics.mean(results.values())
+        for key in CONSULTATION_VOTES:
+            if key not in results:
+                results[key] = mean_strength * 1.5
 
     # Candidates with non-zero consultation votes are expected in the CSV;
-    # those with zero votes (e.g. Hern\u00e1ndez, Betancourt) are independents
-    # who did not participate in a consultation.
+    # those with zero votes (independents) are not.
     expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
-    missing = [k for k in expected if k not in results]
+    missing = [k for k in expected if k not in strengths]
     if missing:
         msg = f"No consultation data found for candidates: {missing}"
         raise ValueError(msg)
@@ -337,9 +351,9 @@ def validate_consultation_prior_means(
     with Path(consultas_path).open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            name = row["candidato"]
-            if name in CONSULTATION_KEY_MAP:
-                key = CONSULTATION_KEY_MAP[name]
+            name = _normalize_name(row["candidato"])
+            key = _NORMALIZED_CONSULTATION_MAP.get(name)
+            if key is not None:
                 ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
 
     for key, mean in means.items():
@@ -401,7 +415,7 @@ def pollster_weight_formula(rating: float) -> float:
     to the range [0.8, 1.0].
 
     Args:
-        rating: La Silla Vac\u00eda pollster quality rating (0-10 scale).
+        rating: La Silla Vacía pollster quality rating (0-10 scale).
 
     Returns:
         Weight factor between 0.8 and 1.0.
