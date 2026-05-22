@@ -7,7 +7,7 @@ name = "co-president"
 version = "0.1.0"
 description = "Bayesian presidential election forecast for Colombia using polling data"
 readme = "MVP_SPECS_GUIDE.md"
-requires-python = "==3.12.13"
+requires-python = "~=3.12.13"
 license = { text = "MIT" }
 dependencies = [
     "pandas>=2.2",
