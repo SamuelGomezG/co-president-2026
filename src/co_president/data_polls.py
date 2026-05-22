@@ -3,9 +3,9 @@
 Loads, cleans, normalizes, and filters poll data into a typed,
 analysis-ready ``CleanPolls`` container.
 
-NOTE: Only one GAD3 runoff poll (2022-06-11) is available. The remaining
-10 daily tracking polls were never added to this repository. See Issue #88
-and MVP_SPECS_GUIDE.md Appendix 16.4.
+NOTE: The 10 GAD3 tracking poll waves (May 31 - Jun 10) were recovered
+from Wikipedia and RCN Radio primary sources. See Issue #88 and
+MVP_SPECS_GUIDE.md Appendix 16.4. Wave 11 (2022-06-11) was already present.
 """
 
 from __future__ import annotations

@@ -1505,20 +1505,27 @@ These are documented for awareness during implementation:
 
 3. **Centro Esperanza coalition split**: In the polls, Fajardo and Betancourt are tracked separately. In the official results, Centro Esperanza is a single coalition. Fajardo won the coalition's primary, so all Centro Esperanza votes in the Registraduría/MOE data are his. Betancourt's `0.40%` in the official results comes from votes she received independently after withdrawing from the coalition. SPEC-03 must handle this correctly.
 
-4. **GAD3 runoff polls not in main CSV**: GAD3 tracking polls absent — confirmed via repository search for `laquefalta.csv`. File does not exist.
+4. **GAD3 runoff polls — originally not in main CSV; now recovered**:
+   - The 10 "missing" GAD3 tracking poll waves (May 31 – June 10) were **found** documented on the Spanish Wikipedia page [Sondeos de intención de voto para las elecciones presidenciales de Colombia de 2022](https://es.wikipedia.org/wiki/Anexo:Sondeos_de_intenci%C3%B3n_de_voto_para_las_elecciones_presidenciales_de_Colombia_de_2022) with RCN Radio as the primary source.
+   - **Verification**: 7 of 10 waves were cross-checked against Wayback Machine archives of the original RCN Radio articles. All confirmed values matched Wikipedia exactly.
+   - **Status**: Waves 1–10 have been added to `encuestas_2022.csv`. Wave 11 (June 11) was already present as row 41.
+   - These polls include a `blanco` category (2.6%–5.8%), so they are compatible with the K=3 Dirichlet-Multinomial runoff model.
 
-| Date Range | Polls Available | Pollsters |
-|---|---|---|
-| May 31 – June 2 | 3 | CNC (2), MassiveCaller (1) |
-| June 3–4 | 0 | — |
-| June 5 | 2 | Guarumo, YanHaas |
-| June 6–7 | 0 | — |
-| June 8 | 1 | Mosqueteros |
-| June 9 | 1 | MassiveCaller |
-| June 10 | 1 | Invamer |
-| June 11 | 4 | Guarumo, YanHaas, AtlasIntel, GAD3 |
+| Wave | Date Range | Hernández | Petro | Blanco | Sample |
+|---|---|---|---|---|---|
+| 1 | May 30–31 | 52.5% | 44.8% | 2.7% | 1,200 |
+| 2 | May 30–Jun 1 | 52.3% | 45.1% | 2.6% | 1,755 |
+| 3 | May 30–Jun 2 | 50.4% | 45.6% | 4.0% | 2,308 |
+| 4 | May 30–Jun 3 | 47.9% | 46.3% | 5.8% | 2,840 |
+| 5 | May 30–Jun 4 | 48.1% | 46.8% | 5.1% | 3,240 |
+| 6 | May 30–Jun 6 | 47.8% | 46.8% | 5.4% | 3,641 |
+| 7 | May 30–Jun 7 | 47.1% | 47.8% | 5.1% | 4,041 |
+| 8 | May 30–Jun 8 | 46.7% | 48.5% | 4.9% | 4,438 |
+| 9 | May 30–Jun 9 | 46.8% | 48.1% | 5.1% | 4,836 |
+| 10 | May 30–Jun 10 | 47.9% | 47.1% | 5.0% | 5,236 |
+| 11 | May 30–Jun 11 | 47.9% | 47.1% | 5.0% | 5,236 |
 
-Recommendation: If R2 model convergence diagnostics are poor (R-hat > 1.10), the June 3–7 data gap is a primary suspect.
+Recommendation: Before SPEC-07 (runoff model), ensure `encuestas_2022.csv` includes these GAD3 waves. If convergence diagnostics are still poor (R-hat > 1.10) after adding them, the June 3–7 gap (now partially filled) may still contribute, but other model issues should be investigated first.
 
 5. **ISO-8859-1 encoding**: `consultas.csv` and the MMV files use ISO-8859-1 (Latin-1) encoding with accented characters. Pandas must be told to use `encoding="latin-1"` or `encoding="iso-8859-1"`. Failure to do this will produce garbled Spanish characters (e.g., `RODOLFO HERN┴NDEZ` instead of `RODOLFO HERNÁNDEZ`).
 
