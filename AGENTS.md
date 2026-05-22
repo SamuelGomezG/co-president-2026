@@ -29,11 +29,11 @@ main                    ← Only merged when the full pipeline is working
 ### First-time setup
 
 ```bash
-uv sync --extra dev          # Install runtime + dev dependencies (does NOT install local package)
-uv pip install -e .          # Install co-president in editable mode (REQUIRED after uv sync)
+make sync          # Install runtime + dev dependencies (does NOT install local package)
+make install       # Install co-president in editable mode (REQUIRED after make sync)
 ```
 
-**`uv sync` alone will NOT install dev tools (pytest, ruff, pyright) or the local package.** You need both commands above, in that order.
+**`make sync` installs runtime + dev extras (pytest, ruff, pyright) but NOT the local package.** You need both commands above, in that order.
 
 ### Quality gates — required before EVERY commit
 

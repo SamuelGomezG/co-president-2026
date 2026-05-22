@@ -24,6 +24,7 @@ from co_president.config import (
     consultation_log_share_prior,
     get_active_candidates,
     get_candidate_column_map,
+    get_default_pollster_weight,
     pollster_weight_formula,
 )
 
@@ -194,6 +195,33 @@ class TestPollsterWeightFormula:
     def test_above_ten_rating_clamped_to_max(self) -> None:
         """Verify rating > 10 clamps to 1.0."""
         assert pollster_weight_formula(15.0) == 1.0
+
+
+class TestGetDefaultPollsterWeight:
+    """Tests for the get_default_pollster_weight function."""
+
+    def test_in_range(self) -> None:
+        """Verify result is between 0.8 and 1.0."""
+        w = get_default_pollster_weight()
+        assert 0.8 <= w <= 1.0
+
+    def test_deterministic(self) -> None:
+        """Verify two calls return the same value."""
+        assert get_default_pollster_weight() == get_default_pollster_weight()
+
+    def test_formula_result(self) -> None:
+        """Verify get_default_pollster_weight uses median of ratings.
+
+        Median of 13 ratings is 5.4 (AtlasIntel).
+        Formula: 5.4 * 0.02 + 0.8 = 0.908.
+        """
+        assert get_default_pollster_weight() == 0.908
+
+    def test_empty_ratings_raises_valueerror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify ValueError is raised if POLLSTER_RATINGS is empty."""
+        monkeypatch.setattr("co_president.config.POLLSTER_RATINGS", {})
+        with pytest.raises(ValueError, match="POLLSTER_RATINGS cannot be empty"):
+            get_default_pollster_weight()
 
 
 class TestGetActiveCandidates:
