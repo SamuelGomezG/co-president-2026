@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 *.Rproj*
 .Rhistory
 .RData
@@ -17,8 +18,15 @@ reference/
 coverage.xml
 htmlcov/
 
+# Build artifacts
+build/
+dist/
+
 # Large CSV files stored as .gz; decompress before use
 data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*v.csv
 
 .ruff_cache/
 .pytest_cache/
+.mypy_cache/
+.tox/
+.ipynb_checkpoints/
