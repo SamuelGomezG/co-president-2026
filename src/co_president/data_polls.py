@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 import logging
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 import unicodedata
 
@@ -25,7 +26,7 @@ from co_president.config import (
     ELECTION_DATE_ROUND1,
     get_active_candidates,
 )
-from co_president.data_results import _resolve_data_dir  # pyright: ignore[reportPrivateUsage]
+from co_president.paths import resolve_data_dir
 
 __all__ = [
     "CandidateShares",
@@ -118,8 +119,8 @@ class CandidateShares:
     otros: float
 
     def __post_init__(self) -> None:
-        """Defensive copy of candidates dict to preserve immutability."""
-        object.__setattr__(self, "candidates", dict(self.candidates))
+        """Defensive-copy the candidates mapping to prevent external mutation."""
+        object.__setattr__(self, "candidates", MappingProxyType(dict(self.candidates)))
 
     def total(self) -> float:
         """Sum all shares including ``ns_nr``, ``blanco``, and ``otros``.
@@ -149,7 +150,7 @@ class PollRow:
 
     date: date
     pollster: str
-    sample_size: int
+    sample_size: int | None
     sample_voting: int | None
     margin_of_error: float | None
     survey_method: str
@@ -166,7 +167,7 @@ class UnclassifiedPollRow:
 
     date: date
     pollster: str
-    sample_size: int
+    sample_size: int | None
     sample_voting: int | None
     margin_of_error: float | None
     survey_method: str
@@ -195,7 +196,7 @@ class ConsultationPoll:
     candidate: str
     candidate_key: str
     share: float
-    sample_size: int
+    sample_size: int | None
     margin_of_error: float | None
 
 
@@ -277,7 +278,7 @@ def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
         ValueError: If any dates fail to parse.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-polls" / "encuestas_2022.csv"
     df = pd.read_csv(path, encoding="utf-8", low_memory=False)
 
@@ -326,7 +327,7 @@ def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
         ValueError: If any dates fail to parse.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-polls" / "consultas.csv"
     df = pd.read_csv(path, encoding="latin-1", low_memory=False)
 
@@ -406,7 +407,7 @@ def parse_consultations(df: pd.DataFrame) -> list[ConsultationPoll]:
             candidate=str(row["candidato"]).strip(),
             candidate_key=candidate_key,
             share=float(row["int_voto"]),
-            sample_size=int(row["muestra"]) if pd.notna(row["muestra"]) else 0,
+            sample_size=int(row["muestra"]) if pd.notna(row["muestra"]) else None,
             margin_of_error=(float(row["margen_error"]) if pd.notna(row["margen_error"]) else None),
         )
         results.append(cp)
@@ -682,7 +683,7 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
 
     """
     if df.empty:
-        return df
+        return df.copy()
 
     result = df.copy()
     # Create a temporary effective sample column

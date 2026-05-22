@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import math
+import statistics
 from typing import Literal
 
 __all__ = [
@@ -173,6 +174,9 @@ CONSULTATION_VOTES: dict[str, int] = {
     "ingrid_betancourt": 0,
 }
 
+# Note: Values are approximate (±200K) and serve as rough proxies for
+# coalition base support. The model can deviate if poll data disagrees.
+
 
 def consultation_log_share_prior() -> dict[str, float]:
     """Compute log-scale prior means from consultation vote shares.
@@ -255,6 +259,31 @@ def pollster_weight_formula(rating: float) -> float:
     # guaranteeing [0.8, 1.0] prevents silent downstream errors in
     # weighted averages from out-of-range inputs.
     return max(0.8, min(1.0, rating * 0.02 + 0.8))
+
+
+def get_default_pollster_weight() -> float:
+    """Return a default weight for pollsters not in POLLSTER_RATINGS.
+
+    Computes the median of all ``POLLSTER_RATINGS`` values and applies the
+    ``pollster_weight_formula`` to produce a sensible fallback weight
+    between 0.8 and 1.0.
+
+    Returns:
+        Default weight factor for unrated pollsters.
+
+    Raises:
+        ValueError: If POLLSTER_RATINGS is empty.
+
+    Examples:
+        >>> get_default_pollster_weight()
+        0.908
+
+    """
+    if not POLLSTER_RATINGS:
+        msg = "POLLSTER_RATINGS cannot be empty"
+        raise ValueError(msg)
+    median_rating = statistics.median(POLLSTER_RATINGS.values())
+    return pollster_weight_formula(median_rating)
 
 
 def get_active_candidates(
