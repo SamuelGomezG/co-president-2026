@@ -25,6 +25,20 @@ from co_president.config import (
 )
 from co_president.paths import resolve_data_dir
 
+__all__ = [
+    "CandidateResult",
+    "RoundResult",
+    "consolidate_round",
+    "cross_validate",
+    "load_canonical_results",
+    "load_moe_round1",
+    "load_moe_round2",
+    "load_participation_round1",
+    "load_participation_round2",
+    "load_registraduria_round1",
+    "load_registraduria_round2",
+]
+
 logger = logging.getLogger(__name__)
 
 
@@ -535,7 +549,7 @@ def consolidate_round(
 # ═══════════════════════════════════════════════════════════════════
 
 
-def load_actual_results(
+def load_canonical_results(
     data_dir: Path | None = None,
 ) -> tuple[RoundResult, RoundResult]:
     """Load and consolidate both rounds' election results.

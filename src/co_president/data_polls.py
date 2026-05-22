@@ -9,10 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 import logging
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 import unicodedata
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import date
     from pathlib import Path
 
@@ -25,6 +27,24 @@ from co_president.config import (
     get_active_candidates,
 )
 from co_president.paths import resolve_data_dir
+
+__all__ = [
+    "CandidateShares",
+    "CleanPolls",
+    "ConsultationPoll",
+    "PollRow",
+    "UnclassifiedPollRow",
+    "deduplicate_polls",
+    "fix_invamer_date",
+    "infer_round_number",
+    "load_and_clean_all",
+    "load_raw_consultas",
+    "load_raw_polls",
+    "map_consultation_name_to_key",
+    "normalize_undecided",
+    "parse_consultations",
+    "retain_active_candidates",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +108,14 @@ class CandidateShares:
 
     """
 
-    candidates: dict[str, float]
+    candidates: Mapping[str, float]
     ns_nr: float
     blanco: float
     otros: float
+
+    def __post_init__(self) -> None:
+        """Defensive-copy the candidates mapping to prevent external mutation."""
+        object.__setattr__(self, "candidates", MappingProxyType(dict(self.candidates)))
 
     def total(self) -> float:
         """Sum all shares including ``ns_nr``, ``blanco``, and ``otros``.
