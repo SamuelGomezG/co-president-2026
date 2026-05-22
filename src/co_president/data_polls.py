@@ -231,17 +231,6 @@ class CleanPolls:
         round1_pollsters = self.round1["encuestadora"].nunique()
         round2_pollsters = self.round2["encuestadora"].nunique()
 
-        # Check for filtered forced-choice polls in R2
-        if "forced_choice" in self.round2.columns:
-            fc_mask = self.round2["forced_choice"]
-            if fc_mask.any():
-                pollsters = self.round2.loc[fc_mask, "encuestadora"].unique()
-                logger.warning(
-                    "Excluding %d forced-choice R2 polls from pollsters: %s",
-                    fc_mask.sum(),
-                    pollsters,
-                )
-
         if round1_pollsters < _MIN_ROUND1_POLLSTERS:
             msg = f"Round 1 needs >= {_MIN_ROUND1_POLLSTERS} pollsters, got {round1_pollsters}"
             raise ValueError(msg)
@@ -485,23 +474,31 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
 def _detect_forced_choice(df: pd.DataFrame) -> pd.Series:
     """Detect forced-choice R2 polls.
 
-    Flags rows where blanco and ns_nr are NA, and petro+hernandez sum to 100±1%.
+    Flags rows where blanco and ns_nr are NA, and petro+hernandez sum to 100±0.01%.
+
+    Args:
+        df: Poll DataFrame with candidate share columns.
+
+    Returns:
+        Boolean Series indexed like ``df``, True for forced-choice polls.
+
     """
     petro = df["gustavo_petro"].fillna(0)
     hernandez = df["rodolfo_hernandez"].fillna(0)
+    both_present = df["gustavo_petro"].notna() & df["rodolfo_hernandez"].notna()
 
     blanco_na = df["blanco"].isna()
     ns_nr_na = df["ns_nr"].isna()
-    sum_check = (petro + hernandez - 100).abs() <= 1
+    sum_check = (petro + hernandez - 100).abs() <= _RENORMALIZE_THRESHOLD
 
-    return blanco_na & ns_nr_na & sum_check
+    return blanco_na & ns_nr_na & sum_check & both_present
 
 
-def fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
+def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
     """Correct YanHaas 103% sum anomaly on 2022-06-11.
 
     Redistributes ns_nr (10.0pp) proportionally to Petro, Hernandez, Blanco.
-    If total > 100% ± 1%, renormalizes rows.
+    If total > 100% ± 0.01%, renormalizes rows.
     """
     result = df.copy()
     mask = (result["encuestadora"].str.strip() == "YanHaas") & (
@@ -525,12 +522,12 @@ def fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
 
         result.loc[idx, "ns_nr"] = 0.0
         logger.info(
-            "fix_yanhaas_20220611: redistributed %.1fpp ns_nr for row %s",
+            "_fix_yanhaas_20220611: redistributed %.1fpp ns_nr for row %s",
             ns_nr,
             idx,
         )
 
-    # Renormalize if total > 100% ± 1%
+    # Renormalize if total > 100% ± 0.01%
     _renormalize_rows(result, [*share_cols, "otros"], set(result.index[mask]))
 
     return result
@@ -858,7 +855,7 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
 
     # Step 2: Fix Invamer date
     polls = fix_invamer_date(polls)
-    polls = fix_yanhaas_20220611(polls)
+    polls = _fix_yanhaas_20220611(polls)
 
     # Step 3: Normalize undecided
     polls = normalize_undecided(polls)
@@ -920,6 +917,3 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
         consultation=consultation_list,
         all_polls=all_polls,
     )
-
-
-# TODO(SPEC-07): Implement R-hat guard. # noqa: FIX002, TD003
