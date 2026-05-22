@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 _TOLERANCE_VALID_VOTES_PCT_DIFF = 0.10  # % difference in total valid votes → WARNING
-_TOLERANCE_CANDIDATE_SHARE_PP = 0.50  # % point difference in vote share → WARNING
+_TOLERANCE_CANDIDATE_SHARE_PP = 0.50  # percentage point difference in vote share → WARNING
 _MIN_CANDIDATES_FOR_TOP_TWO = 2  # minimum candidates needed for top_two()
 _ROUND_TWO = 2  # second (runoff) round identifier
 
@@ -201,6 +201,10 @@ def _read_mmv(path: Path) -> pd.DataFrame:
     """Read a Registraduría MMV file.
 
     Handles both ``.csv`` and ``.csv.gz``, latin-1 encoding, semicolon delimiter.
+
+    Raises:
+        ValueError: If the file is missing required columns.
+
     """
     df = pd.read_csv(
         path,
@@ -218,7 +222,12 @@ def _read_mmv(path: Path) -> pd.DataFrame:
 
 
 def _read_moe(path: Path) -> pd.DataFrame:
-    """Read an MOE results file (UTF-8, comma-delimited)."""
+    """Read an MOE results file (UTF-8, comma-delimited).
+
+    Raises:
+        ValueError: If the file is missing required columns.
+
+    """
     df = pd.read_csv(path, encoding="utf-8")
     required_cols = {"nomparti", "votos"}
     missing = required_cols - set(df.columns)
@@ -234,12 +243,18 @@ def _read_participation(path: Path) -> pd.DataFrame:
     Some rows have extra fields due to commas in school names; those rows are
     skipped with a warning since they are edge cases (~1 per 12,500 rows).
     """
-    return pd.read_csv(
+    df = pd.read_csv(
         path,
         encoding="utf-8-sig",
         sep=",",
         on_bad_lines="warn",
     )
+    required_cols = {"Total censo", "Código Puesto"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        msg = f"Participation file {path} missing columns: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
+    return df
 
 
 def _aggregate_and_map(
@@ -282,7 +297,8 @@ def _extract_excluded_votes(aggregated: pd.DataFrame) -> tuple[int, int, int]:
         aggregated: DataFrame with candidate_key index and votes column.
 
     Returns:
-        Tuple of ``(null_votes, unmarked_votes, blank_votes)``.
+        Tuple of ``(null_votes, unmarked_votes, blank_votes)``. Missing keys
+        default to 0.
 
     """
     null_votes: int = (
@@ -303,7 +319,10 @@ def _extract_excluded_votes(aggregated: pd.DataFrame) -> tuple[int, int, int]:
     return null_votes, unmarked_votes, blank_votes
 
 
-def _merge_blanco_into_rest(candidate_df: pd.DataFrame, round_number: int) -> pd.DataFrame:
+def _merge_blanco_into_rest(
+    candidate_df: pd.DataFrame,
+    round_number: Literal[1, 2],
+) -> pd.DataFrame:
     """Merge blanco votes into rest for round 2.
 
     In round 2 there is no separate blanco candidate, so blanco votes are
@@ -318,7 +337,7 @@ def _merge_blanco_into_rest(candidate_df: pd.DataFrame, round_number: int) -> pd
 
     """
     if round_number != _ROUND_TWO or "blanco" not in candidate_df.index:
-        return candidate_df
+        return candidate_df.copy()
     blanco_count = int(candidate_df.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
     candidate_df = candidate_df.drop(index="blanco")
     existing = int(candidate_df.loc["rest", "votes"]) if "rest" in candidate_df.index else 0  # pyright: ignore[reportArgumentType]
@@ -340,6 +359,9 @@ def _compute_candidate_results(
 
     Returns:
         Tuple of ``CandidateResult`` sorted by votes descending.
+
+    Raises:
+        ZeroDivisionError: If ``total_votes_incl_blank`` is 0.
 
     """
     sorted_pairs = sorted(
