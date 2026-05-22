@@ -14,6 +14,30 @@
 
 ---
 
+## Table of contents
+
+- [What is it?](#what-is-it)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [About the model](#about-the-model)
+- [Data sources (MVP)](#data-sources-mvp)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Commands reference](#commands-reference)
+- [Project structure](#project-structure)
+- [Development](#development)
+  - [Getting started](#getting-started)
+  - [TDD workflow](#tdd-workflow)
+  - [Makefile targets](#makefile-targets)
+  - [Quality gates](#quality-gates)
+- [Tests](#tests)
+- [Specs roadmap](#specs-roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## What is it?
 
 `co-president-2026` ingests Colombian presidential poll data, cross-validates it against official election results from two independent sources, fits a Bayesian Dirichlet-Multinomial model with a reverse-time random walk, and produces probabilistic forecasts for both the first round and a potential runoff.
@@ -110,17 +134,23 @@ The model is implemented in **PyMC** using the NUTS sampler. MCMC diagnostics (R
 
 Polls are entirely national-level — no departmental or regional breakdowns. Results data is aggregated from station/municipal level to national totals for cross-validation and model anchoring.
 
-> **Note:** The two large Registraduría MMV files (`MMV_NACIONAL_PRESIDENTE_2022_*v.csv`, ~190 MB combined) are stored as gzip-compressed `.csv.gz` to stay within GitHub's file size limits. Before running the pipeline, decompress them:
-> ```bash
-> gunzip data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*.csv.gz
-> ```
-> The `.gitignore` ignores the uncompressed CSVs to prevent accidental re-commits. The `Makefile` `sync` target does NOT auto-decompress — it's a manual one-time step after cloning.
+---
+
+## Prerequisites
+
+- **Python 3.12+** — install via [pyenv](https://github.com/pyenv/pyenv) or your OS package manager.
+- **`uv`** — for dependency management. See [uv installation](https://docs.astral.sh/uv/getting-started/installation/).
+- **Data decompression** — The Registraduría MMV files must be decompressed once after cloning:
+
+```bash
+gunzip data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*.csv.gz
+```
+
+The `.gitignore` ignores the uncompressed CSVs to prevent accidental re-commits. The `Makefile` `sync` target does NOT auto-decompress — it's a manual one-time step.
 
 ---
 
 ## Installation
-
-**Requirement:** Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # Clone the repo
@@ -243,11 +273,6 @@ Tests mirror the source tree one-to-one: `src/co_president/config.py` → `tests
 ---
 
 ## Development
-
-### Requirements
-
-- Python 3.12 — install with [uv](https://docs.astral.sh/uv/) or [pyenv](https://github.com/pyenv/pyenv)
-- `uv` for dependency management
 
 ### Getting started
 
