@@ -55,25 +55,31 @@ _MIN_ROUND1_POLLSTERS = 5
 _MIN_ROUND2_POLLSTERS = 2
 _NORMALIZATION_TOLERANCE_PCT = 1.0
 _RENORMALIZE_THRESHOLD = 0.01
+_POST_RENORMALIZE_TOLERANCE_PCT = 0.1
 
-_SHARE_COLS_EXCLUDED = {
-    "n",
-    "encuestadora",
-    "fecha",
-    "muestra",
-    "tasa_respuesta",
-    "margen_error",
-    "fuente",
-    "link",
-    "muestreo",
-    "hipotesis",
-    "tipo",
-    "muestra_int_voto",
-    "municipios",
-    "ns_nr",
-    "round_number",
-}
-"""Set of metadata column names excluded from undecided redistribution."""
+_SHARE_COLS_EXCLUDED = frozenset(
+    (
+        "n",
+        "encuestadora",
+        "fecha",
+        "muestra",
+        "tasa_respuesta",
+        "margen_error",
+        "fuente",
+        "link",
+        "muestreo",
+        "hipotesis",
+        "tipo",
+        "muestra_int_voto",
+        "municipios",
+        "ns_nr",
+        "round_number",
+    )
+)
+"""Frozen set of metadata column names excluded from undecided redistribution.
+
+``round_number`` is not in the raw CSV; it is added by ``infer_round_number``
+and excluded from share normalization."""
 
 
 def _normalize_consultation_name(name: str) -> str:
@@ -289,6 +295,21 @@ def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
     path = resolved / "2022-polls" / "encuestas_2022.csv"
     df = pd.read_csv(path, encoding="utf-8", low_memory=False)
 
+    # Validate required columns exist
+    required_poll_cols = {
+        "fecha",
+        "encuestadora",
+        "muestra",
+        "federico_gutierrez",
+        "gustavo_petro",
+        "rodolfo_hernandez",
+        "ns_nr",
+    }
+    missing = required_poll_cols - set(df.columns)
+    if missing:
+        msg = f"Missing required columns: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
+
     # Parse fecha
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
     invalid_dates = df["fecha"].isna()
@@ -330,6 +351,20 @@ def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
     resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-polls" / "consultas.csv"
     df = pd.read_csv(path, encoding="latin-1", low_memory=False)
+
+    # Validate required columns exist
+    required_consultas_cols = {
+        "fecha",
+        "encuestadora",
+        "consulta",
+        "candidato",
+        "int_voto",
+        "muestra",
+    }
+    missing = required_consultas_cols - set(df.columns)
+    if missing:
+        msg = f"Missing required columns: {', '.join(sorted(missing))}"
+        raise ValueError(msg)
 
     # Parse fecha (M/D/YYYY format)
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
@@ -583,6 +618,7 @@ def _validate_normalized_rows(
     df: pd.DataFrame,
     share_cols: list[str],
     indices: set[int],
+    tolerance_pct: float = _NORMALIZATION_TOLERANCE_PCT,
 ) -> None:
     """Assert that every normalised row sums to 100 +/- tolerance."""
     for idx in indices:
@@ -590,8 +626,11 @@ def _validate_normalized_rows(
         row_sum = sum(v for v in vals if isinstance(v, (int, float)) and not pd.isna(v))
         if row_sum <= 0:
             continue
-        if abs(row_sum - 100.0) > _NORMALIZATION_TOLERANCE_PCT:
-            msg = f"Row {idx}: normalized share sum = {row_sum:.2f}%, expected 100.0 +/- 1.0"
+        if abs(row_sum - 100.0) > tolerance_pct:
+            msg = (
+                f"Row {idx}: normalized share sum = {row_sum:.2f}%, expected 100.0 +/- "
+                f"{tolerance_pct:.1f}"
+            )
             raise ValueError(msg)
 
 
@@ -708,7 +747,7 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
         - ``federico_gutierrez``, ``sergio_fajardo``, ``ingrid_betancourt`` all NA
         - ``fecha >= ELECTION_DATE_ROUND1``
 
-    All other polls: ``round_number = NaN``.
+    All other polls: ``round_number = pd.NA`` (nullable Int64).
 
     Args:
         df: Poll DataFrame with candidate columns and ``fecha``.
@@ -718,16 +757,15 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
 
     """
     result = df.copy()
-    round_numbers: list[int | float] = []
+    round_numbers: list[int | None] = []
     for _, row in result.iterrows():
         if _is_round1_candidate(row, result.columns):
             round_numbers.append(1)
         elif _is_round2_candidate(row, result.columns):
             round_numbers.append(2)
         else:
-            round_numbers.append(float("nan"))
-    result["round_number"] = round_numbers
-    result["round_number"] = result["round_number"].astype("Int64")
+            round_numbers.append(None)
+    result["round_number"] = pd.array(round_numbers, dtype="Int64")
     return result
 
 
@@ -869,8 +907,16 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
     # Step 8b: Renormalise round DFs to 100% (retain_active_candidates may have
     # dropped pre-consultation share columns that were part of the renormalisation).
     for df_round in [round1_df, round2_df]:
+        if df_round.empty:
+            continue
         round_share_cols = [c for c in df_round.columns if c not in _SHARE_COLS_EXCLUDED]
         _renormalize_rows(df_round, round_share_cols, set(df_round.index))
+        _validate_normalized_rows(
+            df_round,
+            round_share_cols,
+            set(df_round.index),
+            tolerance_pct=_POST_RENORMALIZE_TOLERANCE_PCT,
+        )
 
     # Step 9: Consultation data
     consultas_df = load_raw_consultas(data_dir=data_dir)

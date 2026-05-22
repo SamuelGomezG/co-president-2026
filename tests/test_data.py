@@ -24,12 +24,14 @@ from co_president.config import (
     get_active_candidates,
 )
 from co_president.data_polls import (
+    _SHARE_COLS_EXCLUDED,
     CandidateShares,
     CleanPolls,
     ConsultationPoll,
     PollRow,
     UnclassifiedPollRow,
     _detect_forced_choice,
+    _validate_normalized_rows,
     deduplicate_polls,
     fix_invamer_date,
     fix_yanhaas_20220611,
@@ -46,6 +48,12 @@ from co_president.data_results import (
     CandidateResult,
     RoundResult,
     _build_round_result,
+    _compute_candidate_results,
+    _extract_excluded_votes,
+    _merge_blanco_into_rest,
+    _read_mmv,
+    _read_moe,
+    _read_participation,
     consolidate_round,
     cross_validate,
     load_canonical_results,
@@ -56,6 +64,7 @@ from co_president.data_results import (
     load_registraduria_round1,
     load_registraduria_round2,
 )
+from co_president.paths import resolve_data_dir
 
 # ═══════════════════════════════════════════════════════════════════
 # CandidateResult unit tests
@@ -262,7 +271,7 @@ class TestCrossValidate:
         assert any("total valid votes" in w.lower() for w in warnings)
 
     def test_differing_shares_returns_warnings(self, base_result: RoundResult) -> None:
-        """Verify candidate share mismatch beyond 0.50% produces warnings (0.60pp diff)."""
+        """Verify candidate share mismatch beyond 0.50pp produces warnings (0.60pp diff)."""
         diff_candidates = (
             CandidateResult(
                 "gustavo_petro", 1_000_000, 0.394
@@ -343,6 +352,124 @@ class TestConsolidateRound:
         )
         with pytest.raises(ValueError, match=r"[Cc]onsolidation"):
             consolidate_round(reg_result, bad_moe, 1)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Helper unit tests
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestResultHelpers:
+    """Tests for internal result helper functions."""
+
+    def test_read_mmv_missing_parnombre_raises(self, tmp_path: Path) -> None:
+        """Verify missing PARNOMBRE column raises ValueError."""
+        path = tmp_path / "mmv.csv"
+        df = pd.DataFrame({"VOTOS": [1, 2, 3]})
+        df.to_csv(path, sep=";", index=False, encoding="latin-1")
+        with pytest.raises(ValueError, match="PARNOMBRE"):
+            _read_mmv(path)
+
+    def test_read_mmv_missing_votos_raises(self, tmp_path: Path) -> None:
+        """Verify missing VOTOS column raises ValueError."""
+        path = tmp_path / "mmv.csv"
+        df = pd.DataFrame({"PARNOMBRE": ["A", "B"]})
+        df.to_csv(path, sep=";", index=False, encoding="latin-1")
+        with pytest.raises(ValueError, match="VOTOS"):
+            _read_mmv(path)
+
+    def test_read_moe_missing_nomparti_raises(self, tmp_path: Path) -> None:
+        """Verify missing nomparti column raises ValueError."""
+        path = tmp_path / "moe.csv"
+        df = pd.DataFrame({"votos": [10, 20]})
+        df.to_csv(path, index=False, encoding="utf-8")
+        with pytest.raises(ValueError, match="nomparti"):
+            _read_moe(path)
+
+    def test_read_moe_missing_votos_raises(self, tmp_path: Path) -> None:
+        """Verify missing votos column raises ValueError."""
+        path = tmp_path / "moe.csv"
+        df = pd.DataFrame({"nomparti": ["A", "B"]})
+        df.to_csv(path, index=False, encoding="utf-8")
+        with pytest.raises(ValueError, match="votos"):
+            _read_moe(path)
+
+    def test_read_participation_missing_total_censo_raises(self, tmp_path: Path) -> None:
+        """Verify missing Total censo column raises ValueError."""
+        path = tmp_path / "participation.csv"
+        df = pd.DataFrame({"Código Puesto": [1, 2]})
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        with pytest.raises(ValueError, match="Total censo"):
+            _read_participation(path)
+
+    def test_read_participation_missing_codigo_puesto_raises(self, tmp_path: Path) -> None:
+        """Verify missing Código Puesto column raises ValueError."""
+        path = tmp_path / "participation.csv"
+        df = pd.DataFrame({"Total censo": [100, 200]})
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        with pytest.raises(ValueError, match="Código Puesto"):
+            _read_participation(path)
+
+    def test_extract_excluded_votes_all_present(self) -> None:
+        """Verify excluded votes are extracted when all keys exist."""
+        aggregated = pd.DataFrame(
+            {"votes": [10, 5, 3, 100]},
+            index=["nulos", "no_marcados", "blanco", "gustavo_petro"],
+        )
+        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+        assert null_votes == 10
+        assert unmarked_votes == 5
+        assert blank_votes == 3
+
+    def test_extract_excluded_votes_some_missing(self) -> None:
+        """Verify missing keys default to 0 when extracting excluded votes."""
+        aggregated = pd.DataFrame({"votes": [7, 200]}, index=["nulos", "rest"])
+        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+        assert null_votes == 7
+        assert unmarked_votes == 0
+        assert blank_votes == 0
+
+    def test_extract_excluded_votes_all_missing(self) -> None:
+        """Verify all excluded votes default to 0 when keys are absent."""
+        aggregated = pd.DataFrame({"votes": [200]}, index=["rest"])
+        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
+        assert null_votes == 0
+        assert unmarked_votes == 0
+        assert blank_votes == 0
+
+    def test_merge_blanco_round2_merges(self) -> None:
+        """Verify blanco is merged into rest in round 2."""
+        candidate_df = pd.DataFrame({"votes": [100, 50]}, index=["rest", "blanco"])
+        result = _merge_blanco_into_rest(candidate_df, 2)
+        assert "blanco" not in result.index
+        assert int(result.loc["rest", "votes"]) == 150
+
+    def test_merge_blanco_round1_ignored(self) -> None:
+        """Verify blanco is not merged in round 1."""
+        candidate_df = pd.DataFrame({"votes": [100, 50]}, index=["rest", "blanco"])
+        result = _merge_blanco_into_rest(candidate_df, 1)
+        assert result is not candidate_df
+        assert "blanco" in result.index
+        assert int(result.loc["rest", "votes"]) == 100
+
+    def test_merge_blanco_no_blanco_noop(self) -> None:
+        """Verify no blanco key returns a copy unchanged."""
+        candidate_df = pd.DataFrame({"votes": [100]}, index=["rest"])
+        result = _merge_blanco_into_rest(candidate_df, 2)
+        assert result is not candidate_df
+        assert int(result.loc["rest", "votes"]) == 100
+
+    def test_compute_candidate_results_sorted_descending(self) -> None:
+        """Verify candidate results are sorted by votes descending."""
+        candidate_df = pd.DataFrame({"votes": [300, 600, 100]}, index=["b", "a", "rest"])
+        results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
+        assert [c.candidate_key for c in results] == ["a", "b", "rest"]
+
+    def test_compute_candidate_results_vote_share_math(self) -> None:
+        """Verify vote_share uses votes / total_votes_incl_blank."""
+        candidate_df = pd.DataFrame({"votes": [250]}, index=["gustavo_petro"])
+        results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
+        assert results[0].vote_share == pytest.approx(0.25)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1292,13 +1419,10 @@ class TestMassiveCallerR2:
             {
                 "gustavo_petro": [50.0] * 5,
                 "rodolfo_hernandez": [50.0] * 5,
-                "blanco": [None, 5.0, None, 5.0, None],
-                "ns_nr": [None, 0.0, None, 0.0, None],
+                "blanco": [None, None, None, 5.0, None],
+                "ns_nr": [None, None, None, 0.0, None],
             }
         )
-        # Add index 31, 36, 42 - but dataframe is small.
-        # The prompt says "identifies_massivecaller (flags rows 31, 36, 42)".
-        # I will create a df with those indices.
         df.index = [30, 31, 36, 40, 42]
 
         forced = _detect_forced_choice(df)
@@ -1581,6 +1705,46 @@ class TestLoadRawPolls:
         assert pd.api.types.is_datetime64_any_dtype(df["fecha"])
         assert df["fecha"].isna().sum() == 0, "Found NaT dates"
 
+    @pytest.mark.parametrize(
+        "missing_col",
+        [
+            "fecha",
+            "encuestadora",
+            "muestra",
+            "federico_gutierrez",
+            "gustavo_petro",
+            "rodolfo_hernandez",
+            "ns_nr",
+        ],
+    )
+    def test_missing_required_columns_raises_valueerror(
+        self,
+        missing_col: str,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify missing required columns raise a clear ValueError."""
+        df = pd.DataFrame(
+            {
+                "fecha": ["2022-05-01"],
+                "encuestadora": ["CNC"],
+                "muestra": [2206],
+                "federico_gutierrez": [25.0],
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [30.0],
+                "ns_nr": [0.0],
+            }
+        )
+        df = df.drop(columns=[missing_col])
+        data_dir = tmp_path / "data"
+        polls_dir = data_dir / "2022-polls"
+        polls_dir.mkdir(parents=True)
+        df.to_csv(polls_dir / "encuestas_2022.csv", index=False)
+        monkeypatch.setattr("co_president.data_polls.resolve_data_dir", lambda _: data_dir)
+
+        with pytest.raises(ValueError, match="Missing required columns"):
+            load_raw_polls(None)
+
 
 # ── load_raw_consultas integration ──
 
@@ -1601,6 +1765,37 @@ class TestLoadRawConsultas:
         df = load_raw_consultas(data_dir)
         assert pd.api.types.is_datetime64_any_dtype(df["fecha"])
         assert df["fecha"].isna().sum() == 0, "Found NaT dates"
+
+    @pytest.mark.parametrize(
+        "missing_col",
+        ["fecha", "encuestadora", "consulta", "candidato", "int_voto", "muestra"],
+    )
+    def test_missing_required_columns_raises_valueerror(
+        self,
+        missing_col: str,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify missing required columns raise a clear ValueError."""
+        df = pd.DataFrame(
+            {
+                "fecha": ["2/5/2022"],
+                "encuestadora": ["CNC"],
+                "consulta": ["Pacto Historico"],
+                "candidato": ["Gustavo Petro"],
+                "int_voto": [77.0],
+                "muestra": [2206],
+            }
+        )
+        df = df.drop(columns=[missing_col])
+        data_dir = tmp_path / "data"
+        polls_dir = data_dir / "2022-polls"
+        polls_dir.mkdir(parents=True)
+        df.to_csv(polls_dir / "consultas.csv", index=False)
+        monkeypatch.setattr("co_president.data_polls.resolve_data_dir", lambda _: data_dir)
+
+        with pytest.raises(ValueError, match="Missing required columns"):
+            load_raw_consultas(None)
 
 
 # ── load_and_clean_all integration ──
@@ -1669,3 +1864,84 @@ class TestLoadAndCleanAll:
         assert "round_number" in self.clean_polls.all_polls.columns
         unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
         assert len(unclassified) > 0
+
+
+# ── schema verification ──
+
+
+class TestPollSchemaVerification:
+    """Tests to ensure poll metadata columns stay in sync with the CSV schema."""
+
+    def test_share_cols_excluded_matches_csv_metadata(self, data_dir: Path) -> None:
+        """Verify excluded share columns match the CSV metadata columns."""
+        df = load_raw_polls(data_dir)
+        expected_metadata = {
+            "n",
+            "encuestadora",
+            "fecha",
+            "muestra",
+            "tasa_respuesta",
+            "margen_error",
+            "fuente",
+            "link",
+            "muestreo",
+            "hipotesis",
+            "tipo",
+            "muestra_int_voto",
+            "municipios",
+            "ns_nr",
+        }
+        assert expected_metadata == set(_SHARE_COLS_EXCLUDED) - {"round_number"}
+        assert expected_metadata <= set(df.columns)
+
+        share_columns = set(df.columns) - expected_metadata - {"round_number"}
+        for col in share_columns:
+            values = pd.to_numeric(df[col], errors="coerce").dropna()
+            assert (values >= 0).all()
+            assert (values <= 100).all()
+
+
+# ── _validate_normalized_rows ──
+
+
+class TestValidateNormalizedRows:
+    """Tests for the _validate_normalized_rows helper."""
+
+    def test_raises_on_bad_sum(self) -> None:
+        """Verify ValueError when normalized row sum deviates from tolerance."""
+        df = pd.DataFrame({"a": [60.0], "b": [43.0]})
+        with pytest.raises(ValueError, match="normalized share sum"):
+            _validate_normalized_rows(df, ["a", "b"], {0}, tolerance_pct=0.1)
+
+
+# ── load_and_clean_all empty round guard ──
+
+
+class TestLoadAndCleanAllEmptyRounds:
+    """Tests for empty round DataFrame handling in load_and_clean_all."""
+
+    def test_empty_round2_is_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify empty round2 DataFrame is skipped in step 8b."""
+        data_dir = resolve_data_dir(None)
+        raw_polls = load_raw_polls(data_dir)
+        polls = fix_invamer_date(raw_polls)
+        polls = normalize_undecided(polls)
+        polls = retain_active_candidates(polls, [c.key for c in get_active_candidates(1)])
+        polls = infer_round_number(polls)
+
+        round2_df = polls[polls["round_number"] == 2].copy()
+        if round2_df.empty:
+            pytest.skip("No round2 rows available to test empty guard.")
+        remove_indices = round2_df.index.tolist()
+
+        def fake_infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
+            result = infer_round_number(df)
+            result.loc[remove_indices, "round_number"] = pd.NA
+            result["round_number"] = result["round_number"].astype("Int64")
+            return result
+
+        monkeypatch.setattr("co_president.data_polls.infer_round_number", fake_infer_round_number)
+        monkeypatch.setattr("co_president.data_polls._MIN_ROUND2_POLLSTERS", 0)
+
+        clean = load_and_clean_all(data_dir)
+        assert clean.round2.empty
