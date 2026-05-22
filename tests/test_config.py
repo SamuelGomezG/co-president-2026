@@ -217,6 +217,12 @@ class TestGetDefaultPollsterWeight:
         """
         assert get_default_pollster_weight() == 0.908
 
+    def test_empty_ratings_raises_valueerror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify ValueError is raised if POLLSTER_RATINGS is empty."""
+        monkeypatch.setattr("co_president.config.POLLSTER_RATINGS", {})
+        with pytest.raises(ValueError, match="POLLSTER_RATINGS cannot be empty"):
+            get_default_pollster_weight()
+
 
 class TestGetActiveCandidates:
     """Tests for the get_active_candidates helper."""
