@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
 [project]
 name = "co-president"
 version = "0.1.0"
@@ -25,6 +29,9 @@ dev = [
     "pip-audit>=2.7",
     "bandit>=1.7",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/co_president"]
 
 [tool.ruff]
 target-version = "py312"

@@ -22,34 +22,36 @@ from co_president.config import (
     ELECTION_DATE_ROUND2,
     get_active_candidates,
 )
-from co_president.data import (
-    CandidateResult,
+from co_president.data_polls import (
     CandidateShares,
     CleanPolls,
     ConsultationPoll,
     PollRow,
-    RoundResult,
     UnclassifiedPollRow,
-    _build_round_result,
-    consolidate_round,
-    cross_validate,
     deduplicate_polls,
     fix_invamer_date,
     infer_round_number,
-    load_actual_results,
     load_and_clean_all,
-    load_moe_round1,
-    load_moe_round2,
-    load_participation_round1,
-    load_participation_round2,
     load_raw_consultas,
     load_raw_polls,
-    load_registraduria_round1,
-    load_registraduria_round2,
     map_consultation_name_to_key,
     normalize_undecided,
     parse_consultations,
     retain_active_candidates,
+)
+from co_president.data_results import (
+    CandidateResult,
+    RoundResult,
+    _build_round_result,
+    consolidate_round,
+    cross_validate,
+    load_actual_results,
+    load_moe_round1,
+    load_moe_round2,
+    load_participation_round1,
+    load_participation_round2,
+    load_registraduria_round1,
+    load_registraduria_round2,
 )
 
 # ═══════════════════════════════════════════════════════════════════
@@ -820,6 +822,20 @@ class TestConsultationPoll:
         )
         assert cp.margin_of_error is None
 
+    def test_nullable_sample_size(self) -> None:
+        """Verify sample_size can be None (unknown sample size)."""
+        cp = ConsultationPoll(
+            date=date(2022, 2, 5),
+            pollster="CNC",
+            coalition="Pacto Historico",
+            candidate="Gustavo Petro",
+            candidate_key="gustavo_petro",
+            share=77.0,
+            sample_size=None,
+            margin_of_error=2.1,
+        )
+        assert cp.sample_size is None
+
 
 # ── fix_invamer_date ──
 
@@ -1215,6 +1231,15 @@ class TestDeduplicatePolls:
         assert len(result) == 1
         assert result.iloc[0]["n"] == 1  # first kept
         assert any("muestra_int_voto" in msg and "NA" in msg.upper() for msg in caplog.messages)
+
+    def test_empty_dataframe_returns_empty_copy(self) -> None:
+        """Verify empty DataFrame returns a copy, not the original reference."""
+        df = pd.DataFrame(
+            {"encuestadora": pd.Series(dtype="object"), "fecha": pd.Series(dtype="datetime64[ns]")}
+        )
+        result = deduplicate_polls(df)
+        assert result.empty
+        assert result is not df  # must be a copy, not the same reference
 
 
 # ── map_consultation_name_to_key ──
