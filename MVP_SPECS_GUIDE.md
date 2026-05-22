@@ -1505,19 +1505,11 @@ These are documented for awareness during implementation:
 
 3. **Centro Esperanza coalition split**: In the polls, Fajardo and Betancourt are tracked separately. In the official results, Centro Esperanza is a single coalition. Fajardo won the coalition's primary, so all Centro Esperanza votes in the Registraduría/MOE data are his. Betancourt's `0.40%` in the official results comes from votes she received independently after withdrawing from the coalition. SPEC-03 must handle this correctly.
 
-4. **GAD3 runoff polls — tracking waves are partially present in `encuestas_2022.csv`**:
+4. **GAD3 runoff polls now in main CSV**:
    - Primary source: RCN Radio tracking articles; Spanish Wikipedia was used only to locate the RCN URLs.[wiki-sondeos]
-   - `encuestas_2022.csv` currently includes only Wave 11 (encuestadora `GAD3`, fecha `2022-06-11`, RCN link in CSV).[rcn-20220610]
-   - The missing tracking waves span May 30–Jun 10 (waves 1–10). They are not in this branch and are slated for `feat/add-gad3-tracking-polls`.
-   - Wayback cross-check status: none completed in this branch. The companion PR must list which waves were verified and any discrepancies.
+   - `encuestas_2022.csv` includes all 11 GAD3 tracking waves (May 31–June 10), with the final wave dated `2022-06-10`.[rcn-20220610]
    - `otros` is not reported in the RCN tracking tables. For K=3 runoff modeling, treat `otros` as 0 (raw CSV stores NA).
-   - If waves 10 and 11 remain identical after source verification, record that explicitly in the companion PR to avoid ambiguity.
-
-| Wave | Fecha (CSV) | Hernández | Petro | Blanco | Otros | Sample size |
-|---|---|---|---|---|---|---|
-| 11 | 2022-06-11 | 47.9% | 47.1% | 5.0% | NA (not reported; treat as 0) | 5,236 |
-
-Recommendation: Merge `feat/add-gad3-tracking-polls` to add waves 1–10, then add a regression test in `tests/test_data.py` asserting `CleanPolls.round2` contains at least 10 GAD3 rows and that `blanco` shares remain within the documented 2.6%–5.8% range.
+   - The final wave originally appeared with a `2022-06-11` date; it was corrected to `2022-06-10` to match the RCN article title and avoid duplicate rows.
 
 [wiki-sondeos]: https://es.wikipedia.org/wiki/Anexo:Sondeos_de_intenci%C3%B3n_de_voto_para_las_elecciones_presidenciales_de_Colombia_de_2022
 [rcn-20220610]: https://www.rcnradio.com/politica/gustavo-petro-y-rodolfo-hernandez-tracking-presidencial-viernes-10-de-junio

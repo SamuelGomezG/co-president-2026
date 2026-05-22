@@ -1883,6 +1883,40 @@ class TestLoadAndCleanAll:
             row_sum = row[share_cols].sum()
             assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
 
+    def test_round2_shares_sum_to_100(self) -> None:
+        """Verify round 2 candidate+blanco+otros sum to ~100% after normalization."""
+        share_cols = [
+            c
+            for c in self.clean_polls.round2.columns
+            if c in {cand.key for cand in get_active_candidates(2)} or c in ("blanco", "otros")
+        ]
+        for idx, row in self.clean_polls.round2.iterrows():
+            row_sum = row[share_cols].sum()
+            assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
+
+    def test_gad3_round2_count(self) -> None:
+        """Verify the number of GAD3 runoff tracking polls in round 2.
+
+        10 waves are present (May 31-Jun 10). Wave 11 (Jun 11) was a
+        duplicate of wave 10 (identical sample and shares) and was removed.
+        """
+        gad3_round2 = self.clean_polls.round2[
+            self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
+        ]
+        assert len(gad3_round2) == 10
+
+    def test_gad3_final_wave_not_duplicated(self) -> None:
+        """Verify the final GAD3 tracking wave appears only once in round 2.
+
+        The final wave (2022-06-10) was corrected from an erroneous 2022-06-11
+        date to avoid duplication.
+        """
+        gad3_round2 = self.clean_polls.round2[
+            self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
+        ]
+        final_wave = gad3_round2[gad3_round2["fecha"] == pd.Timestamp("2022-06-10")]
+        assert len(final_wave) == 1
+
     def test_ns_nr_is_zero_after_normalization(self) -> None:
         """Verify ns_nr is 0.0 in both rounds after normalization."""
         assert self.clean_polls.round1["ns_nr"].sum() == 0.0
@@ -1894,6 +1928,14 @@ class TestLoadAndCleanAll:
         assert "round_number" in self.clean_polls.all_polls.columns
         unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
         assert len(unclassified) > 0
+
+    def test_all_polls_dates_monotonic(self) -> None:
+        """Verify dates are non-decreasing in the cleaned output.
+
+        fix_invamer_date corrects the known Invamer anomaly before all_polls
+        is constructed, so no exception is needed here.
+        """
+        assert self.clean_polls.all_polls["fecha"].is_monotonic_increasing
 
 
 # ── schema verification ──
