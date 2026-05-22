@@ -516,6 +516,8 @@ def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
         ns_nr = result.loc[idx, "ns_nr"]
         if not isinstance(ns_nr, (int, float)) or pd.isna(ns_nr):
             continue
+        if ns_nr >= _NS_NR_HUNDRED:
+            continue
 
         # Proportional redistribution
         scale = 100.0 / (100.0 - ns_nr)

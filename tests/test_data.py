@@ -1454,6 +1454,8 @@ class TestMassiveCallerR2:
     def test_massivecaller_r2_excluded(self, data_dir: Path) -> None:
         """Verify forced-choice MassiveCaller rows excluded from round2."""
         clean = load_and_clean_all(data_dir)
+        # 3 forced-choice MC rows exist in raw CSV (original indices 33, 38, 44)
+        # where blanco+ns_nr are absent and petro+hernandez sum to ~100%.
         forced_choice_in_all = clean.all_polls[
             (clean.all_polls["encuestadora"].str.strip() == "MassiveCaller")
             & clean.all_polls["forced_choice"]
@@ -1519,6 +1521,10 @@ class TestYanHaasAnomaly:
         result = _fix_yanhaas_20220611(df)
         assert result.loc[0, "ns_nr"] == 0.0
         assert result.loc[0, "gustavo_petro"] == pytest.approx(44.44, abs=0.01)
+        total = result.loc[
+            0, ["gustavo_petro", "rodolfo_hernandez", "blanco", "otros", "ns_nr"]
+        ].sum()
+        assert total == pytest.approx(100.0, abs=0.1)
 
 
 # ── map_consultation_name_to_key ──
