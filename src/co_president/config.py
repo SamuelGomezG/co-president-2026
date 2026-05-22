@@ -277,12 +277,22 @@ def compute_consultation_prior_strength() -> dict[str, float]:
     deviation floor of 0.10. For candidates without consultation data, uses a
     fallback of the mean strength * 1.5.
 
+    The result is memoized via :func:`get_computed_consultation_prior_strengths`
+    so repeated calls incur no I/O after the first.
+
     Returns:
         Mapping of candidate key to prior standard deviation.
 
     Raises:
         ValueError: If any key in ``CONSULTATION_KEY_MAP`` produced zero rows,
             indicating a name mismatch between the CSV and the key map.
+
+    Examples:
+        >>> strengths = compute_consultation_prior_strength()
+        >>> isinstance(strengths, dict)
+        True
+        >>> all(v >= 0.10 for v in strengths.values())
+        True
 
     """
     data_dir = resolve_data_dir(None)
@@ -338,9 +348,19 @@ def validate_consultation_prior_means(
         consultas_path: Override path to ``consultas.csv``. If ``None``,
             resolves via ``resolve_data_dir``.
 
+    Returns:
+        None. Raises on validation failure.
+
     Raises:
         ValueError: If any mean falls outside its candidate's polling range,
             or if a candidate key has no polling data.
+
+    Examples:
+        >>> validate_consultation_prior_means({"gustavo_petro": 0.77})
+        >>> validate_consultation_prior_means({"gustavo_petro": 0.99})
+        Traceback (most recent call last):
+            ...
+        ValueError: Prior mean for ...
 
     """
     if consultas_path is None:
@@ -373,9 +393,20 @@ def validate_consultation_prior_means(
 def get_computed_consultation_prior_strengths() -> dict[str, float]:
     """Memoized wrapper around ``compute_consultation_prior_strength``.
 
+    On first call, reads ``consultas.csv``, computes candidate-specific
+    standard deviations, and caches the result. Subsequent calls return the
+    cached dict without I/O.
+
     Returns:
         Mapping of candidate key to prior standard deviation, computed from
         ``consultas.csv``.
+
+    Examples:
+        >>> strengths = get_computed_consultation_prior_strengths()
+        >>> isinstance(strengths, dict)
+        True
+        >>> strengths is get_computed_consultation_prior_strengths()
+        True
 
     """
     return compute_consultation_prior_strength()
@@ -388,7 +419,7 @@ def _get_strengths_safe() -> dict[str, float]:
     return {}
 
 
-COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = _get_strengths_safe()
+COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = dict(_get_strengths_safe())
 
 
 POLLSTER_RATINGS: dict[str, float] = {
