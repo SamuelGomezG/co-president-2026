@@ -24,11 +24,13 @@ from co_president.config import (
     get_active_candidates,
 )
 from co_president.data_polls import (
+    _SHARE_COLS_EXCLUDED,
     CandidateShares,
     CleanPolls,
     ConsultationPoll,
     PollRow,
     UnclassifiedPollRow,
+    _validate_normalized_rows,
     deduplicate_polls,
     fix_invamer_date,
     infer_round_number,
@@ -60,6 +62,7 @@ from co_president.data_results import (
     load_registraduria_round1,
     load_registraduria_round2,
 )
+from co_president.paths import resolve_data_dir
 
 # ═══════════════════════════════════════════════════════════════════
 # CandidateResult unit tests
@@ -1633,6 +1636,46 @@ class TestLoadRawPolls:
         assert pd.api.types.is_datetime64_any_dtype(df["fecha"])
         assert df["fecha"].isna().sum() == 0, "Found NaT dates"
 
+    @pytest.mark.parametrize(
+        "missing_col",
+        [
+            "fecha",
+            "encuestadora",
+            "muestra",
+            "federico_gutierrez",
+            "gustavo_petro",
+            "rodolfo_hernandez",
+            "ns_nr",
+        ],
+    )
+    def test_missing_required_columns_raises_valueerror(
+        self,
+        missing_col: str,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify missing required columns raise a clear ValueError."""
+        df = pd.DataFrame(
+            {
+                "fecha": ["2022-05-01"],
+                "encuestadora": ["CNC"],
+                "muestra": [2206],
+                "federico_gutierrez": [25.0],
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [30.0],
+                "ns_nr": [0.0],
+            }
+        )
+        df = df.drop(columns=[missing_col])
+        data_dir = tmp_path / "data"
+        polls_dir = data_dir / "2022-polls"
+        polls_dir.mkdir(parents=True)
+        df.to_csv(polls_dir / "encuestas_2022.csv", index=False)
+        monkeypatch.setattr("co_president.data_polls.resolve_data_dir", lambda _: data_dir)
+
+        with pytest.raises(ValueError, match="Missing required columns"):
+            load_raw_polls(None)
+
 
 # ── load_raw_consultas integration ──
 
@@ -1653,6 +1696,37 @@ class TestLoadRawConsultas:
         df = load_raw_consultas(data_dir)
         assert pd.api.types.is_datetime64_any_dtype(df["fecha"])
         assert df["fecha"].isna().sum() == 0, "Found NaT dates"
+
+    @pytest.mark.parametrize(
+        "missing_col",
+        ["fecha", "encuestadora", "consulta", "candidato", "int_voto", "muestra"],
+    )
+    def test_missing_required_columns_raises_valueerror(
+        self,
+        missing_col: str,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify missing required columns raise a clear ValueError."""
+        df = pd.DataFrame(
+            {
+                "fecha": ["2/5/2022"],
+                "encuestadora": ["CNC"],
+                "consulta": ["Pacto Historico"],
+                "candidato": ["Gustavo Petro"],
+                "int_voto": [77.0],
+                "muestra": [2206],
+            }
+        )
+        df = df.drop(columns=[missing_col])
+        data_dir = tmp_path / "data"
+        polls_dir = data_dir / "2022-polls"
+        polls_dir.mkdir(parents=True)
+        df.to_csv(polls_dir / "consultas.csv", index=False)
+        monkeypatch.setattr("co_president.data_polls.resolve_data_dir", lambda _: data_dir)
+
+        with pytest.raises(ValueError, match="Missing required columns"):
+            load_raw_consultas(None)
 
 
 # ── load_and_clean_all integration ──
@@ -1721,3 +1795,84 @@ class TestLoadAndCleanAll:
         assert "round_number" in self.clean_polls.all_polls.columns
         unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
         assert len(unclassified) > 0
+
+
+# ── schema verification ──
+
+
+class TestPollSchemaVerification:
+    """Tests to ensure poll metadata columns stay in sync with the CSV schema."""
+
+    def test_share_cols_excluded_matches_csv_metadata(self, data_dir: Path) -> None:
+        """Verify excluded share columns match the CSV metadata columns."""
+        df = load_raw_polls(data_dir)
+        expected_metadata = {
+            "n",
+            "encuestadora",
+            "fecha",
+            "muestra",
+            "tasa_respuesta",
+            "margen_error",
+            "fuente",
+            "link",
+            "muestreo",
+            "hipotesis",
+            "tipo",
+            "muestra_int_voto",
+            "municipios",
+            "ns_nr",
+        }
+        assert expected_metadata == set(_SHARE_COLS_EXCLUDED) - {"round_number"}
+        assert expected_metadata <= set(df.columns)
+
+        share_columns = set(df.columns) - expected_metadata - {"round_number"}
+        for col in share_columns:
+            values = pd.to_numeric(df[col], errors="coerce").dropna()
+            assert (values >= 0).all()
+            assert (values <= 100).all()
+
+
+# ── _validate_normalized_rows ──
+
+
+class TestValidateNormalizedRows:
+    """Tests for the _validate_normalized_rows helper."""
+
+    def test_raises_on_bad_sum(self) -> None:
+        """Verify ValueError when normalized row sum deviates from tolerance."""
+        df = pd.DataFrame({"a": [60.0], "b": [43.0]})
+        with pytest.raises(ValueError, match="normalized share sum"):
+            _validate_normalized_rows(df, ["a", "b"], {0}, tolerance_pct=0.1)
+
+
+# ── load_and_clean_all empty round guard ──
+
+
+class TestLoadAndCleanAllEmptyRounds:
+    """Tests for empty round DataFrame handling in load_and_clean_all."""
+
+    def test_empty_round2_is_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify empty round2 DataFrame is skipped in step 8b."""
+        data_dir = resolve_data_dir(None)
+        raw_polls = load_raw_polls(data_dir)
+        polls = fix_invamer_date(raw_polls)
+        polls = normalize_undecided(polls)
+        polls = retain_active_candidates(polls, [c.key for c in get_active_candidates(1)])
+        polls = infer_round_number(polls)
+
+        round2_df = polls[polls["round_number"] == 2].copy()
+        if round2_df.empty:
+            pytest.skip("No round2 rows available to test empty guard.")
+        remove_indices = round2_df.index.tolist()
+
+        def fake_infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
+            result = infer_round_number(df)
+            result.loc[remove_indices, "round_number"] = pd.NA
+            result["round_number"] = result["round_number"].astype("Int64")
+            return result
+
+        monkeypatch.setattr("co_president.data_polls.infer_round_number", fake_infer_round_number)
+        monkeypatch.setattr("co_president.data_polls._MIN_ROUND2_POLLSTERS", 0)
+
+        clean = load_and_clean_all(data_dir)
+        assert clean.round2.empty
