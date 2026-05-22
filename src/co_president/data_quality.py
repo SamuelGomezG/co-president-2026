@@ -57,7 +57,15 @@ _LATE_STAGE_START: pd.Timestamp = pd.Timestamp("2022-05-01")
 
 
 class TimeDecayResult(TypedDict):
-    """Return schema for validate_time_decay."""
+    """Return schema for validate_time_decay.
+
+    Attributes:
+        optimal_half_life_days: Derived optimal half-life from log-linear regression.
+        current_half_life_days: Current ModelConfig half-life value.
+        r_squared: Goodness of fit for the regression model.
+        recommendation: Action recommendation string.
+
+    """
 
     optimal_half_life_days: float
     current_half_life_days: float
@@ -66,7 +74,16 @@ class TimeDecayResult(TypedDict):
 
 
 class PollsterRatingRow(TypedDict):
-    """Row schema for pollster rating comparisons."""
+    """Row schema for pollster rating comparisons.
+
+    Attributes:
+        pollster: Pollster name or identifier.
+        la_silla_rating: La Silla Vacía pollster quality rating (0-10).
+        empirical_mae: Mean absolute error from empirical analysis.
+        empirical_score: Empirical accuracy score on 0-10 scale.
+        deviation: Deviation from la_silla_rating (empirical - rating).
+
+    """
 
     pollster: str
     la_silla_rating: float
@@ -76,7 +93,14 @@ class PollsterRatingRow(TypedDict):
 
 
 class MethodologyCandidateStats(TypedDict):
-    """Per-candidate methodology diagnostics based on MAE."""
+    """Per-candidate methodology diagnostics based on MAE.
+
+    Attributes:
+        methodology_mae: Mapping of methodology names to MAE values.
+        max_diff_pp: Maximum difference across methodologies (percentage points).
+        flagged: Whether the candidate exceeded the flag threshold.
+
+    """
 
     methodology_mae: dict[str, float]
     max_diff_pp: float
@@ -84,7 +108,15 @@ class MethodologyCandidateStats(TypedDict):
 
 
 class MethodologyEffectResult(TypedDict):
-    """Return schema for quantify_methodology_effect."""
+    """Return schema for quantify_methodology_effect.
+
+    Attributes:
+        per_candidate: Per-candidate methodology diagnostics.
+        methodology_counts: Count of polls per methodology.
+        flag_threshold_pp: Flagging threshold in percentage points.
+        any_flagged: Whether any candidates were flagged.
+
+    """
 
     per_candidate: dict[str, MethodologyCandidateStats]
     methodology_counts: dict[str, int]
@@ -114,7 +146,7 @@ def _compute_mae(
         actual_pct = results.get_share(key) * 100
         errors.append(abs(float(predicted) - actual_pct))
     if not errors:
-        return 0.0
+        return float("nan")
     return float(np.mean(errors))
 
 
@@ -152,7 +184,10 @@ def validate_pollster_ratings(
     mae_values: list[float] = []
     pollster_names: list[str] = []
     for pollster_name, row in last_polls.iterrows():
-        mae_values.append(_compute_mae(row, results))
+        mae = _compute_mae(row, results)
+        if np.isnan(mae):
+            continue
+        mae_values.append(mae)
         pollster_names.append(str(pollster_name))
     mae_series = pd.Series(mae_values, index=pollster_names)
 
@@ -228,6 +263,8 @@ def validate_time_decay(
     days_list: list[float] = []
     for _, row in polls.iterrows():
         mae = _compute_mae(row, results)
+        if np.isnan(mae):
+            continue
         days = float((election_date_ts - row["fecha"]).days)
         if days < 0:
             continue
