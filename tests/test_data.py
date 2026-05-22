@@ -1895,17 +1895,26 @@ class TestLoadAndCleanAll:
             assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
 
     def test_gad3_round2_count(self) -> None:
-        """Verify the number of GAD3 runoff tracking polls in round 2."""
+        """Verify the number of GAD3 runoff tracking polls in round 2.
+
+        10 waves are present (May 31-Jun 10). Wave 11 (Jun 11) was a
+        duplicate of wave 10 (identical sample and shares) and was removed.
+        """
         gad3_round2 = self.clean_polls.round2[
             self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
         ]
         assert len(gad3_round2) == 10
 
     def test_gad3_final_wave_not_duplicated(self) -> None:
-        """Verify the final GAD3 tracking wave appears only once in round 2."""
+        """Verify the final GAD3 tracking wave appears only once in round 2.
+
+        The final wave (2022-06-10) had muestra=5236 and was corrected from
+        an erroneous 2022-06-11 date to avoid duplication.
+        """
         gad3_round2 = self.clean_polls.round2[
             self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
         ]
+        # Final wave: 2022-06-10, n=5236 (largest sample, last tracking day)
         final_wave = gad3_round2[gad3_round2["muestra"] == 5236]
         assert len(final_wave) == 1
 
@@ -1924,11 +1933,10 @@ class TestLoadAndCleanAll:
     def test_all_polls_dates_monotonic_except_invamer(self) -> None:
         """Verify dates are non-decreasing except for the known Invamer anomaly."""
         fechas = self.clean_polls.all_polls["fecha"]
-        if fechas.is_monotonic_increasing:
-            return
         diffs = fechas.diff()
         out_of_order = diffs[diffs < pd.Timedelta(0)]
-        assert not out_of_order.empty
+        if out_of_order.empty:
+            return
         offending_rows = self.clean_polls.all_polls.loc[out_of_order.index]
         assert (
             (offending_rows["encuestadora"].str.strip() == "Invamer")
