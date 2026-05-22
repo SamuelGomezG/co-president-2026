@@ -151,6 +151,7 @@ CONSULTATION_VOTES: dict[str, int] = {
     "rodolfo_hernandez": 0,
     "ingrid_betancourt": 0,
 }
+
 # Note: Values are approximate (±200K) and serve as rough proxies for
 # coalition base support. The model can deviate if poll data disagrees.
 
@@ -248,12 +249,17 @@ def get_default_pollster_weight() -> float:
     Returns:
         Default weight factor for unrated pollsters.
 
+    Raises:
+        ValueError: If POLLSTER_RATINGS is empty.
+
     Examples:
-        >>> w = get_default_pollster_weight()
-        >>> 0.8 <= w <= 1.0
-        True
+        >>> get_default_pollster_weight()
+        0.908
 
     """
+    if not POLLSTER_RATINGS:
+        msg = "POLLSTER_RATINGS cannot be empty"
+        raise ValueError(msg)
     median_rating = statistics.median(POLLSTER_RATINGS.values())
     return pollster_weight_formula(median_rating)
 
