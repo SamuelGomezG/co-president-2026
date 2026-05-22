@@ -1505,7 +1505,7 @@ These are documented for awareness during implementation:
 
 3. **Centro Esperanza coalition split**: In the polls, Fajardo and Betancourt are tracked separately. In the official results, Centro Esperanza is a single coalition. Fajardo won the coalition's primary, so all Centro Esperanza votes in the Registraduría/MOE data are his. Betancourt's `0.40%` in the official results comes from votes she received independently after withdrawing from the coalition. SPEC-03 must handle this correctly.
 
-4. **GAD3 runoff polls not in main CSV**: The `co_elect` document mentions 11 GAD3 tracking polls for the runoff period that were manually added via `laquefalta.csv`. Our `encuestas_2022.csv` includes 1 GAD3 row (row 41, dated `2022-06-11`, the final tracking poll). The earlier GAD3 tracking polls are missing. For our purposes, the existing data is sufficient; if needed, we can add the missing GAD3 polls later.
+4. **GAD3 runoff polls now in main CSV**: The `co_elect` document mentions 11 GAD3 tracking polls for the runoff period that were manually added via `laquefalta.csv`. Our `encuestas_2022.csv` now includes all 11 GAD3 tracking rows (May 31–June 10), including the final wave dated `2022-06-10`.
 
 5. **ISO-8859-1 encoding**: `consultas.csv` and the MMV files use ISO-8859-1 (Latin-1) encoding with accented characters. Pandas must be told to use `encoding="latin-1"` or `encoding="iso-8859-1"`. Failure to do this will produce garbled Spanish characters (e.g., `RODOLFO HERN┴NDEZ` instead of `RODOLFO HERNÁNDEZ`).
 

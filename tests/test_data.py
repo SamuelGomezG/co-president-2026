@@ -1883,6 +1883,32 @@ class TestLoadAndCleanAll:
             row_sum = row[share_cols].sum()
             assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
 
+    def test_round2_shares_sum_to_100(self) -> None:
+        """Verify round 2 candidate+blanco+otros sum to ~100% after normalization."""
+        share_cols = [
+            c
+            for c in self.clean_polls.round2.columns
+            if c in {cand.key for cand in get_active_candidates(2)} or c in ("blanco", "otros")
+        ]
+        for idx, row in self.clean_polls.round2.iterrows():
+            row_sum = row[share_cols].sum()
+            assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
+
+    def test_gad3_round2_count(self) -> None:
+        """Verify the number of GAD3 runoff tracking polls in round 2."""
+        gad3_round2 = self.clean_polls.round2[
+            self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
+        ]
+        assert len(gad3_round2) == 10
+
+    def test_gad3_final_wave_not_duplicated(self) -> None:
+        """Verify the final GAD3 tracking wave appears only once in round 2."""
+        gad3_round2 = self.clean_polls.round2[
+            self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
+        ]
+        final_wave = gad3_round2[gad3_round2["muestra"] == 5236]
+        assert len(final_wave) == 1
+
     def test_ns_nr_is_zero_after_normalization(self) -> None:
         """Verify ns_nr is 0.0 in both rounds after normalization."""
         assert self.clean_polls.round1["ns_nr"].sum() == 0.0
@@ -1894,6 +1920,20 @@ class TestLoadAndCleanAll:
         assert "round_number" in self.clean_polls.all_polls.columns
         unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
         assert len(unclassified) > 0
+
+    def test_all_polls_dates_monotonic_except_invamer(self) -> None:
+        """Verify dates are non-decreasing except for the known Invamer anomaly."""
+        fechas = self.clean_polls.all_polls["fecha"]
+        if fechas.is_monotonic_increasing:
+            return
+        diffs = fechas.diff()
+        out_of_order = diffs[diffs < pd.Timedelta(0)]
+        assert not out_of_order.empty
+        offending_rows = self.clean_polls.all_polls.loc[out_of_order.index]
+        assert (
+            (offending_rows["encuestadora"].str.strip() == "Invamer")
+            & (offending_rows["fecha"] == pd.Timestamp("2022-04-19"))
+        ).all()
 
 
 # ── schema verification ──
