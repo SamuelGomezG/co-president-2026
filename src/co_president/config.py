@@ -6,11 +6,14 @@ downstream modules import from this module rather than hardcoding values.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import date
 import math
 import statistics
 from typing import Literal
+
+from co_president.paths import resolve_data_dir
 
 __all__ = [
     "COALITION_TO_CANDIDATE",
@@ -72,6 +75,8 @@ class ModelConfig:
         seed: RNG seed for reproducibility.
         time_decay_half_life_days: Days for poll weight to halve.
         consultation_prior_strength: Sigma for Normal prior on theta[T-1].
+            Can be overridden by candidate-specific values in
+            ``COMPUTED_CONSULTATION_PRIOR_STRENGTHS``.
 
     """
 
@@ -174,6 +179,14 @@ CONSULTATION_VOTES: dict[str, int] = {
     "ingrid_betancourt": 0,
 }
 
+CONSULTATION_KEY_MAP: dict[str, str] = {
+    "Gustavo Petro": "gustavo_petro",
+    "Federico Gutiérrez": "federico_gutierrez",
+    "Sergio Fajardo": "sergio_fajardo",
+    "Ingrid Betancourt": "ingrid_betancourt",
+    "Rodolfo Hernández": "rodolfo_hernandez",
+}
+
 # Note: Values are approximate (±200K) and serve as rough proxies for
 # coalition base support. The model can deviate if poll data disagrees.
 
@@ -215,6 +228,54 @@ def consultation_log_share_prior() -> dict[str, float]:
         else:
             shares[k] = math.log(min_share / 2.0)
     return shares
+
+
+def compute_consultation_prior_strength() -> dict[str, float]:
+    """Compute candidate-specific prior strengths from consultation polls.
+
+    Computes the standard deviation of consultation poll results for each
+    candidate, enforcing a minimum variance floor of 0.10. For candidates
+    without consultation data, uses a fallback of the mean strength * 1.5.
+
+    Returns:
+        Mapping of candidate key to prior standard deviation.
+
+    """
+    data_dir = resolve_data_dir(None)
+    csv_path = data_dir / "2022-polls" / "consultas.csv"
+    strengths: dict[str, list[float]] = {}
+
+    with csv_path.open(encoding="latin-1") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = row["candidato"]
+            if name in CONSULTATION_KEY_MAP:
+                key = CONSULTATION_KEY_MAP[name]
+                strengths.setdefault(key, []).append(float(row["int_voto"]))
+
+    results: dict[str, float] = {}
+    for key, values in strengths.items():
+        if len(values) > 1:
+            results[key] = max(0.10, statistics.stdev(values))
+        else:
+            results[key] = 0.10
+
+    # Fallback for Hernández
+    if "rodolfo_hernandez" not in results and results:
+        results["rodolfo_hernandez"] = statistics.mean(results.values()) * 1.5
+
+    return results
+
+
+def validate_consultation_prior_means(means: dict[str, float]) -> None:
+    """Validate that prior means are non-negative."""
+    for key, mean in means.items():
+        if mean < 0:
+            msg = f"Prior mean for {key} must be non-negative, got {mean}"
+            raise ValueError(msg)
+
+
+COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = compute_consultation_prior_strength()
 
 
 POLLSTER_RATINGS: dict[str, float] = {
@@ -363,11 +424,3 @@ TRANSFER_FAJARDO_HERNANDEZ: float = 0.50
 TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.75
 TRANSFER_GUTIERREZ_PETRO: float = 0.25
 TRANSFER_BLANCO_SPLIT: float = 0.50
-
-CONSULTATION_KEY_MAP: dict[str, str] = {
-    "Gustavo Petro": "gustavo_petro",
-    "Federico Gutiérrez": "federico_gutierrez",
-    "Sergio Fajardo": "sergio_fajardo",
-    "Ingrid Betancourt": "ingrid_betancourt",
-    "Rodolfo Hernández": "rodolfo_hernandez",
-}

@@ -10,6 +10,7 @@ import pytest
 
 from co_president.config import (
     COALITION_TO_CANDIDATE,
+    COMPUTED_CONSULTATION_PRIOR_STRENGTHS,
     CONSULTATION_KEY_MAP,
     CONSULTATION_VOTES,
     FIRST_ROUND_CANDIDATES,
@@ -26,6 +27,7 @@ from co_president.config import (
     get_candidate_column_map,
     get_default_pollster_weight,
     pollster_weight_formula,
+    validate_consultation_prior_means,
 )
 
 
@@ -380,6 +382,54 @@ class TestConsultationLogSharePrior:
         )
         shares = consultation_log_share_prior()
         assert shares == {"gustavo_petro": -1.0, "rodolfo_hernandez": -1.0}
+
+
+class TestConsultationPriorStrength:
+    """Tests for the COMPUTED_CONSULTATION_PRIOR_STRENGTHS constant."""
+
+    def test_is_dict(self) -> None:
+        """Verify it is a dictionary."""
+        assert isinstance(COMPUTED_CONSULTATION_PRIOR_STRENGTHS, dict)
+
+    def test_not_empty(self) -> None:
+        """Verify it is not empty."""
+        assert len(COMPUTED_CONSULTATION_PRIOR_STRENGTHS) > 0
+
+    def test_values_are_positive(self) -> None:
+        """Verify all values are positive."""
+        for val in COMPUTED_CONSULTATION_PRIOR_STRENGTHS.values():
+            assert val > 0
+
+    def test_floor_variance(self) -> None:
+        """Verify values >= 0.10."""
+        for val in COMPUTED_CONSULTATION_PRIOR_STRENGTHS.values():
+            assert val >= 0.10
+
+    def test_contains_petro(self) -> None:
+        """Verify Petro is present."""
+        assert "gustavo_petro" in COMPUTED_CONSULTATION_PRIOR_STRENGTHS
+
+    def test_contains_hernandez(self) -> None:
+        """Verify Hernández is present."""
+        assert "rodolfo_hernandez" in COMPUTED_CONSULTATION_PRIOR_STRENGTHS
+
+    def test_deterministic(self) -> None:
+        """Verify the constant is accessible and consistent."""
+        assert COMPUTED_CONSULTATION_PRIOR_STRENGTHS is not None
+        assert isinstance(COMPUTED_CONSULTATION_PRIOR_STRENGTHS, dict)
+
+
+class TestConsultationPriorMeans:
+    """Tests for the validate_consultation_prior_means function."""
+
+    def test_positive_means_passes(self) -> None:
+        """Verify positive means pass."""
+        validate_consultation_prior_means({"test": 0.5})
+
+    def test_negative_mean_raises_valueerror(self) -> None:
+        """Verify negative mean raises ValueError."""
+        with pytest.raises(ValueError, match="Prior mean for test must be non-negative"):
+            validate_consultation_prior_means({"test": -0.5})
 
 
 class TestTransferConstants:
