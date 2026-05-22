@@ -2,10 +2,6 @@
 
 Loads, cleans, normalizes, and filters poll data into a typed,
 analysis-ready ``CleanPolls`` container.
-
-NOTE: The 10 GAD3 tracking poll waves (May 31 - Jun 10) were recovered
-from Wikipedia and RCN Radio primary sources. See Issue #88 and
-MVP_SPECS_GUIDE.md Appendix 16.4. Wave 11 (2022-06-11) was already present.
 """
 
 from __future__ import annotations
@@ -282,6 +278,14 @@ def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
 
     Raises:
         ValueError: If any dates fail to parse.
+
+    Notes:
+        - GAD3 runoff tracking polls: this branch includes only Wave 11
+          (encuestadora ``GAD3``, fecha ``2022-06-11``). Missing waves
+          (May 30-Jun 10) are expected in `feat/add-gad3-tracking-polls`.
+        - Primary source for those tracking waves is RCN Radio; Spanish
+          Wikipedia was used for discovery only. See Appendix 16.4 in
+          `MVP_SPECS_GUIDE.md` for provenance details.
 
     """
     resolved = resolve_data_dir(data_dir)
