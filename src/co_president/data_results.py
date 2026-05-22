@@ -195,10 +195,10 @@ def _resolve_data_dir(data_dir: Path | None) -> Path:
     try:
         import co_president  # noqa: PLC0415
 
-        candidate = Path(co_president.__file__).resolve().parent.parent / "data"
+        candidate = Path(co_president.__file__).resolve().parent.parent.parent / "data"
         if candidate.is_dir():
             return candidate
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError, TypeError):
         pass
     fallback = Path(__file__).resolve().parent.parent.parent / "data"
     if not fallback.is_dir():
