@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import importlib
+import io
 import math
+import pathlib
+import statistics
 from typing import ClassVar
 
 import pytest
 
 from co_president.config import (
     COALITION_TO_CANDIDATE,
-    COMPUTED_CONSULTATION_PRIOR_STRENGTHS,
     CONSULTATION_KEY_MAP,
     CONSULTATION_VOTES,
     FIRST_ROUND_CANDIDATES,
@@ -22,6 +24,7 @@ from co_president.config import (
     TRANSFER_GUTIERREZ_PETRO,
     Candidate,
     ModelConfig,
+    compute_consultation_prior_strength,
     consultation_log_share_prior,
     get_active_candidates,
     get_candidate_column_map,
@@ -46,13 +49,13 @@ class TestCandidate:
         candidate = Candidate(
             key="gustavo_petro",
             display_name="Gustavo Petro",
-            coalition="Pacto Histórico",
+            coalition="Pacto Hist\u00f3rico",
             first_round=True,
             runoff=True,
         )
         assert candidate.key == "gustavo_petro"
         assert candidate.display_name == "Gustavo Petro"
-        assert candidate.coalition == "Pacto Histórico"
+        assert candidate.coalition == "Pacto Hist\u00f3rico"
         assert candidate.first_round is True
         assert candidate.runoff is True
 
@@ -100,6 +103,17 @@ class TestModelConfig:
         with pytest.raises(AttributeError):
             cfg.mcmc_draws = 9999  # type: ignore[misc]
 
+    def test_consultation_prior_strength_override_default(self) -> None:
+        """Verify consultation_prior_strength_override defaults to None."""
+        cfg = ModelConfig()
+        assert cfg.consultation_prior_strength_override is None
+
+    def test_consultation_prior_strength_override_custom(self) -> None:
+        """Verify consultation_prior_strength_override accepts a dict."""
+        overrides = {"gustavo_petro": 0.05}
+        cfg = ModelConfig(consultation_prior_strength_override=overrides)
+        assert cfg.consultation_prior_strength_override == overrides
+
 
 class TestFirstRoundCandidates:
     """Tests for the FIRST_ROUND_CANDIDATES registry."""
@@ -127,17 +141,17 @@ class TestFirstRoundCandidates:
         """Verify Gustavo Petro entry has correct coalition and runoff flag."""
         petro = FIRST_ROUND_CANDIDATES["gustavo_petro"]
         assert petro.display_name == "Gustavo Petro"
-        assert petro.coalition == "Pacto Histórico"
+        assert petro.coalition == "Pacto Hist\u00f3rico"
         assert petro.first_round is True
         assert petro.runoff is True
 
     def test_gutierrez_not_runoff(self) -> None:
-        """Verify Federico Gutiérrez is not in runoff."""
+        """Verify Federico Guti\u00e9rrez is not in runoff."""
         gz = FIRST_ROUND_CANDIDATES["federico_gutierrez"]
         assert gz.runoff is False
 
     def test_hernandez_is_runoff(self) -> None:
-        """Verify Rodolfo Hernández is flagged for runoff."""
+        """Verify Rodolfo Hern\u00e1ndez is flagged for runoff."""
         rodolfo = FIRST_ROUND_CANDIDATES["rodolfo_hernandez"]
         assert rodolfo.runoff is True
 
@@ -327,7 +341,7 @@ class TestConsultationVotes:
         assert CONSULTATION_VOTES["gustavo_petro"] > 0
 
     def test_hernandez_zero(self) -> None:
-        """Verify Hernández has zero (independent, no consultation)."""
+        """Verify Hern\u00e1ndez has zero (independent, no consultation)."""
         assert CONSULTATION_VOTES["rodolfo_hernandez"] == 0
 
 
@@ -358,7 +372,7 @@ class TestConsultationLogSharePrior:
             assert math.isfinite(v), f"Log-share for {k} is not finite: {v}"
 
     def test_non_zero_candidate_larger_than_zero(self) -> None:
-        """Verify Petro (non-zero votes) has a higher log-share than Hernández (zero)."""
+        """Verify Petro (non-zero votes) has a higher log-share than Hern\u00e1ndez (zero)."""
         shares = consultation_log_share_prior()
         assert shares["gustavo_petro"] > shares["rodolfo_hernandez"]
 
@@ -385,51 +399,171 @@ class TestConsultationLogSharePrior:
 
 
 class TestConsultationPriorStrength:
-    """Tests for the COMPUTED_CONSULTATION_PRIOR_STRENGTHS constant."""
+    """Tests for compute_consultation_prior_strength with monkeypatched CSV data."""
 
-    def test_is_dict(self) -> None:
-        """Verify it is a dictionary."""
-        assert isinstance(COMPUTED_CONSULTATION_PRIOR_STRENGTHS, dict)
+    CSV_HEADER = "candidato,int_voto\n"
+    CSV_MULTI = CSV_HEADER + (
+        # Wide spread so stdev > 0.10 after /100
+        "Gustavo Petro,90.0\n"
+        "Gustavo Petro,50.0\n"
+        "Gustavo Petro,70.0\n"
+        "Federico Gutierrez,81.0\n"
+        "Sergio Fajardo,84.0\n"
+    )
 
-    def test_not_empty(self) -> None:
-        """Verify it is not empty."""
-        assert len(COMPUTED_CONSULTATION_PRIOR_STRENGTHS) > 0
+    CSV_SINGLE = CSV_HEADER + ("Gustavo Petro,77.0\nFederico Gutierrez,81.0\nSergio Fajardo,84.0\n")
 
-    def test_values_are_positive(self) -> None:
+    CSV_EMPTY = CSV_HEADER + "\n"
+
+    def _patch_open(self, monkeypatch: pytest.MonkeyPatch, csv_text: str) -> None:
+        """Monkeypatch pathlib.Path.open to return fake CSV data."""
+
+        def fake_open(_self: pathlib.Path, **kwargs: object) -> io.StringIO:  # noqa: ARG001
+            return io.StringIO(csv_text)
+
+        monkeypatch.setattr(pathlib.Path, "open", fake_open)
+
+    def test_multiple_rows_returns_correct_stdev(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify stdev of multiple rows is computed on [0,1] values."""
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        result = compute_consultation_prior_strength()
+        # 90.0/100, 50.0/100, 70.0/100 → stdev on proportions
+        expected_stdev = statistics.stdev([0.9, 0.5, 0.7])
+        assert math.isclose(result["gustavo_petro"], expected_stdev)
+
+    def test_single_row_returns_floor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify a candidate with one data row gets the 0.10 floor."""
+        self._patch_open(monkeypatch, self.CSV_SINGLE)
+        result = compute_consultation_prior_strength()
+        assert result["gustavo_petro"] == 0.10
+
+    def test_hernandez_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify Hern\u00e1ndez (absent from data) gets mean * 1.5 fallback."""
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        result = compute_consultation_prior_strength()
+        assert "rodolfo_hernandez" in result
+        # Fallback = mean of existing strengths * 1.5
+        mean_existing = statistics.mean([v for k, v in result.items() if k != "rodolfo_hernandez"])
+        assert math.isclose(result["rodolfo_hernandez"], mean_existing * 1.5)
+
+    def test_contains_all_expected_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify candidates with non-zero CONSULTATION_VOTES have results."""
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        result = compute_consultation_prior_strength()
+        expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0] + ["rodolfo_hernandez"]
+        for key in expected:
+            assert key in result, f"{key} missing from results"
+
+    def test_values_are_positive(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify all values are positive."""
-        for val in COMPUTED_CONSULTATION_PRIOR_STRENGTHS.values():
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        for val in compute_consultation_prior_strength().values():
             assert val > 0
 
-    def test_floor_variance(self) -> None:
+    def test_floor_is_at_least_0_10(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify values >= 0.10."""
-        for val in COMPUTED_CONSULTATION_PRIOR_STRENGTHS.values():
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        for val in compute_consultation_prior_strength().values():
             assert val >= 0.10
 
-    def test_contains_petro(self) -> None:
-        """Verify Petro is present."""
-        assert "gustavo_petro" in COMPUTED_CONSULTATION_PRIOR_STRENGTHS
+    def test_not_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify the function returns non-empty dict."""
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        assert len(compute_consultation_prior_strength()) > 0
 
-    def test_contains_hernandez(self) -> None:
-        """Verify Hernández is present."""
-        assert "rodolfo_hernandez" in COMPUTED_CONSULTATION_PRIOR_STRENGTHS
+    def test_deterministic(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify two calls with same data return identical results."""
+        self._patch_open(monkeypatch, self.CSV_MULTI)
+        a = compute_consultation_prior_strength()
+        b = compute_consultation_prior_strength()
+        assert a == b
 
-    def test_deterministic(self) -> None:
-        """Verify the constant is accessible and consistent."""
-        assert COMPUTED_CONSULTATION_PRIOR_STRENGTHS is not None
-        assert isinstance(COMPUTED_CONSULTATION_PRIOR_STRENGTHS, dict)
+    def test_missing_key_raises_valueerror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify a missing CSV name for a mapped key raises ValueError."""
+        # CSV has "Federico Gutierrez" but map has "Federico Guti\u00e9rrez" — wait,
+        # we fixed the accent. Instead, test with data missing a key entirely.
+        csv_missing_fajardo = self.CSV_HEADER + "Gustavo Petro,77.0\n" + "Federico Gutierrez,81.0\n"
+        self._patch_open(monkeypatch, csv_missing_fajardo)
+        with pytest.raises(ValueError, match="No consultation data found"):
+            compute_consultation_prior_strength()
 
 
 class TestConsultationPriorMeans:
     """Tests for the validate_consultation_prior_means function."""
 
-    def test_positive_means_passes(self) -> None:
-        """Verify positive means pass."""
-        validate_consultation_prior_means({"test": 0.5})
+    CSV_DATA = (
+        "candidato,int_voto\nGustavo Petro,77.0\nFederico Gutierrez,81.0\nSergio Fajardo,84.0\n"
+    )
 
-    def test_negative_mean_raises_valueerror(self) -> None:
-        """Verify negative mean raises ValueError."""
-        with pytest.raises(ValueError, match="Prior mean for test must be non-negative"):
-            validate_consultation_prior_means({"test": -0.5})
+    def _write_csv(self, tmp_path: pathlib.Path) -> pathlib.Path:
+        path = tmp_path / "consultas.csv"
+        path.write_text(self.CSV_DATA, encoding="utf-8")
+        return path
+
+    def test_positive_means_passes(self, tmp_path: pathlib.Path) -> None:
+        """Verify a mean within polling range passes."""
+        csv_path = self._write_csv(tmp_path)
+        validate_consultation_prior_means(
+            {"gustavo_petro": 0.77},
+            consultas_path=str(csv_path),
+        )
+
+    def test_negative_mean_raises_valueerror(self, tmp_path: pathlib.Path) -> None:
+        """Verify negative mean raises ValueError when outside polling range."""
+        csv_path = tmp_path / "consultas.csv"
+        csv_path.write_text("candidato,int_voto\nGustavo Petro,77.0\n", encoding="utf-8")
+        with pytest.raises(ValueError, match=r"Prior mean for 'gustavo_petro' \(-0.5"):
+            validate_consultation_prior_means(
+                {"gustavo_petro": -0.5},
+                consultas_path=str(csv_path),
+            )
+
+    def test_empty_dict_passes(self, tmp_path: pathlib.Path) -> None:
+        """Verify an empty dict passes validation trivially."""
+        csv_path = self._write_csv(tmp_path)
+        validate_consultation_prior_means({}, consultas_path=str(csv_path))
+
+    def test_zero_mean(self, tmp_path: pathlib.Path) -> None:
+        """Verify a mean of 0.0 raises (outside polling range)."""
+        csv_path = self._write_csv(tmp_path)
+        with pytest.raises(
+            ValueError,
+            match=r"Prior mean for 'gustavo_petro' \(0.0000\) is outside polling range",
+        ):
+            validate_consultation_prior_means(
+                {"gustavo_petro": 0.0},
+                consultas_path=str(csv_path),
+            )
+
+    def test_multiple_keys(self, tmp_path: pathlib.Path) -> None:
+        """Verify multiple valid keys all pass."""
+        csv_path = self._write_csv(tmp_path)
+        validate_consultation_prior_means(
+            {
+                "gustavo_petro": 0.77,
+                "federico_gutierrez": 0.81,
+                "sergio_fajardo": 0.84,
+            },
+            consultas_path=str(csv_path),
+        )
+
+    def test_out_of_range_raises(self, tmp_path: pathlib.Path) -> None:
+        """Verify a mean above the polling max raises ValueError."""
+        csv_path = self._write_csv(tmp_path)
+        with pytest.raises(ValueError, match=r"Prior mean for 'gustavo_petro' \(0.99"):
+            validate_consultation_prior_means(
+                {"gustavo_petro": 0.99},
+                consultas_path=str(csv_path),
+            )
+
+    def test_no_data_for_key_raises(self, tmp_path: pathlib.Path) -> None:
+        """Verify a key with no polling data raises ValueError."""
+        csv_path = self._write_csv(tmp_path)
+        with pytest.raises(ValueError, match="No consultation data found for candidate"):
+            validate_consultation_prior_means(
+                {"rodolfo_hernandez": 0.50},
+                consultas_path=str(csv_path),
+            )
 
 
 class TestTransferConstants:
@@ -440,7 +574,7 @@ class TestTransferConstants:
         assert TRANSFER_FAJARDO_PETRO + TRANSFER_FAJARDO_HERNANDEZ == 1.0
 
     def test_gutierrez_transfers_sum_to_one(self) -> None:
-        """Verify Gutiérrez voter transfers partition correctly."""
+        """Verify Guti\u00e9rrez voter transfers partition correctly."""
         assert TRANSFER_GUTIERREZ_HERNANDEZ + TRANSFER_GUTIERREZ_PETRO == 1.0
 
     def test_all_in_unit_interval(self) -> None:
@@ -455,14 +589,14 @@ class TestTransferConstants:
             assert 0.0 <= val <= 1.0, f"TRANSFER_{name} out of range: {val}"
 
     def test_transfer_aggregate_split_approximates_observed(self) -> None:
-        """Verify the aggregate transfer split approximates the observed 73/27."""
-        # Aggregate flow to Petro: (Fajardo*Petro + Gutiérrez*Petro) / 2
+        """Verify the aggregate transfer split approximates the observed 73/27 within \u00b15pp."""
+        # Aggregate flow to Petro: (Fajardo*Petro + Guti\u00e9rrez*Petro) / 2
         flow_petro = (TRANSFER_FAJARDO_PETRO + TRANSFER_GUTIERREZ_PETRO) / 2
-        # Aggregate flow to Hernández: (Fajardo*Hernandez + Gutiérrez*Hernandez) / 2
+        # Aggregate flow to Hern\u00e1ndez: (Fajardo*Hernandez + Guti\u00e9rrez*Hernandez) / 2
         flow_hernandez = (TRANSFER_FAJARDO_HERNANDEZ + TRANSFER_GUTIERREZ_HERNANDEZ) / 2
 
-        assert math.isclose(flow_petro, 0.27, abs_tol=0.15)
-        assert math.isclose(flow_hernandez, 0.73, abs_tol=0.15)
+        assert math.isclose(flow_petro, 0.27, abs_tol=0.05)
+        assert math.isclose(flow_hernandez, 0.73, abs_tol=0.05)
 
 
 class TestConsultationKeyMap:
@@ -472,10 +606,10 @@ class TestConsultationKeyMap:
         """Verify 5 expected human-readable names are present."""
         expected = {
             "Gustavo Petro",
-            "Federico Gutiérrez",
+            "Federico Gutierrez",
             "Sergio Fajardo",
             "Ingrid Betancourt",
-            "Rodolfo Hernández",
+            "Rodolfo Hern\u00e1ndez",
         }
         assert set(CONSULTATION_KEY_MAP) == expected
 

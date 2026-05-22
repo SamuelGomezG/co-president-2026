@@ -2,6 +2,20 @@
 
 Candidate maps, dates, pollster ratings, and model hyperparameters. All
 downstream modules import from this module rather than hardcoding values.
+
+Transfer-heuristic constants for the runoff vote flow
+-----------------------------------------------------
+Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
+  ~73% of eliminated-candidate votes flow to Hern\u00e1ndez
+  ~27% flow to Petro
+
+Per-candidate constants were calibrated to match this aggregate split.
+Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
+Petro and Hern\u00e1ndez).
+
+Ecological inference limitation: per-candidate transfer rates cannot be
+identified from aggregate data alone. The constants below are heuristics,
+not empirically identified parameters.
 """
 
 from __future__ import annotations
@@ -9,7 +23,9 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from datetime import date
+import functools
 import math
+from pathlib import Path
 import statistics
 from typing import Literal
 
@@ -17,6 +33,7 @@ from co_president.paths import resolve_data_dir
 
 __all__ = [
     "COALITION_TO_CANDIDATE",
+    "COMPUTED_CONSULTATION_PRIOR_STRENGTHS",
     "CONSULTATION_DATE",
     "CONSULTATION_KEY_MAP",
     "CONSULTATION_VOTES",
@@ -31,10 +48,13 @@ __all__ = [
     "TRANSFER_GUTIERREZ_PETRO",
     "Candidate",
     "ModelConfig",
+    "compute_consultation_prior_strength",
     "consultation_log_share_prior",
     "get_active_candidates",
     "get_candidate_column_map",
+    "get_computed_consultation_prior_strengths",
     "pollster_weight_formula",
+    "validate_consultation_prior_means",
 ]
 
 
@@ -45,7 +65,7 @@ class Candidate:
     Attributes:
         key: Internal key matching column names in polls.
         display_name: Human-readable name.
-        coalition: Coalition the candidate runs under (e.g. "Pacto Histórico").
+        coalition: Coalition the candidate runs under (e.g. "Pacto Hist\u00f3rico").
         first_round: Whether the candidate ran in the first round.
         runoff: Whether the candidate made the runoff.
 
@@ -77,6 +97,10 @@ class ModelConfig:
         consultation_prior_strength: Sigma for Normal prior on theta[T-1].
             Can be overridden by candidate-specific values in
             ``COMPUTED_CONSULTATION_PRIOR_STRENGTHS``.
+        consultation_prior_strength_override: Candidate-specific override of
+            ``consultation_prior_strength``. Keys are candidate keys, values
+            are standard-deviation strengths. When provided, these take
+            precedence over ``COMPUTED_CONSULTATION_PRIOR_STRENGTHS``.
 
     """
 
@@ -92,27 +116,28 @@ class ModelConfig:
     seed: int = 332211
     time_decay_half_life_days: float = 30.0
     consultation_prior_strength: float = 0.5
+    consultation_prior_strength_override: dict[str, float] | None = None
 
 
 FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
     "gustavo_petro": Candidate(
         key="gustavo_petro",
         display_name="Gustavo Petro",
-        coalition="Pacto Histórico",
+        coalition="Pacto Hist\u00f3rico",
         first_round=True,
         runoff=True,
     ),
     "federico_gutierrez": Candidate(
         key="federico_gutierrez",
-        display_name="Federico Gutiérrez",
+        display_name="Federico Guti\u00e9rrez",
         coalition="Equipo por Colombia",
         first_round=True,
         runoff=False,
     ),
     "rodolfo_hernandez": Candidate(
         key="rodolfo_hernandez",
-        display_name="Rodolfo Hernández",
-        coalition="Liga de Gobernantes Anticorrupción",
+        display_name="Rodolfo Hern\u00e1ndez",
+        coalition="Liga de Gobernantes Anticorrupci\u00f3n",
         first_round=True,
         runoff=True,
     ),
@@ -181,13 +206,13 @@ CONSULTATION_VOTES: dict[str, int] = {
 
 CONSULTATION_KEY_MAP: dict[str, str] = {
     "Gustavo Petro": "gustavo_petro",
-    "Federico Gutiérrez": "federico_gutierrez",
+    "Federico Gutierrez": "federico_gutierrez",
     "Sergio Fajardo": "sergio_fajardo",
     "Ingrid Betancourt": "ingrid_betancourt",
-    "Rodolfo Hernández": "rodolfo_hernandez",
+    "Rodolfo Hern\u00e1ndez": "rodolfo_hernandez",
 }
 
-# Note: Values are approximate (±200K) and serve as rough proxies for
+# Note: Values are approximate (\u00b1200K) and serve as rough proxies for
 # coalition base support. The model can deviate if poll data disagrees.
 
 
@@ -233,25 +258,31 @@ def consultation_log_share_prior() -> dict[str, float]:
 def compute_consultation_prior_strength() -> dict[str, float]:
     """Compute candidate-specific prior strengths from consultation polls.
 
-    Computes the standard deviation of consultation poll results for each
-    candidate, enforcing a minimum variance floor of 0.10. For candidates
-    without consultation data, uses a fallback of the mean strength * 1.5.
+    Reads ``consultas.csv`` from the project data directory, groups poll
+    results by candidate, and computes the standard deviation of ``int_voto``
+    values (expressed as proportions in [0,1]). Enforces a minimum standard
+    deviation floor of 0.10. For candidates without consultation data, uses a
+    fallback of the mean strength * 1.5.
 
     Returns:
         Mapping of candidate key to prior standard deviation.
+
+    Raises:
+        ValueError: If any key in ``CONSULTATION_KEY_MAP`` produced zero rows,
+            indicating a name mismatch between the CSV and the key map.
 
     """
     data_dir = resolve_data_dir(None)
     csv_path = data_dir / "2022-polls" / "consultas.csv"
     strengths: dict[str, list[float]] = {}
 
-    with csv_path.open(encoding="latin-1") as f:
+    with csv_path.open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             name = row["candidato"]
             if name in CONSULTATION_KEY_MAP:
                 key = CONSULTATION_KEY_MAP[name]
-                strengths.setdefault(key, []).append(float(row["int_voto"]))
+                strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
 
     results: dict[str, float] = {}
     for key, values in strengths.items():
@@ -260,22 +291,85 @@ def compute_consultation_prior_strength() -> dict[str, float]:
         else:
             results[key] = 0.10
 
-    # Fallback for Hernández
+    # Fallback for Hern\u00e1ndez (independent, no consultation data)
     if "rodolfo_hernandez" not in results and results:
         results["rodolfo_hernandez"] = statistics.mean(results.values()) * 1.5
+
+    # Candidates with non-zero consultation votes are expected in the CSV;
+    # those with zero votes (e.g. Hern\u00e1ndez, Betancourt) are independents
+    # who did not participate in a consultation.
+    expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
+    missing = [k for k in expected if k not in results]
+    if missing:
+        msg = f"No consultation data found for candidates: {missing}"
+        raise ValueError(msg)
 
     return results
 
 
-def validate_consultation_prior_means(means: dict[str, float]) -> None:
-    """Validate that prior means are non-negative."""
+def validate_consultation_prior_means(
+    means: dict[str, float],
+    consultas_path: str | None = None,
+) -> None:
+    """Validate prior means against ``consultas.csv`` polling ranges.
+
+    Reads ``consultas.csv``, groups by candidate key (using
+    ``CONSULTATION_KEY_MAP``), and computes the min/max ``int_voto/100`` for
+    each candidate. Every mean must fall within ``[min, max]`` of that
+    candidate's polling range.
+
+    Args:
+        means: Mapping of candidate key to prior mean (proportion in [0,1]).
+        consultas_path: Override path to ``consultas.csv``. If ``None``,
+            resolves via ``resolve_data_dir``.
+
+    Raises:
+        ValueError: If any mean falls outside its candidate's polling range,
+            or if a candidate key has no polling data.
+
+    """
+    if consultas_path is None:
+        data_dir = resolve_data_dir(None)
+        consultas_path = str(data_dir / "2022-polls" / "consultas.csv")
+
+    ranges: dict[str, list[float]] = {}
+    with Path(consultas_path).open(encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = row["candidato"]
+            if name in CONSULTATION_KEY_MAP:
+                key = CONSULTATION_KEY_MAP[name]
+                ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
+
     for key, mean in means.items():
-        if mean < 0:
-            msg = f"Prior mean for {key} must be non-negative, got {mean}"
+        if key not in ranges:
+            msg = f"No consultation data found for candidate '{key}'"
+            raise ValueError(msg)
+        vals = ranges[key]
+        lo, hi = min(vals), max(vals)
+        if not (lo <= mean <= hi):
+            msg = (
+                f"Prior mean for '{key}' ({mean:.4f}) is outside polling range [{lo:.4f}, {hi:.4f}]"
+            )
             raise ValueError(msg)
 
 
-COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = compute_consultation_prior_strength()
+@functools.cache
+def get_computed_consultation_prior_strengths() -> dict[str, float]:
+    """Memoized wrapper around ``compute_consultation_prior_strength``.
+
+    Returns:
+        Mapping of candidate key to prior standard deviation, computed from
+        ``consultas.csv``.
+
+    """
+    return compute_consultation_prior_strength()
+
+
+# Backward-compatible alias for the memoized function result.
+COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = (
+    get_computed_consultation_prior_strengths()
+)
 
 
 POLLSTER_RATINGS: dict[str, float] = {
@@ -302,7 +396,7 @@ def pollster_weight_formula(rating: float) -> float:
     to the range [0.8, 1.0].
 
     Args:
-        rating: La Silla Vacía pollster quality rating (0-10 scale).
+        rating: La Silla Vac\u00eda pollster quality rating (0-10 scale).
 
     Returns:
         Weight factor between 0.8 and 1.0.
@@ -405,22 +499,8 @@ def get_candidate_column_map() -> dict[str, str]:
     return {key: key for key in FIRST_ROUND_CANDIDATES}
 
 
-# Transfer-heuristic constants for the runoff vote flow.
-#
-# Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
-#   ~73% of eliminated-candidate votes flow to Hernández
-#   ~27% flow to Petro
-#
-# Per-candidate constants were calibrated to match this aggregate split.
-# Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
-# Petro and Hernández).
-#
-# Note:
-#     Ecological inference limitation: per-candidate transfer rates
-#     cannot be identified from aggregate data alone. The constants
-#     below are heuristics, not empirically identified parameters.
-TRANSFER_FAJARDO_PETRO: float = 0.50
-TRANSFER_FAJARDO_HERNANDEZ: float = 0.50
-TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.75
-TRANSFER_GUTIERREZ_PETRO: float = 0.25
+TRANSFER_FAJARDO_PETRO: float = 0.40
+TRANSFER_FAJARDO_HERNANDEZ: float = 0.60
+TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.87
+TRANSFER_GUTIERREZ_PETRO: float = 0.13
 TRANSFER_BLANCO_SPLIT: float = 0.50
