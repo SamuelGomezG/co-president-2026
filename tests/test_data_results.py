@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from co_president.config import (
+    COALITION_TO_CANDIDATE,
     ELECTION_DATE_ROUND1,
     ELECTION_DATE_ROUND2,
     get_active_candidates,
@@ -20,6 +21,7 @@ from co_president.config import (
 from co_president.data_results import (
     CandidateResult,
     RoundResult,
+    _aggregate_and_map,
     _build_round_result,
     _compute_candidate_results,
     _extract_excluded_votes,
@@ -27,6 +29,7 @@ from co_president.data_results import (
     _read_mmv,
     _read_moe,
     _read_participation,
+    _resolve_mmv_path,
     consolidate_round,
     cross_validate,
     load_canonical_results,
@@ -357,6 +360,24 @@ class TestResultHelpers:
         with pytest.raises(ValueError, match="VOTOS"):
             _read_mmv(path)
 
+    def test_read_mmv_gz_supported(self, tmp_path: Path) -> None:
+        """Verify gzip-compressed MMV files are readable."""
+        path = tmp_path / "mmv.csv.gz"
+        df = pd.DataFrame({"PARNOMBRE": ["A"], "VOTOS": [1]})
+        df.to_csv(path, sep=";", index=False, encoding="latin-1", compression="gzip")
+        result = _read_mmv(path)
+        assert "PARNOMBRE" in result.columns
+        assert "VOTOS" in result.columns
+
+    def test_resolve_mmv_path_prefers_gz_when_csv_missing(self, tmp_path: Path) -> None:
+        """Verify MMV path resolution falls back to .csv.gz when .csv is absent."""
+        stem = "MMV_TEST"
+        gz_path = tmp_path / f"{stem}.csv.gz"
+        df = pd.DataFrame({"PARNOMBRE": ["A"], "VOTOS": [1]})
+        df.to_csv(gz_path, sep=";", index=False, encoding="latin-1", compression="gzip")
+        resolved = _resolve_mmv_path(tmp_path, stem)
+        assert resolved == gz_path
+
     def test_read_moe_missing_nomparti_raises(self, tmp_path: Path) -> None:
         """Verify missing nomparti column raises ValueError."""
         path = tmp_path / "moe.csv"
@@ -464,6 +485,31 @@ class TestResultHelpers:
         candidate_df = pd.DataFrame({"votes": [250]}, index=["gustavo_petro"])
         results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
         assert results[0].vote_share == pytest.approx(0.25)
+
+    def test_build_round_result_zero_valid_votes_raises(self) -> None:
+        """Verify ValueError when total valid votes is zero after aggregation."""
+        aggregated = pd.DataFrame({"votes": [100]}, index=["blanco"])
+        with pytest.raises(ValueError, match="zero total valid votes"):
+            _build_round_result(
+                aggregated,
+                1,
+                registered_voters=1000,
+                polling_stations=10,
+            )
+
+    def test_unmapped_coalition_accumulates_rest_with_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verify unmapped coalitions accumulate into rest and log a warning."""
+        mapped_name = next(iter(COALITION_TO_CANDIDATE))
+        mapped_key = COALITION_TO_CANDIDATE[mapped_name]
+        df = pd.DataFrame({"name": [mapped_name, "UNKNOWN COALITION"], "votes": [100, 25]})
+        with caplog.at_level(logging.WARNING, logger="co_president.data_results"):
+            result = _aggregate_and_map(df, "name", "votes")
+        assert int(result.loc[mapped_key, "votes"]) == 100
+        assert int(result.loc["rest", "votes"]) == 25
+        assert any("Unmapped coalition name" in msg for msg in caplog.messages)
 
 
 # ═══════════════════════════════════════════════════════════════════
