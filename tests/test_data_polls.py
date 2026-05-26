@@ -1,9 +1,4 @@
-"""SPEC-03+04: Tests for election results consolidation and poll data loading.
-
-Tests cover CandidateResult/RoundResult/CandidateShares dataclasses,
-data loaders, cross-validation, consolidation, poll cleaning functions,
-and end-to-end load_actual_results() / load_and_clean_all().
-"""
+"""SPEC-04: Poll data loading & cleaning tests."""
 
 from __future__ import annotations
 
@@ -18,11 +13,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from co_president.config import (
-    ELECTION_DATE_ROUND1,
-    ELECTION_DATE_ROUND2,
-    get_active_candidates,
-)
+from co_president.config import get_active_candidates
 from co_president.data_polls import (
     _SHARE_COLS_EXCLUDED,
     CandidateShares,
@@ -44,672 +35,13 @@ from co_president.data_polls import (
     parse_consultations,
     retain_active_candidates,
 )
-from co_president.data_results import (
-    CandidateResult,
-    RoundResult,
-    _build_round_result,
-    _compute_candidate_results,
-    _extract_excluded_votes,
-    _merge_blanco_into_rest,
-    _read_mmv,
-    _read_moe,
-    _read_participation,
-    consolidate_round,
-    cross_validate,
-    load_canonical_results,
-    load_moe_round1,
-    load_moe_round2,
-    load_participation_round1,
-    load_participation_round2,
-    load_registraduria_round1,
-    load_registraduria_round2,
-)
 from co_president.paths import resolve_data_dir
 
-# ═══════════════════════════════════════════════════════════════════
-# CandidateResult unit tests
-# ═══════════════════════════════════════════════════════════════════
 
-
-class TestCandidateResult:
-    """Tests for the CandidateResult frozen dataclass."""
-
-    def test_instantiation(self) -> None:
-        """Verify CandidateResult creates with all fields."""
-        cr = CandidateResult(candidate_key="gustavo_petro", votes=8_542_020, vote_share=0.4034)
-        assert cr.candidate_key == "gustavo_petro"
-        assert cr.votes == 8_542_020
-        assert cr.vote_share == 0.4034
-
-    def test_immutability(self) -> None:
-        """Verify frozen dataclass rejects attribute assignment."""
-        cr = CandidateResult(candidate_key="test", votes=100, vote_share=0.5)
-        with pytest.raises(FrozenInstanceError):
-            cr.candidate_key = "changed"  # type: ignore[misc]
-
-
-# ═══════════════════════════════════════════════════════════════════
-# RoundResult unit tests
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestRoundResult:
-    """Tests for the RoundResult frozen dataclass and its methods."""
-
-    @pytest.fixture
-    def sample_candidates(self) -> tuple[CandidateResult, ...]:
-        """Provide a canonical 3-candidate round-1-like result."""
-        return (
-            CandidateResult("gustavo_petro", 8_542_020, 0.4034),
-            CandidateResult("rodolfo_hernandez", 5_965_531, 0.2815),
-            CandidateResult("federico_gutierrez", 5_069_526, 0.2389),
-        )
-
-    @pytest.fixture
-    def sample_result(self, sample_candidates: tuple[CandidateResult, ...]) -> RoundResult:
-        """Provide a RoundResult instance for method tests."""
-        return RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=19_577_077,  # sum of 3 candidate votes
-            total_votes_incl_blank=19_942_854,  # total_valid + blank
-            registered_voters=38_971_664,
-            polling_stations=12_505,
-            candidates=sample_candidates,
-            blank_votes=365_777,
-            null_votes=241_826,
-            unmarked_votes=26_632,
-        )
-
-    def test_instantiation(self, sample_result: RoundResult) -> None:
-        """Verify RoundResult stores all fields correctly."""
-        assert sample_result.round_number == 1
-        assert sample_result.date == ELECTION_DATE_ROUND1
-        assert sample_result.total_valid_votes == 19_577_077
-        assert sample_result.total_votes_incl_blank == 19_942_854
-        assert sample_result.total_votes_incl_blank > sample_result.total_valid_votes
-        assert sample_result.registered_voters == 38_971_664
-        assert sample_result.polling_stations == 12_505
-        assert len(sample_result.candidates) == 3
-        assert sample_result.blank_votes == 365_777
-        assert sample_result.null_votes == 241_826
-        assert sample_result.unmarked_votes == 26_632
-
-    def test_immutability(self, sample_result: RoundResult) -> None:
-        """Verify frozen dataclass rejects attribute assignment."""
-        with pytest.raises(FrozenInstanceError):
-            sample_result.round_number = 2  # type: ignore[misc]
-
-    # ── get_share ──
-
-    def test_get_share_found(self, sample_result: RoundResult) -> None:
-        """Verify get_share returns the correct vote share for an existing key."""
-        assert sample_result.get_share("gustavo_petro") == 0.4034
-
-    def test_get_share_not_found(self, sample_result: RoundResult) -> None:
-        """Verify get_share raises KeyError for a missing candidate."""
-        with pytest.raises(KeyError):
-            sample_result.get_share("nonexistent")
-
-    # ── get_candidates_above ──
-
-    def test_get_candidates_above_some(self, sample_result: RoundResult) -> None:
-        """Verify candidates exceeding the threshold are returned."""
-        above = sample_result.get_candidates_above(25.0)
-        keys = [c.candidate_key for c in above]
-        assert keys == ["gustavo_petro", "rodolfo_hernandez"]
-
-    def test_get_candidates_above_none(self, sample_result: RoundResult) -> None:
-        """Verify empty list when no candidate meets the threshold."""
-        above = sample_result.get_candidates_above(99.0)
-        assert above == []
-
-    def test_get_candidates_above_all(self, sample_result: RoundResult) -> None:
-        """Verify all candidates returned when threshold is 0."""
-        above = sample_result.get_candidates_above(0.0)
-        assert len(above) == 3
-
-    # ── top_two ──
-
-    def test_top_two_round1(self, sample_result: RoundResult) -> None:
-        """Verify top_two returns the two highest-vote candidates in order."""
-        first, second = sample_result.top_two()
-        assert first.candidate_key == "gustavo_petro"
-        assert second.candidate_key == "rodolfo_hernandez"
-
-    def test_top_two_not_enough_candidates(self) -> None:
-        """Verify top_two raises ValueError when fewer than 2 candidates exist."""
-        result = RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=1000,
-            total_votes_incl_blank=1000,
-            registered_voters=2000,
-            polling_stations=50,
-            candidates=(CandidateResult("gustavo_petro", 1000, 1.0),),
-            blank_votes=0,
-            null_votes=0,
-            unmarked_votes=0,
-        )
-        with pytest.raises(ValueError, match="fewer than 2"):
-            result.top_two()
-
-    # ── turnout ──
-
-    def test_turnout_normal(self, sample_result: RoundResult) -> None:
-        """Verify turnout is correctly computed as total_votes_incl_blank / registered."""
-        expected = 19_942_854 / 38_971_664
-        assert sample_result.turnout() == pytest.approx(expected)
-
-    def test_turnout_zero_registered(self) -> None:
-        """Verify turnout raises ZeroDivisionError when registered_voters is 0."""
-        result = RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=1000,
-            total_votes_incl_blank=1000,
-            registered_voters=0,
-            polling_stations=0,
-            candidates=(CandidateResult("gustavo_petro", 1000, 1.0),),
-            blank_votes=0,
-            null_votes=0,
-            unmarked_votes=0,
-        )
-        with pytest.raises(ZeroDivisionError):
-            result.turnout()
-
-
-# ═══════════════════════════════════════════════════════════════════
-# cross_validate unit tests
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestCrossValidate:
-    """Tests for the cross_validate function."""
-
-    @pytest.fixture
-    def base_result(self) -> RoundResult:
-        """Return a minimal RoundResult for cross-validation tests."""
-        candidates = (
-            CandidateResult("gustavo_petro", 1_000_000, 0.40),
-            CandidateResult("rodolfo_hernandez", 750_000, 0.30),
-        )
-        return RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=1_750_000,
-            total_votes_incl_blank=2_560_000,  # total_valid + blank + null + unmarked
-            registered_voters=5_000_000,
-            polling_stations=100,
-            candidates=candidates,
-            blank_votes=500_000,
-            null_votes=50_000,
-            unmarked_votes=10_000,
-        )
-
-    def test_identical_results_returns_empty(self, base_result: RoundResult) -> None:
-        """Verify identical RoundResults produce zero warnings."""
-        warnings = cross_validate(base_result, base_result)
-        assert warnings == []
-
-    def test_differing_total_votes_returns_warning(self, base_result: RoundResult) -> None:
-        """Verify total valid vote mismatch beyond 0.10% produces a warning."""
-        moe = RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=1_746_500,  # 0.20% less, exceeds 0.10% tolerance
-            total_votes_incl_blank=2_556_500,
-            registered_voters=5_000_000,
-            polling_stations=100,
-            candidates=base_result.candidates,
-            blank_votes=250_000,
-            null_votes=50_000,
-            unmarked_votes=10_000,
-        )
-        warnings = cross_validate(base_result, moe)
-        assert len(warnings) >= 1
-        assert any("total valid votes" in w.lower() for w in warnings)
-
-    def test_differing_shares_returns_warnings(self, base_result: RoundResult) -> None:
-        """Verify candidate share mismatch beyond 0.50pp produces warnings (0.60pp diff)."""
-        diff_candidates = (
-            CandidateResult(
-                "gustavo_petro", 1_000_000, 0.394
-            ),  # 0.60pp lower (unambiguously > 0.50pp)
-            CandidateResult("rodolfo_hernandez", 750_000, 0.306),  # 0.60pp higher
-        )
-        moe = RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=1_750_000,
-            total_votes_incl_blank=2_560_000,
-            registered_voters=5_000_000,
-            polling_stations=100,
-            candidates=diff_candidates,
-            blank_votes=250_000,
-            null_votes=50_000,
-            unmarked_votes=10_000,
-        )
-        warnings = cross_validate(base_result, moe)
-        assert len(warnings) >= 2  # one per differing candidate
-
-
-# ═══════════════════════════════════════════════════════════════════
-# consolidate_round unit tests
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestConsolidateRound:
-    """Tests for the consolidate_round function."""
-
-    @pytest.fixture
-    def reg_result(self) -> RoundResult:
-        """Return a canonical Registraduría result."""
-        candidates = (
-            CandidateResult("gustavo_petro", 1_000_000, 0.40),
-            CandidateResult("rodolfo_hernandez", 750_000, 0.30),
-        )
-        return RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=1_750_000,
-            total_votes_incl_blank=2_560_000,
-            registered_voters=5_000_000,
-            polling_stations=100,
-            candidates=candidates,
-            blank_votes=250_000,
-            null_votes=50_000,
-            unmarked_votes=10_000,
-        )
-
-    def test_matching_returns_registraduria_unchanged(
-        self,
-        reg_result: RoundResult,
-    ) -> None:
-        """Verify consolidate_round returns Registraduría unchanged when MOE matches."""
-        result = consolidate_round(reg_result, reg_result, 1)
-        assert result is reg_result  # same object returned
-
-    def test_discrepancy_exceeds_tolerance_raises_valueerror(
-        self,
-        reg_result: RoundResult,
-    ) -> None:
-        """Verify consolidate_round raises ValueError when diff exceeds tolerance."""
-        bad_moe = RoundResult(
-            round_number=1,
-            date=ELECTION_DATE_ROUND1,
-            total_valid_votes=200_000,  # massively different
-            total_votes_incl_blank=200_000,
-            registered_voters=5_000_000,
-            polling_stations=100,
-            candidates=(
-                CandidateResult("gustavo_petro", 100_000, 0.50),
-                CandidateResult("rodolfo_hernandez", 100_000, 0.50),
-            ),
-            blank_votes=0,
-            null_votes=0,
-            unmarked_votes=0,
-        )
-        with pytest.raises(ValueError, match=r"[Cc]onsolidation"):
-            consolidate_round(reg_result, bad_moe, 1)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Helper unit tests
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestResultHelpers:
-    """Tests for internal result helper functions."""
-
-    def test_read_mmv_missing_parnombre_raises(self, tmp_path: Path) -> None:
-        """Verify missing PARNOMBRE column raises ValueError."""
-        path = tmp_path / "mmv.csv"
-        df = pd.DataFrame({"VOTOS": [1, 2, 3]})
-        df.to_csv(path, sep=";", index=False, encoding="latin-1")
-        with pytest.raises(ValueError, match="PARNOMBRE"):
-            _read_mmv(path)
-
-    def test_read_mmv_missing_votos_raises(self, tmp_path: Path) -> None:
-        """Verify missing VOTOS column raises ValueError."""
-        path = tmp_path / "mmv.csv"
-        df = pd.DataFrame({"PARNOMBRE": ["A", "B"]})
-        df.to_csv(path, sep=";", index=False, encoding="latin-1")
-        with pytest.raises(ValueError, match="VOTOS"):
-            _read_mmv(path)
-
-    def test_read_moe_missing_nomparti_raises(self, tmp_path: Path) -> None:
-        """Verify missing nomparti column raises ValueError."""
-        path = tmp_path / "moe.csv"
-        df = pd.DataFrame({"votos": [10, 20]})
-        df.to_csv(path, index=False, encoding="utf-8")
-        with pytest.raises(ValueError, match="nomparti"):
-            _read_moe(path)
-
-    def test_read_moe_missing_votos_raises(self, tmp_path: Path) -> None:
-        """Verify missing votos column raises ValueError."""
-        path = tmp_path / "moe.csv"
-        df = pd.DataFrame({"nomparti": ["A", "B"]})
-        df.to_csv(path, index=False, encoding="utf-8")
-        with pytest.raises(ValueError, match="votos"):
-            _read_moe(path)
-
-    def test_read_participation_missing_total_censo_raises(self, tmp_path: Path) -> None:
-        """Verify missing Total censo column raises ValueError."""
-        path = tmp_path / "participation.csv"
-        df = pd.DataFrame({"Código Puesto": [1, 2]})
-        df.to_csv(path, index=False, encoding="utf-8-sig")
-        with pytest.raises(ValueError, match="Total censo"):
-            _read_participation(path)
-
-    def test_read_participation_missing_codigo_puesto_raises(self, tmp_path: Path) -> None:
-        """Verify missing Código Puesto column raises ValueError."""
-        path = tmp_path / "participation.csv"
-        df = pd.DataFrame({"Total censo": [100, 200]})
-        df.to_csv(path, index=False, encoding="utf-8-sig")
-        with pytest.raises(ValueError, match="Código Puesto"):
-            _read_participation(path)
-
-    def test_extract_excluded_votes_all_present(self) -> None:
-        """Verify excluded votes are extracted when all keys exist."""
-        aggregated = pd.DataFrame(
-            {"votes": [10, 5, 3, 100]},
-            index=["nulos", "no_marcados", "blanco", "gustavo_petro"],
-        )
-        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
-        assert null_votes == 10
-        assert unmarked_votes == 5
-        assert blank_votes == 3
-
-    def test_extract_excluded_votes_some_missing(self) -> None:
-        """Verify missing keys default to 0 when extracting excluded votes."""
-        aggregated = pd.DataFrame({"votes": [7, 200]}, index=["nulos", "rest"])
-        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
-        assert null_votes == 7
-        assert unmarked_votes == 0
-        assert blank_votes == 0
-
-    def test_extract_excluded_votes_all_missing(self) -> None:
-        """Verify all excluded votes default to 0 when keys are absent."""
-        aggregated = pd.DataFrame({"votes": [200]}, index=["rest"])
-        null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
-        assert null_votes == 0
-        assert unmarked_votes == 0
-        assert blank_votes == 0
-
-    def test_merge_blanco_round2_merges(self) -> None:
-        """Verify blanco is merged into rest in round 2."""
-        candidate_df = pd.DataFrame({"votes": [100, 50]}, index=["rest", "blanco"])
-        result = _merge_blanco_into_rest(candidate_df, 2)
-        assert "blanco" not in result.index
-        assert int(result.loc["rest", "votes"]) == 150
-
-    def test_merge_blanco_round1_ignored(self) -> None:
-        """Verify blanco is not merged in round 1."""
-        candidate_df = pd.DataFrame({"votes": [100, 50]}, index=["rest", "blanco"])
-        result = _merge_blanco_into_rest(candidate_df, 1)
-        assert result is not candidate_df
-        assert "blanco" in result.index
-        assert int(result.loc["rest", "votes"]) == 100
-
-    def test_merge_blanco_no_blanco_noop(self) -> None:
-        """Verify no blanco key returns a copy unchanged."""
-        candidate_df = pd.DataFrame({"votes": [100]}, index=["rest"])
-        result = _merge_blanco_into_rest(candidate_df, 2)
-        assert result is not candidate_df
-        assert int(result.loc["rest", "votes"]) == 100
-
-    def test_compute_candidate_results_sorted_descending(self) -> None:
-        """Verify candidate results are sorted by votes descending."""
-        candidate_df = pd.DataFrame({"votes": [300, 600, 100]}, index=["b", "a", "rest"])
-        results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
-        assert [c.candidate_key for c in results] == ["a", "b", "rest"]
-
-    def test_compute_candidate_results_vote_share_math(self) -> None:
-        """Verify vote_share uses votes / total_votes_incl_blank."""
-        candidate_df = pd.DataFrame({"votes": [250]}, index=["gustavo_petro"])
-        results = _compute_candidate_results(candidate_df, total_votes_incl_blank=1000)
-        assert results[0].vote_share == pytest.approx(0.25)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Loader integration tests (read actual data files)
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestRegistraduriaLoaders:
-    """Tests for Registraduría MMV data loaders."""
-
-    def test_load_registraduria_round1_has_expected_keys(self, data_dir: Path) -> None:
-        """Verify round 1 contains all major candidate keys after mapping."""
-        df = load_registraduria_round1(data_dir)
-        assert set(df.index) >= {"gustavo_petro", "rodolfo_hernandez", "federico_gutierrez"}
-        assert "blanco" in df.index
-        # Betancourt's votes go to "rest" per spec (she ran under PARTIDO VERDE OXIGENO)
-        assert "ingrid_betancourt" not in df.index
-
-    def test_load_registraduria_round1_total_votes(self, data_dir: Path) -> None:
-        """Verify round 1 total votes are reasonable (nulos excluded downstream)."""
-        df = load_registraduria_round1(data_dir)
-        total = df["votes"].sum()
-        # Total should be in the 20-22 million range including nulos/no_marcados
-        assert 20_000_000 < total < 22_000_000
-
-    def test_load_registraduria_round2_has_runoff_keys(self, data_dir: Path) -> None:
-        """Verify round 2 contains only runoff-relevant candidate keys."""
-        df = load_registraduria_round2(data_dir)
-        assert "gustavo_petro" in df.index
-        assert "rodolfo_hernandez" in df.index
-        assert "blanco" in df.index  # raw data has blanco (merged to rest in _build)
-        assert "federico_gutierrez" not in df.index
-        assert "sergio_fajardo" not in df.index
-
-    def test_load_registraduria_round2_rest_includes_blanco(self, data_dir: Path) -> None:
-        """Verify final round 2 result merges blanco into rest."""
-        raw = load_registraduria_round2(data_dir)
-        part = load_participation_round1(data_dir)
-        r2 = _build_round_result(
-            raw,
-            2,
-            registered_voters=int(part["Total censo"].sum()),
-            polling_stations=int(part["Código Puesto"].nunique()),
-        )
-        assert "blanco" not in {c.candidate_key for c in r2.candidates}
-        rest = next(c for c in r2.candidates if c.candidate_key == "rest")
-        assert rest.votes > 400_000
-
-
-class TestMOELoaders:
-    """Tests for MOE data loaders."""
-
-    def test_load_moe_round1_has_coalition_names(self, data_dir: Path) -> None:
-        """Verify MOE round 1 contains the expected coalitions after mapping."""
-        df = load_moe_round1(data_dir)
-        assert set(df.index) >= {"gustavo_petro", "rodolfo_hernandez", "federico_gutierrez"}
-        assert "blanco" in df.index
-
-    def test_load_moe_round1_total_matches_registraduria(self, data_dir: Path) -> None:
-        """Verify MOE round 1 total votes match Registraduría within 1%."""
-        reg = load_registraduria_round1(data_dir)
-        moe = load_moe_round1(data_dir)
-        reg_total = reg["votes"].sum()
-        moe_total = moe["votes"].sum()
-        assert abs(reg_total - moe_total) / reg_total < 0.01
-
-    def test_load_moe_round2_has_runoff_coalitions(self, data_dir: Path) -> None:
-        """Verify MOE round 2 contains only runoff coalitions."""
-        df = load_moe_round2(data_dir)
-        assert "gustavo_petro" in df.index
-        assert "rodolfo_hernandez" in df.index
-        assert "blanco" in df.index
-
-
-class TestParticipationLoaders:
-    """Tests for participation data loaders."""
-
-    def test_load_participation_round1_has_required_columns(self, data_dir: Path) -> None:
-        """Verify participation round 1 has Total censo and Código Puesto."""
-        df = load_participation_round1(data_dir)
-        assert "Total censo" in df.columns
-        assert "Código Puesto" in df.columns
-
-    def test_load_participation_round1_total_censo(self, data_dir: Path) -> None:
-        """Verify total registered voters is within ±1% of official ~39M."""
-        df = load_participation_round1(data_dir)
-        total_censo = df["Total censo"].sum()
-        assert 38_500_000 < total_censo < 39_500_000
-
-    def test_load_participation_round1_unique_puestos(self, data_dir: Path) -> None:
-        """Verify polling station count is reasonable."""
-        df = load_participation_round1(data_dir)
-        n_puestos = df["Código Puesto"].nunique()
-        assert 10_000 < n_puestos < 15_000
-
-    def test_load_participation_round2_has_required_columns(self, data_dir: Path) -> None:
-        """Verify participation round 2 has Total censo and Código Puesto."""
-        df = load_participation_round2(data_dir)
-        assert "Total censo" in df.columns
-        assert "Código Puesto" in df.columns
-
-    def test_load_participation_round2_total_censo_matches_round1(self, data_dir: Path) -> None:
-        """Verify round 2 total censo matches round 1 (same electorate)."""
-        df1 = load_participation_round1(data_dir)
-        df2 = load_participation_round2(data_dir)
-        assert df1["Total censo"].sum() == df2["Total censo"].sum()
-
-
-# ═══════════════════════════════════════════════════════════════════
-# End-to-end integration tests: load_actual_results()
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestLoadCanonicalResults:
-    """Tests for the full load_canonical_results() pipeline."""
-
-    @pytest.fixture(autouse=True, scope="class")
-    def _results(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
-        """Load canonical results once per test class."""
-        request.cls.round1, request.cls.round2 = load_canonical_results(data_dir)
-
-    # ── Round structure ──
-
-    def test_round1_candidate_keys(self) -> None:
-        """Verify round 1 candidates match get_active_candidates(1) minus Betancourt.
-
-        Betancourt's votes are under PARTIDO VERDE OXIGENO which maps to ``rest``
-        in the consolidated results (she withdrew; tracked separately in polls only).
-        """
-        expected_keys = {c.key for c in get_active_candidates(1)}
-        # ingrid_betancourt is tracked in polls only, not in consolidated results
-        expected_keys.discard("ingrid_betancourt")
-        actual_keys = {c.candidate_key for c in self.round1.candidates}
-        assert actual_keys == expected_keys
-
-    def test_round2_candidate_keys(self) -> None:
-        """Verify round 2 candidates match get_active_candidates(2)."""
-        expected_keys = {c.key for c in get_active_candidates(2)}
-        actual_keys = {c.candidate_key for c in self.round2.candidates}
-        assert actual_keys == expected_keys
-
-    def test_round_number_fields(self) -> None:
-        """Verify round_number and date are correctly assigned."""
-        assert self.round1.round_number == 1
-        assert self.round1.date == ELECTION_DATE_ROUND1
-        assert self.round2.round_number == 2
-        assert self.round2.date == ELECTION_DATE_ROUND2
-
-    # ── Vote share acceptance criteria ──
-
-    def test_round1_petro_share(self) -> None:
-        """Verify Petro round 1 vote share ≈ 40.34% (within 0.5pp)."""
-        share = self.round1.get_share("gustavo_petro")
-        assert share == pytest.approx(0.4034, abs=0.005)
-
-    def test_round1_hernandez_share(self) -> None:
-        """Verify Hernández round 1 vote share ≈ 28.15% (within 0.5pp)."""
-        share = self.round1.get_share("rodolfo_hernandez")
-        assert share == pytest.approx(0.2815, abs=0.005)
-
-    def test_round1_gutierrez_share(self) -> None:
-        """Verify Gutiérrez round 1 vote share ≈ 23.89% (within 0.5pp)."""
-        share = self.round1.get_share("federico_gutierrez")
-        assert share == pytest.approx(0.2389, abs=0.005)
-
-    def test_round1_fajardo_share(self) -> None:
-        """Verify Fajardo round 1 vote share ≈ 4.39% (within 0.5pp)."""
-        share = self.round1.get_share("sergio_fajardo")
-        assert share == pytest.approx(0.0439, abs=0.005)
-
-    def test_round2_petro_share(self) -> None:
-        """Verify Petro round 2 vote share ≈ 50.44% (within 0.5pp)."""
-        share = self.round2.get_share("gustavo_petro")
-        assert share == pytest.approx(0.5044, abs=0.005)
-
-    def test_round2_hernandez_share(self) -> None:
-        """Verify Hernández round 2 vote share ≈ 47.26% (within 0.5pp)."""
-        share = self.round2.get_share("rodolfo_hernandez")
-        assert share == pytest.approx(0.4726, abs=0.005)
-
-    # ── RoundResult methods ──
-
-    def test_round1_top_two(self) -> None:
-        """Verify top_two for round 1 returns Petro then Hernández."""
-        first, second = self.round1.top_two()
-        assert first.candidate_key == "gustavo_petro"
-        assert second.candidate_key == "rodolfo_hernandez"
-
-    def test_round1_candidates_above_20(self) -> None:
-        """Verify candidates above 20% in round 1."""
-        above = self.round1.get_candidates_above(20.0)
-        keys = [c.candidate_key for c in above]
-        assert keys == ["gustavo_petro", "rodolfo_hernandez", "federico_gutierrez"]
-
-    def test_round2_top_two(self) -> None:
-        """Verify top_two for round 2 returns Petro then Hernández."""
-        first, second = self.round2.top_two()
-        assert first.candidate_key == "gustavo_petro"
-        assert second.candidate_key == "rodolfo_hernandez"
-
-    # ── Census and turnout ──
-
-    def test_registered_voters_reasonable(self) -> None:
-        """Verify registered voters count is within ±1% of official ~39M."""
-        assert 38_500_000 < self.round1.registered_voters < 39_500_000
-        assert self.round1.registered_voters == self.round2.registered_voters
-
-    def test_polling_stations_reasonable(self) -> None:
-        """Verify polling station count is reasonable."""
-        assert 10_000 < self.round1.polling_stations < 15_000
-        assert self.round1.polling_stations == self.round2.polling_stations
-
-    # ── Cross-validation ──
-
-    def test_cross_validation_zero_warnings(self, data_dir: Path) -> None:
-        """Verify cross-validation between Reg and MOE produces zero warnings."""
-        moe1 = load_moe_round1(data_dir)
-        part1 = load_participation_round1(data_dir)
-
-        # Build MOE RoundResult
-        moe_r1 = _build_round_result(
-            moe1,
-            round_number=1,
-            registered_voters=int(part1["Total censo"].sum()),
-            polling_stations=int(part1["Código Puesto"].nunique()),
-        )
-        warnings = cross_validate(self.round1, moe_r1)
-        assert warnings == [], f"Cross-validation warnings: {warnings}"
-
-    # ── Vote share sum consistency ──
-
-    def test_round1_vote_shares_sum_to_approx_one(self) -> None:
-        """Verify round 1 candidate vote shares sum to ~1.0 (excluding blanco from shares)."""
-        total = sum(c.vote_share for c in self.round1.candidates)
-        assert total == pytest.approx(1.0, abs=0.01)
-
-    def test_round2_vote_shares_sum_to_approx_one(self) -> None:
-        """Verify round 2 candidate vote shares sum to ~1.0 (rest includes blanco)."""
-        total = sum(c.vote_share for c in self.round2.candidates)
-        assert total == pytest.approx(1.0, abs=0.01)
+@pytest.fixture(scope="module")
+def clean_polls_fixture(data_dir: Path) -> CleanPolls:
+    """Load and clean polls once per module."""
+    return load_and_clean_all(data_dir)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1120,7 +452,7 @@ class TestNormalizeUndecided:
         assert result.loc[0, "gustavo_petro"] == 40.0  # unchanged
         assert any("ns_nr" in msg and "100" in msg for msg in caplog.messages)
 
-    def test_normalize_undecided_yearly_yanhaas(self) -> None:
+    def test_normalize_undecided_june5_yanhaas(self) -> None:
         """Verify June 5 YanHaas (101%) handled by existing normalization."""
         # YanHaas June 5: 101% total shares
         df = pd.DataFrame(
@@ -1451,9 +783,9 @@ class TestDeduplicatePolls:
 class TestMassiveCallerR2:
     """Tests for excluding MassiveCaller forced-choice R2 polls."""
 
-    def test_massivecaller_r2_excluded(self, data_dir: Path) -> None:
+    def test_massivecaller_r2_excluded(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify forced-choice MassiveCaller rows excluded from round2."""
-        clean = load_and_clean_all(data_dir)
+        clean = clean_polls_fixture
         # 3 forced-choice MC rows exist in raw CSV (original indices 33, 38, 44)
         # where blanco+ns_nr are absent and petro+hernandez sum to ~100%.
         forced_choice_in_all = clean.all_polls[
@@ -1834,108 +1166,108 @@ class TestLoadRawConsultas:
 class TestLoadAndCleanAll:
     """Integration tests for the full load_and_clean_all pipeline."""
 
-    @pytest.fixture(autouse=True, scope="class")
-    def _clean_polls(self, request: pytest.FixtureRequest, data_dir: Path) -> None:
-        """Load and clean polls once per test class."""
-        request.cls.clean_polls = load_and_clean_all(data_dir)
-
-    def test_returns_clean_polls(self) -> None:
+    def test_returns_clean_polls(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify load_and_clean_all returns a CleanPolls instance."""
-        assert isinstance(self.clean_polls, CleanPolls)
+        assert isinstance(clean_polls_fixture, CleanPolls)
 
-    def test_round1_has_at_least_5_pollsters(self) -> None:
+    def test_round1_has_at_least_5_pollsters(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify round 1 has >= 5 unique pollsters."""
-        unique_pollsters = self.clean_polls.round1["encuestadora"].nunique()
+        unique_pollsters = clean_polls_fixture.round1["encuestadora"].nunique()
         assert unique_pollsters >= 5, f"Round 1 has {unique_pollsters} pollsters, need >= 5"
 
-    def test_round2_has_at_least_2_pollsters(self) -> None:
+    def test_round2_has_at_least_2_pollsters(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify round 2 has >= 2 unique pollsters."""
-        unique_pollsters = self.clean_polls.round2["encuestadora"].nunique()
+        unique_pollsters = clean_polls_fixture.round2["encuestadora"].nunique()
         assert unique_pollsters >= 2, f"Round 2 has {unique_pollsters} pollsters, need >= 2"
 
-    def test_invamer_date_corrected(self) -> None:
+    def test_invamer_date_corrected(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify Invamer April 19 poll is corrected to May 19."""
-        invamer_round1 = self.clean_polls.round1[
-            self.clean_polls.round1["encuestadora"].str.strip() == "Invamer"
+        invamer_round1 = clean_polls_fixture.round1[
+            clean_polls_fixture.round1["encuestadora"].str.strip() == "Invamer"
         ]
         assert not invamer_round1.empty, "No Invamer polls found in round 1"
         min_date = invamer_round1["fecha"].min()
         assert min_date >= pd.Timestamp("2022-04-29")
 
-    def test_no_duplicate_pollster_date_in_round1(self) -> None:
+    def test_no_duplicate_pollster_date_in_round1(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify no pollster appears more than once per date in round 1."""
-        dups = self.clean_polls.round1.duplicated(subset=["encuestadora", "fecha"], keep=False)
+        dups = clean_polls_fixture.round1.duplicated(subset=["encuestadora", "fecha"], keep=False)
         assert not dups.any(), "Duplicate pollster+date found in round 1"
 
-    def test_no_duplicate_pollster_date_in_round2(self) -> None:
+    def test_no_duplicate_pollster_date_in_round2(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify no pollster appears more than once per date in round 2."""
-        dups = self.clean_polls.round2.duplicated(subset=["encuestadora", "fecha"], keep=False)
+        dups = clean_polls_fixture.round2.duplicated(subset=["encuestadora", "fecha"], keep=False)
         assert not dups.any(), "Duplicate pollster+date found in round 2"
 
-    def test_normalized_shares_sum_to_100(self) -> None:
+    def test_normalized_shares_sum_to_100(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify candidate+blanco+otros sum to ~100% after normalization."""
         share_cols = [
             c
-            for c in self.clean_polls.round1.columns
+            for c in clean_polls_fixture.round1.columns
             if c in {cand.key for cand in get_active_candidates(1)} or c in ("blanco", "otros")
         ]
-        for idx, row in self.clean_polls.round1.iterrows():
+        for idx, row in clean_polls_fixture.round1.iterrows():
             row_sum = row[share_cols].sum()
             assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
 
-    def test_round2_shares_sum_to_100(self) -> None:
+    def test_round2_shares_sum_to_100(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify round 2 candidate+blanco+otros sum to ~100% after normalization."""
         share_cols = [
             c
-            for c in self.clean_polls.round2.columns
+            for c in clean_polls_fixture.round2.columns
             if c in {cand.key for cand in get_active_candidates(2)} or c in ("blanco", "otros")
         ]
-        for idx, row in self.clean_polls.round2.iterrows():
+        for idx, row in clean_polls_fixture.round2.iterrows():
             row_sum = row[share_cols].sum()
             assert abs(row_sum - 100.0) <= 1.0, f"Row {idx} share sum = {row_sum}, expected ~100"
 
-    def test_gad3_round2_count(self) -> None:
+    def test_gad3_round2_count(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify the number of GAD3 runoff tracking polls in round 2.
 
         10 waves are present (May 31-Jun 10). Wave 11 (Jun 11) was a
         duplicate of wave 10 (identical sample and shares) and was removed.
         """
-        gad3_round2 = self.clean_polls.round2[
-            self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
+        gad3_round2 = clean_polls_fixture.round2[
+            clean_polls_fixture.round2["encuestadora"].str.strip() == "GAD3"
         ]
         assert len(gad3_round2) == 10
 
-    def test_gad3_final_wave_not_duplicated(self) -> None:
+    def test_gad3_final_wave_not_duplicated(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify the final GAD3 tracking wave appears only once in round 2.
 
         The final wave (2022-06-10) was corrected from an erroneous 2022-06-11
         date to avoid duplication.
         """
-        gad3_round2 = self.clean_polls.round2[
-            self.clean_polls.round2["encuestadora"].str.strip() == "GAD3"
+        gad3_round2 = clean_polls_fixture.round2[
+            clean_polls_fixture.round2["encuestadora"].str.strip() == "GAD3"
         ]
         final_wave = gad3_round2[gad3_round2["fecha"] == pd.Timestamp("2022-06-10")]
         assert len(final_wave) == 1
 
-    def test_ns_nr_is_zero_after_normalization(self) -> None:
+    def test_ns_nr_is_zero_after_normalization(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify ns_nr is 0.0 in both rounds after normalization."""
-        assert self.clean_polls.round1["ns_nr"].sum() == 0.0
-        assert self.clean_polls.round2["ns_nr"].sum() == 0.0
+        assert clean_polls_fixture.round1["ns_nr"].sum() == 0.0
+        assert clean_polls_fixture.round2["ns_nr"].sum() == 0.0
 
-    def test_all_polls_includes_unclassified_and_all_columns(self) -> None:
+    def test_all_polls_includes_unclassified_and_all_columns(
+        self,
+        clean_polls_fixture: CleanPolls,
+    ) -> None:
         """Verify all_polls includes pre-consultation columns and unclassified rows."""
-        assert "gustavo_petro" in self.clean_polls.all_polls.columns
-        assert "round_number" in self.clean_polls.all_polls.columns
-        unclassified = self.clean_polls.all_polls[self.clean_polls.all_polls["round_number"].isna()]
+        assert "gustavo_petro" in clean_polls_fixture.all_polls.columns
+        assert "round_number" in clean_polls_fixture.all_polls.columns
+        unclassified = clean_polls_fixture.all_polls[
+            clean_polls_fixture.all_polls["round_number"].isna()
+        ]
         assert len(unclassified) > 0
 
-    def test_all_polls_dates_monotonic(self) -> None:
+    def test_all_polls_dates_monotonic(self, clean_polls_fixture: CleanPolls) -> None:
         """Verify dates are non-decreasing in the cleaned output.
 
         fix_invamer_date corrects the known Invamer anomaly before all_polls
         is constructed, so no exception is needed here.
         """
-        assert self.clean_polls.all_polls["fecha"].is_monotonic_increasing
+        assert clean_polls_fixture.all_polls["fecha"].is_monotonic_increasing
 
 
 # ── schema verification ──
