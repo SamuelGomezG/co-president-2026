@@ -82,6 +82,45 @@ _SHARE_COLS_EXCLUDED = frozenset(
 and excluded from share normalization."""
 
 
+def _get_float_or_zero(df: pd.DataFrame, idx: object, col: str) -> float:
+    """Return a float value from ``df`` or 0.0 when missing/invalid."""
+    value = df.at[idx, col]  # noqa: PD008
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return float(value)
+    return 0.0
+
+
+def _get_float_or_none(value: object) -> float | None:
+    """Return a float value or ``None`` when missing/invalid."""
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return float(value)
+    return None
+
+
+def _set_float(df: pd.DataFrame, idx: object, col: str, value: float) -> None:
+    """Set a float value in ``df`` at a scalar location."""
+    df.at[idx, col] = float(value)  # noqa: PD008
+
+
+def _col_has_value(row: pd.Series, col: str) -> bool:
+    """Return True when ``row[col]`` exists and is not NA."""
+    if col not in row.index:
+        return False
+    return not pd.isna(row[col])
+
+
+def _get_timestamp_or_none(row: pd.Series, col: str) -> pd.Timestamp | None:
+    """Return a Timestamp for ``row[col]`` or ``None`` when missing."""
+    if col not in row.index:
+        return None
+    value = row[col]
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, pd.Timestamp):
+        return value
+    return pd.Timestamp(value)
+
+
 def _normalize_consultation_name(name: str) -> str:
     """Normalize a candidate name for accent-insensitive lookup.
 
@@ -573,9 +612,7 @@ def _normalize_share_rows(
     normalized: set[int] = set()
     skipped_100: set[int] = set()
     for idx in df.index:
-        ns_nr = df.loc[idx, "ns_nr"]  # pyright: ignore[reportUnknownVariableType]
-        if not isinstance(ns_nr, (int, float)):
-            ns_nr = 0.0
+        ns_nr = _get_float_or_zero(df, idx, "ns_nr")
 
         if ns_nr == _NS_NR_HUNDRED:
             logger.warning("Row %s: ns_nr = 100, all shares unchanged", str(idx))
@@ -584,11 +621,11 @@ def _normalize_share_rows(
         if ns_nr > 0:
             scale = 100.0 / (100.0 - ns_nr)
             for col in share_cols:
-                raw = df.loc[idx, col]  # pyright: ignore[reportUnknownVariableType]
-                if isinstance(raw, (int, float)) and not pd.isna(raw):
-                    df.loc[idx, col] = raw * scale
+                raw = _get_float_or_none(df.at[idx, col])  # noqa: PD008
+                if raw is not None:
+                    _set_float(df, idx, col, raw * scale)
             normalized.add(int(idx))
-        df.loc[idx, "ns_nr"] = 0.0  # pyright: ignore[reportUnknownArgumentType]
+        _set_float(df, idx, "ns_nr", 0.0)
     return normalized, skipped_100
 
 
@@ -613,16 +650,15 @@ def _renormalize_rows(
 
     """
     for idx in indices:
-        vals = [df.loc[idx, col] for col in share_cols]  # pyright: ignore[reportUnknownVariableType]
-        row_sum = sum(v for v in vals if isinstance(v, (int, float)) and not pd.isna(v))
+        vals = {col: _get_float_or_none(df.loc[idx, col]) for col in share_cols}
+        row_sum = sum(val for val in vals.values() if val is not None)
         if row_sum <= 0:
             continue
         if abs(row_sum - 100.0) > _RENORMALIZE_THRESHOLD:
             fix_scale = 100.0 / row_sum
-            for col in share_cols:
-                val = df.loc[idx, col]  # pyright: ignore[reportUnknownVariableType]
-                if isinstance(val, (int, float)) and not pd.isna(val):
-                    df.loc[idx, col] = val * fix_scale
+            for col, val in vals.items():
+                if val is not None:
+                    _set_float(df, idx, col, val * fix_scale)
 
 
 def _validate_normalized_rows(
@@ -633,8 +669,8 @@ def _validate_normalized_rows(
 ) -> None:
     """Assert that every normalised row sums to 100 +/- tolerance."""
     for idx in indices:
-        vals = [df.loc[idx, col] for col in share_cols]  # pyright: ignore[reportUnknownVariableType]
-        row_sum = sum(v for v in vals if isinstance(v, (int, float)) and not pd.isna(v))
+        vals = {col: _get_float_or_none(df.loc[idx, col]) for col in share_cols}
+        row_sum = sum(val for val in vals.values() if val is not None)
         if row_sum <= 0:
             continue
         if abs(row_sum - 100.0) > tolerance_pct:
@@ -720,28 +756,28 @@ _ROUND2_ABSENT = ["federico_gutierrez", "sergio_fajardo", "ingrid_betancourt"]
 def _is_round1_candidate(row: pd.Series, columns: pd.Index) -> bool:
     """Check if a poll matches the round 1 candidate pattern."""
     for col in _ROUND1_REQUIRED:
-        if col not in columns or pd.isna(row[col]):  # pyright: ignore[reportUnknownMemberType]
+        if col not in columns or not _col_has_value(row, col):
             return False
-    optional = [
-        col
-        for col in _ROUND1_OPTIONAL
-        if col in columns and pd.notna(row[col])  # pyright: ignore[reportUnknownMemberType]
-    ]
+    optional = [col for col in _ROUND1_OPTIONAL if col in columns and _col_has_value(row, col)]
     if not optional:
         return False
-    fecha = row["fecha"]  # pyright: ignore[reportUnknownVariableType]
+    fecha = _get_timestamp_or_none(row, "fecha")
+    if fecha is None:
+        return False
     return fecha >= pd.Timestamp(CONSULTATION_DATE)
 
 
 def _is_round2_candidate(row: pd.Series, columns: pd.Index) -> bool:
     """Check if a poll matches the round 2 candidate pattern."""
     for col in _ROUND2_REQUIRED:
-        if col not in columns or pd.isna(row[col]):  # pyright: ignore[reportUnknownMemberType]
+        if col not in columns or not _col_has_value(row, col):
             return False
     for col in _ROUND2_ABSENT:
-        if col in columns and pd.notna(row[col]):  # pyright: ignore[reportUnknownMemberType]
+        if col in columns and _col_has_value(row, col):
             return False
-    fecha = row["fecha"]  # pyright: ignore[reportUnknownVariableType]
+    fecha = _get_timestamp_or_none(row, "fecha")
+    if fecha is None:
+        return False
     return fecha >= pd.Timestamp(ELECTION_DATE_ROUND1)
 
 

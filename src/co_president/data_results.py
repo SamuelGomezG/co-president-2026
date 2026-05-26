@@ -47,6 +47,48 @@ _MIN_CANDIDATES_FOR_TOP_TWO = 2  # minimum candidates needed for top_two()
 _ROUND_TWO = 2  # second (runoff) round identifier
 
 
+def _get_series_int(series: pd.Series, key: str) -> int:
+    """Return a series value as int, defaulting to 0 when missing/invalid."""
+    if key not in series.index:
+        return 0
+    value = series[key]
+    if pd.isna(value) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
+def _get_votes_int(df: pd.DataFrame, key: str) -> int:
+    """Return vote count from DataFrame index or raise if missing."""
+    if key not in df.index:
+        msg = f"Expected key {key!r} missing from votes"
+        raise KeyError(msg)
+    value = df.loc[key, "votes"]
+    if pd.isna(value) or not isinstance(value, (int, float)):
+        msg = f"Votes for {key!r} are NA or non-numeric"
+        raise ValueError(msg)
+    return int(value)
+
+
+def _get_votes_int_or_zero(df: pd.DataFrame, key: str) -> int:
+    """Return vote count as int or 0 when missing/invalid."""
+    if key not in df.index:
+        return 0
+    value = df.loc[key, "votes"]
+    if pd.isna(value) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
+def _get_column_sum_int(df: pd.DataFrame, col: str) -> int:
+    """Return the sum of ``col`` as int, defaulting to 0 when empty."""
+    if col not in df.columns:
+        return 0
+    total = df[col].sum()
+    if pd.isna(total) or not isinstance(total, (int, float)):
+        return 0
+    return int(total)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Public dataclasses
 # ═══════════════════════════════════════════════════════════════════
@@ -265,12 +307,27 @@ def _read_participation(path: Path) -> pd.DataFrame:
     Some rows have extra fields due to commas in school names; those rows are
     skipped with a warning since they are edge cases (~1 per 12,500 rows).
     """
-    df = pd.read_csv(
-        path,
-        encoding="utf-8-sig",
-        sep=",",
-        on_bad_lines="warn",
-    )
+    df: pd.DataFrame
+    try:
+        df = pd.read_csv(
+            path,
+            encoding="utf-8-sig",
+            sep=",",
+            on_bad_lines="error",
+        )
+    except pd.errors.ParserError:
+        logger.warning("Participation file %s has malformed rows; skipping bad lines", path)
+        df = pd.read_csv(
+            path,
+            encoding="utf-8-sig",
+            sep=",",
+            on_bad_lines="skip",
+        )
+        parsed_lines = max(len(df) + 1, 1)
+        with path.open(encoding="utf-8-sig") as handle:
+            total_lines = sum(1 for _ in handle)
+        skipped = max(total_lines - parsed_lines, 0)
+        logger.warning("Participation file %s skipped %d malformed row(s)", path, skipped)
     required_cols = {"Total censo", "Código Puesto"}
     missing = required_cols - set(df.columns)
     if missing:
@@ -323,21 +380,9 @@ def _extract_excluded_votes(aggregated: pd.DataFrame) -> tuple[int, int, int]:
         default to 0.
 
     """
-    null_votes: int = (
-        int(aggregated.loc["nulos", "votes"])  # pyright: ignore[reportArgumentType]
-        if "nulos" in aggregated.index
-        else 0
-    )
-    unmarked_votes: int = (
-        int(aggregated.loc["no_marcados", "votes"])  # pyright: ignore[reportArgumentType]
-        if "no_marcados" in aggregated.index
-        else 0
-    )
-    blank_votes: int = (
-        int(aggregated.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
-        if "blanco" in aggregated.index
-        else 0
-    )
+    null_votes = _get_votes_int_or_zero(aggregated, "nulos")
+    unmarked_votes = _get_votes_int_or_zero(aggregated, "no_marcados")
+    blank_votes = _get_votes_int_or_zero(aggregated, "blanco")
     return null_votes, unmarked_votes, blank_votes
 
 
@@ -360,9 +405,9 @@ def _merge_blanco_into_rest(
     """
     if round_number != _ROUND_TWO or "blanco" not in candidate_df.index:
         return candidate_df.copy()
-    blanco_count = int(candidate_df.loc["blanco", "votes"])  # pyright: ignore[reportArgumentType]
+    blanco_count = _get_votes_int(candidate_df, "blanco")
     candidate_df = candidate_df.drop(index="blanco")
-    existing = int(candidate_df.loc["rest", "votes"]) if "rest" in candidate_df.index else 0  # pyright: ignore[reportArgumentType]
+    existing = _get_votes_int_or_zero(candidate_df, "rest")
     candidate_df.loc["rest", "votes"] = existing + blanco_count
     return candidate_df
 
@@ -388,14 +433,14 @@ def _compute_candidate_results(
     """
     sorted_pairs = sorted(
         ((idx, row) for idx, row in candidate_df.iterrows()),
-        key=lambda pair: int(pair[1]["votes"]),  # pyright: ignore[reportArgumentType]
+        key=lambda pair: _get_series_int(pair[1], "votes"),
         reverse=True,
     )
     return tuple(
         CandidateResult(
             candidate_key=str(idx),
-            votes=int(row["votes"]),  # pyright: ignore[reportArgumentType]
-            vote_share=int(row["votes"]) / total_votes_incl_blank,  # pyright: ignore[reportArgumentType]
+            votes=_get_series_int(row, "votes"),
+            vote_share=_get_series_int(row, "votes") / total_votes_incl_blank,
         )
         for idx, row in sorted_pairs
     )
@@ -429,7 +474,7 @@ def _build_round_result(
     candidate_df = aggregated.drop(index=["nulos", "no_marcados"], errors="ignore")
     candidate_df = _merge_blanco_into_rest(candidate_df, round_number)
 
-    candidate_total = int(candidate_df["votes"].sum())  # pyright: ignore[reportArgumentType]
+    candidate_total = _get_column_sum_int(candidate_df, "votes")
     total_valid_votes = candidate_total - blank_votes
     total_votes_incl_blank = candidate_total
     if total_valid_votes == 0:

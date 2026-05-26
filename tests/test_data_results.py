@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import logging
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -387,6 +388,21 @@ class TestResultHelpers:
         df.to_csv(path, index=False, encoding="utf-8-sig")
         with pytest.raises(ValueError, match="Código Puesto"):
             _read_participation(path)
+
+    def test_read_participation_skips_bad_lines(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verify malformed rows are skipped and logged explicitly."""
+        path = tmp_path / "participation.csv"
+        content = "Código Puesto,Total censo\n1,1000\n999,bad,school\n2,500\n"
+        path.write_text(content, encoding="utf-8-sig")
+        with caplog.at_level(logging.WARNING, logger="co_president.data_results"):
+            result = _read_participation(path)
+        assert len(result) == 2
+        assert any("malformed" in msg for msg in caplog.messages)
+        assert any("skipped" in msg for msg in caplog.messages)
 
     def test_extract_excluded_votes_all_present(self) -> None:
         """Verify excluded votes are extracted when all keys exist."""
