@@ -16,6 +16,7 @@ import unicodedata
 if TYPE_CHECKING:
     from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from co_president.config import (
@@ -52,8 +53,10 @@ def _get_series_int(series: pd.Series, key: str) -> int:
     if key not in series.index:
         return 0
     value = series[key]
-    if pd.isna(value) or not isinstance(value, (int, float)):
+    if pd.isna(value) or not isinstance(value, (int, float, np.integer, np.floating)):
         return 0
+    if isinstance(value, (np.integer, np.floating)):
+        return int(value.item())
     return int(value)
 
 
@@ -63,9 +66,11 @@ def _get_votes_int(df: pd.DataFrame, key: str) -> int:
         msg = f"Expected key {key!r} missing from votes"
         raise KeyError(msg)
     value = df.loc[key, "votes"]
-    if pd.isna(value) or not isinstance(value, (int, float)):
+    if pd.isna(value) or not isinstance(value, (int, float, np.integer, np.floating)):
         msg = f"Votes for {key!r} are NA or non-numeric"
         raise ValueError(msg)
+    if isinstance(value, (np.integer, np.floating)):
+        return int(value.item())
     return int(value)
 
 
@@ -74,8 +79,10 @@ def _get_votes_int_or_zero(df: pd.DataFrame, key: str) -> int:
     if key not in df.index:
         return 0
     value = df.loc[key, "votes"]
-    if pd.isna(value) or not isinstance(value, (int, float)):
+    if pd.isna(value) or not isinstance(value, (int, float, np.integer, np.floating)):
         return 0
+    if isinstance(value, (np.integer, np.floating)):
+        return int(value.item())
     return int(value)
 
 
@@ -84,8 +91,10 @@ def _get_column_sum_int(df: pd.DataFrame, col: str) -> int:
     if col not in df.columns:
         return 0
     total = df[col].sum()
-    if pd.isna(total) or not isinstance(total, (int, float)):
+    if pd.isna(total) or not isinstance(total, (int, float, np.integer, np.floating)):
         return 0
+    if isinstance(total, (np.integer, np.floating)):
+        return int(total.item())
     return int(total)
 
 
@@ -307,6 +316,9 @@ def _read_participation(path: Path) -> pd.DataFrame:
     Some rows have extra fields due to commas in school names; those rows are
     skipped with a warning since they are edge cases (~1 per 12,500 rows).
     """
+    with path.open(encoding="utf-8-sig") as handle:
+        total_lines = sum(1 for _ in handle)
+
     df: pd.DataFrame
     try:
         df = pd.read_csv(
@@ -323,9 +335,7 @@ def _read_participation(path: Path) -> pd.DataFrame:
             sep=",",
             on_bad_lines="skip",
         )
-        parsed_lines = max(len(df) + 1, 1)
-        with path.open(encoding="utf-8-sig") as handle:
-            total_lines = sum(1 for _ in handle)
+        parsed_lines = len(df) + 1
         skipped = max(total_lines - parsed_lines, 0)
         logger.warning("Participation file %s skipped %d malformed row(s)", path, skipped)
     required_cols = {"Total censo", "Código Puesto"}
