@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 import logging
+import math
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 import unicodedata
@@ -44,6 +45,7 @@ __all__ = [
     "normalize_undecided",
     "parse_consultations",
     "retain_active_candidates",
+    "validate_cross_pollster_consistency",
 ]
 
 logger = logging.getLogger(__name__)
@@ -875,6 +877,138 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════
 # SPEC-04: Orchestration
 # ═══════════════════════════════════════════════════════════════════
+
+
+_COMPARISON_THRESHOLD_MULTIPLIER = 2.0
+_MIN_POLLSTERS_FOR_COMPARISON = 2
+
+_RESULT_COLS = [
+    "date_group",
+    "candidate",
+    "pollster_a",
+    "pollster_b",
+    "max_diff",
+    "moe_combined",
+]
+
+
+def _empty_validation_result() -> pd.DataFrame:
+    """Return an empty DataFrame with the validation result schema."""
+    return pd.DataFrame(columns=_RESULT_COLS)
+
+
+def _compare_pollster_pair(  # noqa: PLR0913
+    date_group: object,
+    pollster_a: str,
+    moe_a: float,
+    pollster_b: str,
+    moe_b: float,
+    values: pd.DataFrame,
+    i: int,
+    j: int,
+) -> list[dict[str, object]]:
+    """Compare two pollsters' candidate shares and flag entries exceeding 2x combined MoE."""
+    moe_combined = math.sqrt(moe_a**2 + moe_b**2)
+    threshold = _COMPARISON_THRESHOLD_MULTIPLIER * moe_combined
+    diffs = (values.loc[i] - values.loc[j]).abs()
+    flagged: list[dict[str, object]] = []
+    for candidate, raw in diffs.to_dict().items():
+        if raw > threshold:
+            flagged.append(
+                {
+                    "date_group": date_group,
+                    "candidate": candidate,
+                    "pollster_a": pollster_a,
+                    "pollster_b": pollster_b,
+                    "max_diff": float(raw),
+                    "moe_combined": moe_combined,
+                }
+            )
+    return flagged
+
+
+def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  # noqa: C901
+    """Check cross-pollster consistency within ±1-day windows.
+
+    This diagnostic scans polls grouped by date (rounded to a 1-day window),
+    compares candidate shares between pollster pairs, and flags candidates
+    whose pairwise differences exceed twice the combined margin of error.
+    The input DataFrame is not modified.
+
+    Args:
+        polls: Poll DataFrame with ``fecha`` and ``encuestadora`` columns.
+
+    Returns:
+        DataFrame with columns: ``date_group``, ``candidate``, ``pollster_a``,
+        ``pollster_b``, ``max_diff``, ``moe_combined``.
+
+    Raises:
+        ValueError: If required columns are missing.
+
+    """
+    required_cols = {"fecha", "encuestadora"}
+    missing = required_cols - set(polls.columns)
+    if missing:
+        msg = f"validate_cross_pollster_consistency: missing columns {sorted(missing)}"
+        raise ValueError(msg)
+
+    if len(polls) == 0:
+        return _empty_validation_result()
+
+    df = polls.copy()
+    df = df.assign(date_group=df["fecha"].dt.floor("D").dt.round("1D"))
+
+    excluded = _SHARE_COLS_EXCLUDED | {"blanco", "otros", "date_group", "forced_choice"}
+    candidate_cols = [col for col in df.columns if col not in excluded]
+    if not candidate_cols:
+        return _empty_validation_result()
+
+    median_moe = 0.0
+    if "margen_error" in df.columns:
+        median_value = df["margen_error"].median()
+        if not pd.isna(median_value):
+            median_moe = float(median_value)
+
+    def _resolve_moe(value: object) -> float:
+        if isinstance(value, (int, float)) and not pd.isna(value):
+            return float(value)
+        return median_moe
+
+    results: list[dict[str, object]] = []
+    for date_group, g in df.groupby("date_group", sort=False):
+        if g["encuestadora"].nunique() < _MIN_POLLSTERS_FOR_COMPARISON:
+            continue
+
+        grp = g.reset_index(drop=True)
+        values = grp[candidate_cols].fillna(0.0).astype(float)
+        start_len = len(results)
+        for i in range(len(grp) - 1):
+            pollster_a = str(grp.loc[i, "encuestadora"]).strip()
+            moe_a = (
+                _resolve_moe(grp.loc[i, "margen_error"]) if "margen_error" in grp else median_moe
+            )
+            for j in range(i + 1, len(grp)):
+                pollster_b = str(grp.loc[j, "encuestadora"]).strip()
+                moe_b = (
+                    _resolve_moe(grp.loc[j, "margen_error"])
+                    if "margen_error" in grp
+                    else median_moe
+                )
+                results.extend(
+                    _compare_pollster_pair(
+                        date_group, pollster_a, moe_a, pollster_b, moe_b, values, i, j
+                    )
+                )
+
+        flagged_count = len(results) - start_len
+        if flagged_count:
+            logger.warning(
+                "validate_cross_pollster_consistency: flagged %d comparison(s) for %s",
+                flagged_count,
+                date_group,
+            )
+
+    return pd.DataFrame(results, columns=_RESULT_COLS)
 
 
 def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
