@@ -779,6 +779,21 @@ class TestDeduplicatePolls:
             deduplicate_polls(df)
         assert not any("duplicates removed" in msg for msg in caplog.messages)
 
+    def test_missing_muestra_int_voto_uses_muestra(self) -> None:
+        """Verify missing muestra_int_voto column is filled from muestra."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "CNC"],
+                "fecha": pd.to_datetime(["2022-02-05", "2022-02-05"]),
+                "muestra": [1000, 2206],
+                "n": [1, 2],
+            }
+        )
+        result = deduplicate_polls(df)
+        assert len(result) == 1
+        assert result.iloc[0]["n"] == 2
+        assert "muestra_int_voto" in result.columns
+
 
 class TestMassiveCallerR2:
     """Tests for excluding MassiveCaller forced-choice R2 polls."""
@@ -1105,6 +1120,32 @@ class TestLoadRawPolls:
         monkeypatch.setattr("co_president.data_polls.resolve_data_dir", lambda _: data_dir)
 
         with pytest.raises(ValueError, match="Missing required columns"):
+            load_raw_polls(None)
+
+    def test_invalid_fecha_raises_valueerror(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify invalid fecha values raise ValueError with row indices."""
+        df = pd.DataFrame(
+            {
+                "fecha": ["not-a-date"],
+                "encuestadora": ["CNC"],
+                "muestra": [2206],
+                "federico_gutierrez": [25.0],
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [30.0],
+                "ns_nr": [0.0],
+            }
+        )
+        data_dir = tmp_path / "data"
+        polls_dir = data_dir / "2022-polls"
+        polls_dir.mkdir(parents=True)
+        df.to_csv(polls_dir / "encuestas_2022.csv", index=False)
+        monkeypatch.setattr("co_president.data_polls.resolve_data_dir", lambda _: data_dir)
+
+        with pytest.raises(ValueError, match="Failed to parse fecha"):
             load_raw_polls(None)
 
 
