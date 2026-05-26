@@ -927,7 +927,7 @@ def _compare_pollster_pair(  # noqa: PLR0913
     return flagged
 
 
-def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  # noqa: C901
+def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PLR0912
     """Check cross-pollster consistency within ±1-day windows.
 
     This diagnostic scans polls grouped by date (rounded to a 1-day window),
@@ -935,8 +935,15 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
     whose pairwise differences exceed twice the combined margin of error.
     The input DataFrame is not modified.
 
+    Candidate share columns are auto-detected by excluding known non-share
+    columns (metadata, ``blanco``, ``otros``, ``date_group``,
+    ``forced_choice``). Any row with NaN in any candidate-share column is
+    skipped from all pairwise comparisons. Comparisons where both rows
+    belong to the same pollster are also skipped.
+
     Args:
-        polls: Poll DataFrame with ``fecha`` and ``encuestadora`` columns.
+        polls: Poll DataFrame with ``fecha`` and ``encuestadora`` columns
+            plus candidate share columns (auto-detected).
 
     Returns:
         DataFrame with columns: ``date_group``, ``candidate``, ``pollster_a``,
@@ -944,6 +951,32 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
 
     Raises:
         ValueError: If required columns are missing.
+
+    Examples:
+        >>> import pandas as pd
+        >>> polls = pd.DataFrame({
+        ...     "encuestadora": ["A", "B"],
+        ...     "fecha": pd.to_datetime(["2022-05-15", "2022-05-15"]),
+        ...     "gustavo_petro": [40.0, 50.0],
+        ...     "rodolfo_hernandez": [28.0, 18.0],
+        ...     "margen_error": [2.0, 2.0],
+        ... })
+        >>> result = validate_cross_pollster_consistency(polls)
+        >>> result.columns.to_list()
+        ['date_group', 'candidate', 'pollster_a', 'pollster_b', 'max_diff', 'moe_combined']
+        >>> result["candidate"].iloc[0]
+        'gustavo_petro'
+
+        NaN candidate shares are skipped — no comparisons produced:
+        >>> polls_with_nan = pd.DataFrame({
+        ...     "encuestadora": ["A", "B"],
+        ...     "fecha": pd.to_datetime(["2022-05-15", "2022-05-15"]),
+        ...     "gustavo_petro": [40.0, None],
+        ...     "margen_error": [2.0, 2.0],
+        ... })
+        >>> result = validate_cross_pollster_consistency(polls_with_nan)
+        >>> result.empty
+        True
 
     """
     required_cols = {"fecha", "encuestadora"}
@@ -980,7 +1013,7 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
             continue
 
         grp = g.reset_index(drop=True)
-        values = grp[candidate_cols].fillna(0.0).astype(float)
+        values = grp[candidate_cols].astype(float)
         start_len = len(results)
         for i in range(len(grp) - 1):
             pollster_a = str(grp.loc[i, "encuestadora"]).strip()
@@ -989,6 +1022,12 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
             )
             for j in range(i + 1, len(grp)):
                 pollster_b = str(grp.loc[j, "encuestadora"]).strip()
+                if pollster_a == pollster_b:
+                    continue
+                if values.iloc[i].isna().any():
+                    continue
+                if values.iloc[j].isna().any():
+                    continue
                 moe_b = (
                     _resolve_moe(grp.loc[j, "margen_error"])
                     if "margen_error" in grp
