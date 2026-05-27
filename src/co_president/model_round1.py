@@ -1,10 +1,11 @@
-"""SPEC-06: Dirichlet-Multinomial + reverse-time RW (1st round)."""
-
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
+
+from co_president.config import FIRST_ROUND_CANDIDATES
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -35,9 +36,27 @@ def build_round1_model(
         >>> model = build_round1_model(polls, None, config)
 
     """
-    # Placeholder implementation to pass the test
-    _ = polls, results
+    _ = results
+    num_candidates = len(FIRST_ROUND_CANDIDATES)
+    pollsters = polls["encuestadora"].unique()
+    num_pollsters = len(pollsters)
+
     with pm.Model() as model:
-        # Minimalist construction for testing
+        # Priors
         pm.Normal("sigma_rw", mu=0, sigma=config.random_walk_sigma_prior)
+        pm.HalfNormal("sigma_house", sigma=config.house_effect_sigma_prior)
+
+        # theta[0] (election day)
+        pm.Normal("theta", mu=0, sigma=1, shape=num_candidates)
+
+        # House effects
+        raw_house = pm.Normal("raw_house", mu=0, sigma=1, shape=(num_pollsters, num_candidates))
+        pm.Deterministic(
+            "house_effects",
+            raw_house - raw_house.mean(axis=0, keepdims=True),
+        )
+
+        # p_adj placeholder
+        pm.Deterministic("p_adj", pm.math.zeros(num_candidates))
+
     return model
