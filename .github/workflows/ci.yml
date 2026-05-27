@@ -86,7 +86,7 @@ jobs:
       - name: Run fast model tests
         run: |
           if [ -f tests/test_model.py ]; then
-            uv run pytest tests/test_model.py -v -m "not slow" -p no:cov
+            uv run pytest tests/test_model.py -v -m "not slow" --no-cov
           else
             echo "tests/test_model.py not found — skipping (SPEC-06 not yet implemented)"
           fi
