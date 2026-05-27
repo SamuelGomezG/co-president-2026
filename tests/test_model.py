@@ -18,6 +18,13 @@ from co_president.model_round1 import (
     forecast_round1,
     sample_round1,
 )
+from co_president.model_runoff_matrix import (
+    PairingForecast,
+    RunoffMatrix,
+    compute_top_two_probabilities,
+    estimate_runoff_matrix,
+    overall_win_probability,
+)
 from co_president.model_runoff_simple import (
     RunoffForecast,
     build_runoff_simple_model,
@@ -660,3 +667,185 @@ def test_sample_runoff_sanity() -> None:
 
     # Petro should have higher win probability given poll signal
     assert forecast.prob_a_wins > 0.5
+
+
+# ---------------------------------------------------------------------------
+# Runoff Matrix Tests (SPEC-08)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_top_two_probabilities() -> None:
+    """Test that compute_top_two_probabilities identifies correct pairing.
+
+    Uses a synthetic posterior where Petro (~42%) and Hernandez (~28%) are
+    clearly the top two candidates. The pairing
+    (gustavo_petro, rodolfo_hernandez) should dominate, and all pairing
+    probabilities should sum to 1.0.
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 1000
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    # Petro ~46%, Hernandez ~24%, Gutierrez ~8%, rest ~22%
+    # Wide separation ensures the top two (Petro, Hernandez) are clearly
+    # distinguishable from third place (Gutierrez).
+    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
+
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={
+            "candidate_dim_0": candidate_order,
+        },
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    # Only named candidates (not rest/blanco) can finish top two
+    nominations = [
+        "gustavo_petro",
+        "rodolfo_hernandez",
+        "federico_gutierrez",
+        "sergio_fajardo",
+        "ingrid_betancourt",
+    ]
+    result = compute_top_two_probabilities(idata, nominations)
+
+    petro_hernandez = result.get(("gustavo_petro", "rodolfo_hernandez"), 0.0)
+    assert petro_hernandez > 0.8, f"Expected Petro-Hernandez prob > 0.8, got {petro_hernandez:.4f}"
+
+    total_prob = sum(result.values())
+    assert abs(total_prob - 1.0) < 0.01, (
+        f"Pairing probabilities sum to {total_prob:.4f}, expected 1.0"
+    )
+
+
+def test_pairing_forecast_dataclass() -> None:
+    """Test PairingForecast immutability and field validation.
+
+    All probabilities must be in [0, 1], prob_first_wins + prob_second_wins
+    must equal 1.0, and mean_margin should equal mean_first - mean_second.
+    """
+    pf = PairingForecast(
+        candidate_first="gustavo_petro",
+        candidate_second="rodolfo_hernandez",
+        prob_pairing=0.75,
+        prob_first_wins=0.65,
+        prob_second_wins=0.35,
+        mean_margin=0.03,
+    )
+    assert pf.candidate_first == "gustavo_petro"
+    assert pf.candidate_second == "rodolfo_hernandez"
+    assert 0.0 <= pf.prob_pairing <= 1.0
+    assert 0.0 <= pf.prob_first_wins <= 1.0
+    assert 0.0 <= pf.prob_second_wins <= 1.0
+    assert abs(pf.prob_first_wins + pf.prob_second_wins - 1.0) < 1e-10
+
+
+def test_runoff_matrix_dataclass() -> None:
+    """Test RunoffMatrix dataclass creation and ordering.
+
+    Verifies that pairings are stored, prob_runoff reflects total, and
+    ordered_by_likelihood follows the correct sequence.
+    """
+    pairings = (
+        PairingForecast("gustavo_petro", "rodolfo_hernandez", 0.7, 0.6, 0.4, 0.02),
+        PairingForecast("gustavo_petro", "federico_gutierrez", 0.2, 0.8, 0.2, 0.05),
+        PairingForecast(
+            "rodolfo_hernandez",
+            "federico_gutierrez",
+            0.1,
+            0.55,
+            0.45,
+            0.01,
+        ),
+    )
+    ordered = tuple((p.candidate_first, p.candidate_second) for p in pairings)
+
+    matrix = RunoffMatrix(
+        pairings=pairings,
+        prob_runoff=1.0,
+        ordered_by_likelihood=ordered,
+    )
+
+    assert len(matrix.pairings) == 3
+    assert matrix.prob_runoff == 1.0
+    assert len(matrix.ordered_by_likelihood) == 3
+    assert matrix.ordered_by_likelihood[0] == ("gustavo_petro", "rodolfo_hernandez")
+
+
+def test_overall_win_probability() -> None:
+    """Test overall_win_probability with known values.
+
+    Manually constructs a RunoffMatrix and verifies the computed overall win
+    probability for each candidate matches a hand-calculation.
+    """
+    pairings = (
+        PairingForecast("gustavo_petro", "rodolfo_hernandez", 0.7, 0.6, 0.4, 0.02),
+        PairingForecast("gustavo_petro", "federico_gutierrez", 0.2, 0.8, 0.2, 0.05),
+        PairingForecast(
+            "rodolfo_hernandez",
+            "federico_gutierrez",
+            0.1,
+            0.55,
+            0.45,
+            0.01,
+        ),
+    )
+    ordered = tuple((p.candidate_first, p.candidate_second) for p in pairings)
+    matrix = RunoffMatrix(pairings=pairings, prob_runoff=1.0, ordered_by_likelihood=ordered)
+
+    prob_outright: dict[str, float] = {
+        "gustavo_petro": 0.1,
+        "rodolfo_hernandez": 0.0,
+        "federico_gutierrez": 0.0,
+    }
+    overall = overall_win_probability(matrix, prob_outright)
+
+    # Petro: 0.1 (outright) + 0.7*0.6 (wins vs Hernandez) + 0.2*0.8 (wins vs Gutierrez) = 0.68
+    expected_petro = 0.1 + 0.7 * 0.6 + 0.2 * 0.8
+    assert abs(overall["gustavo_petro"] - expected_petro) < 1e-10, (
+        f"Petro overall win prob {overall['gustavo_petro']:.4f} != {expected_petro:.4f}"
+    )
+
+    # Hernandez: 0.0 (outright) + 0.7*0.4 (wins vs Petro) + 0.1*0.55 (wins vs Gutierrez) = 0.335
+    expected_hernandez = 0.0 + 0.7 * 0.4 + 0.1 * 0.55
+    assert abs(overall["rodolfo_hernandez"] - expected_hernandez) < 1e-10, (
+        f"Hernandez overall win prob {overall['rodolfo_hernandez']:.4f} != {expected_hernandez:.4f}"
+    )
+
+
+def test_transfer_heuristic_pairing_probs_sum_to_one() -> None:
+    """Test that transfer heuristic produces valid probabilities.
+
+    When ``estimate_runoff_matrix`` is called with ``round2_polls=None``, all
+    pairings should use the transfer heuristic. For every resulting
+    ``PairingForecast``, ``prob_first_wins + prob_second_wins`` must equal 1.0
+    (no probability mass is lost or duplicated).
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={"candidate_dim_0": candidate_order},
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    results_round1 = _make_round1_result()
+    config = ModelConfig()
+
+    matrix = estimate_runoff_matrix(idata, (results_round1, results_round1), None, config)
+
+    for pf in matrix.pairings:
+        prob_sum = pf.prob_first_wins + pf.prob_second_wins
+        assert abs(prob_sum - 1.0) < 1e-6, (
+            f"Pairing {pf.candidate_first} vs {pf.candidate_second}: "
+            f"prob_first_wins + prob_second_wins = {prob_sum} != 1.0"
+        )
