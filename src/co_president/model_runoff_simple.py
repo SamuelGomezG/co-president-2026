@@ -87,6 +87,10 @@ def build_runoff_simple_model(  # noqa: PLR0915
     Returns:
         pm.Model: Constructed PyMC model.
 
+    Raises:
+        ValueError: If runoff candidates are not found in ``polls`` columns,
+            or if all polls have NaN candidate shares and no data remains.
+
     Examples:
         >>> from co_president.config import ModelConfig
         >>> config = ModelConfig()
@@ -172,12 +176,12 @@ def build_runoff_simple_model(  # noqa: PLR0915
         election_day = p_time[:, :, 0, :]
         mean_shares = election_day.mean(dim=("chain", "draw")).to_numpy()
 
-        p_a = float(mean_shares[a_idx])
-        p_b = float(mean_shares[b_idx])
+        p_a = max(float(mean_shares[a_idx]), eps)
+        p_b = max(float(mean_shares[b_idx]), eps)
         p_rest_runoff = max(1.0 - p_a - p_b, eps)
     else:
-        p_a = results.get_share(cand_a_key)
-        p_b = results.get_share(cand_b_key)
+        p_a = max(results.get_share(cand_a_key), eps)
+        p_b = max(results.get_share(cand_b_key), eps)
         p_rest_runoff = max(1.0 - p_a - p_b, eps)
 
     prior_mean_a = float(np.log(p_a / p_rest_runoff))

@@ -427,12 +427,28 @@ def forecast_round1(
 
     """
     p_time = idata.posterior["p_time"]  # (chain, draw, time, candidate)
+    ndim = p_time.ndim
+    if ndim != 4:  # noqa: PLR2004
+        msg = f"p_time must have 4 dimensions (chain, draw, time, candidate), got {ndim}"
+        raise ValueError(msg)
+    last_dim = p_time.shape[-1]
+    if last_dim != len(candidates):
+        msg = (
+            f"p_time candidate dimension ({last_dim}) does not match "
+            f"candidates list length ({len(candidates)})"
+        )
+        raise ValueError(msg)
+    n_candidates = len(candidates)
+    if n_candidates < 2:  # noqa: PLR2004
+        msg = f"forecast_round1 requires at least 2 candidates, got {n_candidates}"
+        raise ValueError(msg)
+
     election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
 
-    n_candidates = len(candidates)
     n_total = election_day.shape[0] * election_day.shape[1]
-
     shares = election_day.to_numpy().reshape(n_total, n_candidates)
+
+    # Compute ranks for probability calculations (n_candidates >= 2 guaranteed)
     ranks = np.argsort(-shares, axis=1)
 
     candidate_forecasts: list[CandidateForecast] = []
