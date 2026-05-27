@@ -64,6 +64,16 @@ def build_round1_model(  # noqa: PLR0915
         msg = "No candidate columns found in polls DataFrame"
         raise ValueError(msg)
 
+    # Drop rows where any candidate share is NaN — those polls cannot
+    # contribute useful likelihood information for all candidates
+    nan_mask = polls[candidate_keys].isna().any(axis=1)
+    if nan_mask.any():
+        polls = polls.loc[~nan_mask].copy()
+        # Recalculate after filtering
+        if len(polls) == 0:
+            msg = "All polls have NaN candidate shares; no data remains"
+            raise ValueError(msg)
+
     # Build time index mapping: 0 = election day, n_time_points-1 = farthest back
     polls["days_before"] = (pd.Timestamp(ELECTION_DATE_ROUND1) - polls["fecha"]).dt.days
     unique_days = sorted(polls["days_before"].unique())
@@ -77,11 +87,18 @@ def build_round1_model(  # noqa: PLR0915
     pollster_to_idx = {name: i for i, name in enumerate(unique_pollsters)}
     polls["pollster_idx"] = polls["encuestadora"].map(pollster_to_idx)
 
-    # Observed poll counts from percentage shares
+    # Observed poll counts from percentage shares.
+    # Candidate columns (e.g. "rest"/"otros" is excluded from the model) may
+    # not sum to 100%, so we normalise the total to the observed-count sum
+    # rather than the raw muestra.  The DirichletMultinomial likelihood
+    # requires sum(observed) == n.
     sample_sizes = polls["muestra"].to_numpy().astype(int)
     observed_counts = np.round(
         polls[candidate_keys].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
     ).astype(int)
+    effective_n = observed_counts.sum(axis=1)
+    # Use effective_n (the total expressed preference for modelled candidates)
+    # as the DirichletMultinomial trial count.
 
     # Index arrays
     time_indices = polls["time_idx"].to_numpy().astype(int)
@@ -165,7 +182,7 @@ def build_round1_model(  # noqa: PLR0915
 
         pm.DirichletMultinomial(
             "poll_likelihood",
-            n=sample_sizes,
+            n=effective_n,
             a=alpha_poll,
             observed=observed_counts,
         )
