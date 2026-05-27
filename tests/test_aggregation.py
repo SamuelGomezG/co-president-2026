@@ -499,6 +499,4 @@ class TestEvolutionSeries:
         result = evolution_series(
             df, ["gustavo_petro"], ELECTION_DATE_ROUND1, POLLSTER_RATINGS, n_snapshots=3
         )
-        assert result["weighted_average"].dtype == float or np.issubdtype(
-            result["weighted_average"].dtype, np.floating
-        )
+        assert np.issubdtype(result["weighted_average"].dtype, np.floating)

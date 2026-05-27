@@ -90,7 +90,7 @@ def sample_size_weight(sample_sizes: pd.Series) -> pd.Series:
 
     """
     safe = sample_sizes.fillna(0).clip(lower=0)
-    arr = safe.to_numpy(dtype=float, na_value=0.0)
+    arr = safe.to_numpy(dtype=float)
     return pd.Series(np.log(arr + 1.0), index=safe.index)
 
 
@@ -275,7 +275,8 @@ def aggregation_snapshot(
         42.0
 
     """
-    mask = df["fecha"] <= pd.Timestamp(as_of_date)
+    safe_dates = pd.to_datetime(df["fecha"], errors="coerce")
+    mask = safe_dates.notna() & (safe_dates <= pd.Timestamp(as_of_date))
     filtered = df[mask].copy()
     if len(filtered) == 0:
         return {c: float("nan") for c in candidates}
