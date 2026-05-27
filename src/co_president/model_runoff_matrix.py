@@ -292,14 +292,14 @@ def estimate_runoff_matrix(
         ('gustavo_petro', 'rodolfo_hernandez')
 
     """
-    candidates = _get_candidate_order()
+    candidates = [k for k in _get_candidate_order() if k not in ("rest", "blanco")]
 
     top_two_probs = compute_top_two_probabilities(round1_idata, candidates)
 
     p_time = round1_idata.posterior["p_time"].to_numpy()
     election_day = p_time[:, :, 0, :]
 
-    all_candidate_keys = candidates
+    all_candidate_keys = _get_candidate_order()
 
     pairings: list[PairingForecast] = []
     for (first, second), prob in sorted(top_two_probs.items(), key=lambda x: x[1], reverse=True):
