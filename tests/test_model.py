@@ -1,5 +1,6 @@
 """Tests for the first-round Bayesian model (SPEC-06)."""
 
+import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
 
@@ -76,14 +77,19 @@ def test_build_round1_model_house_effects() -> None:
 
     # Free RVs: sigma_rw, sigma_house, phi_poll, theta_0, raw_house
     assert len(model.free_RVs) == 5
-    # Deterministics: house_effects, p_adj
-    assert len(model.deterministics) == 2
+    # Deterministics: p_time, house_effects, p_adj
+    assert len(model.deterministics) == 3
     # Observed RVs: poll_likelihood
     assert len(model.observed_RVs) == 1
 
 
 def test_build_round1_model_prior_predictive() -> None:
-    """Test that prior predictive samples produce valid shares."""
+    """Test that prior predictive samples produce valid shares.
+
+    Verifies that both per-poll adjusted shares (``p_adj``) and per-time-point
+    latent shares (``p_time``) fall in [0, 1] and that ``p_time`` sums to 1.0
+    for each time point (simplex constraint).
+    """
     polls = _make_3row_polls_3candidates()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
     model = build_round1_model(polls, None, config)
@@ -91,9 +97,17 @@ def test_build_round1_model_prior_predictive() -> None:
     with model:
         prior_pred = pm.sample_prior_predictive(draws=100, random_seed=config.seed)
 
+    # Per-poll adjusted shares (includes house effects)
     p_adj = prior_pred.prior["p_adj"]
     assert p_adj.min() >= 0.0
     assert p_adj.max() <= 1.0
+
+    # Per-time-point latent shares (no house effects)
+    p_time = prior_pred.prior["p_time"]
+    assert p_time.min() >= 0.0
+    assert p_time.max() <= 1.0
+    # Sum to 1 across candidates for every draw, chain, and time point
+    np.testing.assert_allclose(p_time.sum(axis=-1), 1.0, atol=1e-6)
 
 
 def test_build_round1_model_forecast_mode() -> None:

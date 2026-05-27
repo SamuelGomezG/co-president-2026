@@ -137,6 +137,10 @@ def build_round1_model(  # noqa: PLR0915
 
         theta_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # noqa: PD013
 
+        # Latent vote share probabilities per time point
+        # (used for prior predictive validation and plotting)
+        pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))
+
         # House effects (zero-sum constrained)
         raw_house = pm.Normal(
             "raw_house",
