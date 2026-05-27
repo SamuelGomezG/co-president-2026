@@ -377,13 +377,13 @@ class TestAggregationSnapshot:
 
     def test_excludes_polls_after_cut_date(self, df: pd.DataFrame) -> None:
         """Polls after the as_of_date are excluded from the average."""
-        result = aggregation_snapshot(
-            df,
-            ["gustavo_petro"],
-            date(2022, 5, 15),
-            POLLSTER_RATINGS,
-        )
-        assert isinstance(result["gustavo_petro"], float)
+        as_of = date(2022, 5, 15)
+        result = aggregation_snapshot(df, ["gustavo_petro"], as_of, POLLSTER_RATINGS)
+        # Manually filter to the expected pre-cutoff rows and re-compute.
+        # Both calls should produce the same answer if the cutoff is correct.
+        filtered = df[df["fecha"] <= pd.Timestamp(as_of)].copy()
+        expected = aggregation_snapshot(filtered, ["gustavo_petro"], as_of, POLLSTER_RATINGS)
+        assert result["gustavo_petro"] == pytest.approx(expected["gustavo_petro"])
 
     def test_cut_date_before_all_polls_returns_nan(self, df: pd.DataFrame) -> None:
         """When no polls are before as_of_date, returns NaN."""
