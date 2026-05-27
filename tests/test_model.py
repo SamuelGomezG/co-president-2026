@@ -1,12 +1,14 @@
 """Tests for the first-round Bayesian model (SPEC-06)."""
 
+import arviz as az  # type: ignore[reportMissingTypeStubs]
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
+import pytest
 
 from co_president.config import ModelConfig
 from co_president.data_results import CandidateResult, RoundResult
-from co_president.model_round1 import build_round1_model
+from co_president.model_round1 import build_round1_model, sample_round1
 
 
 def _make_3row_polls_7candidates() -> pd.DataFrame:
@@ -130,3 +132,50 @@ def test_build_round1_model_backtest_mode() -> None:
     # Verify deterministics includes p_elec
     det_names = {d.name for d in model.deterministics}
     assert "p_elec" in det_names
+
+
+@pytest.mark.slow
+def test_sample_round1_convergence() -> None:
+    """Test MCMC convergence on minimal 6-poll, 2-candidate data.
+
+    Uses 2 dates x 3 pollsters (6 polls total) so the model has enough
+    observations to identify all parameters. Asserts R-hat < 1.10 for all
+    sampled parameters (Gelman-Rubin convergence criterion).
+    """
+    polls = pd.DataFrame(
+        {
+            "fecha": [
+                "2022-05-01",
+                "2022-05-01",
+                "2022-05-01",
+                "2022-05-29",
+                "2022-05-29",
+                "2022-05-29",
+            ],
+            "encuestadora": [
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+            ],
+            "muestra": [1000, 1200, 800, 1100, 900, 1000],
+            "gustavo_petro": [40.0, 41.0, 39.0, 40.0, 41.0, 40.0],
+            "rodolfo_hernandez": [30.0, 29.0, 31.0, 30.0, 29.0, 30.0],
+            "blanco": [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
+            "round_number": [1, 1, 1, 1, 1, 1],
+        }
+    )
+    config = ModelConfig()
+    model = build_round1_model(polls, None, config)
+
+    idata = sample_round1(model, config)
+
+    summary = az.summary(idata, var_names=["~p_adj", "~p_time", "~house_effects", "~raw_house"])
+    r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
+    assert not r_hat.empty, "r_hat is empty; no parameters to evaluate"
+    assert (r_hat < 1.10).all(), (
+        f"R-hat convergence failure: max r_hat = {r_hat.max():.4f}, "
+        f"parameters with r_hat >= 1.10: {list(r_hat[r_hat >= 1.10].index)}"
+    )
