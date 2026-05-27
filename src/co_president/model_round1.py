@@ -48,9 +48,11 @@ def build_round1_model(  # noqa: PLR0915
         >>> model = build_round1_model(polls, None, config)
 
     """
+    # Make a working copy to avoid mutating the input
+    polls = polls.copy()
+
     # Convert fecha to datetime if needed
     if not pd.api.types.is_datetime64_any_dtype(polls["fecha"]):
-        polls = polls.copy()
         polls["fecha"] = pd.to_datetime(polls["fecha"])
 
     # Determine candidate keys from DataFrame columns
@@ -61,7 +63,6 @@ def build_round1_model(  # noqa: PLR0915
         raise ValueError(msg)
 
     # Build time index mapping: 0 = election day, n_time_points-1 = farthest back
-    polls = polls.copy()
     polls["days_before"] = (pd.Timestamp(ELECTION_DATE_ROUND1) - polls["fecha"]).dt.days
     unique_days = sorted(polls["days_before"].unique())
     n_time_points = len(unique_days)
@@ -184,7 +185,7 @@ def build_round1_model(  # noqa: PLR0915
 
             pm.DirichletMultinomial(
                 "election_likelihood",
-                n=results.total_votes_incl_blank,
+                n=election_counts.sum(),
                 a=alpha_elec,
                 observed=election_counts,
             )
