@@ -83,7 +83,8 @@ def test_build_round1_model_house_effects() -> None:
     # Free RVs: sigma_rw, sigma_house, phi_poll, theta_0, raw_house
     assert len(model.free_RVs) == 5
     # Deterministics: p_time, house_effects, p_adj, phi_poll_n
-    assert len(model.deterministics) == 4
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     # Observed RVs: poll_likelihood
     assert len(model.observed_RVs) == 1
 

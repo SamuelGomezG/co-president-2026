@@ -104,8 +104,11 @@ def build_round1_model(  # noqa: PLR0915
     # Larger polls contribute more to the concentration parameter via log-based
     # scaling (phi_poll_n = phi_poll * log(N+1) / log(mean_N+1), sublinear to
     # avoid over-weighting extremely large samples)
+    eps = 1e-8
     mean_effective_n = effective_n.mean()
-    effective_n_multiplier = (np.log(effective_n + 1) / np.log(mean_effective_n + 1))[:, np.newaxis]
+    numerator = np.log(effective_n + 1 + eps)
+    denominator = np.log(mean_effective_n + 1 + eps)
+    effective_n_multiplier = np.maximum(numerator / denominator, eps)[:, np.newaxis]
 
     # Index arrays
     time_indices = polls["time_idx"].to_numpy().astype(int)
@@ -189,7 +192,7 @@ def build_round1_model(  # noqa: PLR0915
         theta_adj = theta_selected + house_selected
 
         p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))
-        alpha_poll = p_adj * phi_poll_n
+        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)
 
         pm.DirichletMultinomial(
             "poll_likelihood",
