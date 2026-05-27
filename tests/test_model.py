@@ -174,6 +174,7 @@ def test_sample_round1_convergence() -> None:
 
     summary = az.summary(idata, var_names=["~p_adj", "~p_time", "~house_effects", "~raw_house"])
     r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
+    assert not r_hat.empty, "r_hat is empty; no parameters to evaluate"
     assert (r_hat < 1.10).all(), (
         f"R-hat convergence failure: max r_hat = {r_hat.max():.4f}, "
         f"parameters with r_hat >= 1.10: {list(r_hat[r_hat >= 1.10].index)}"

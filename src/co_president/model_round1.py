@@ -208,8 +208,15 @@ def sample_round1(model: pm.Model, config: ModelConfig) -> az.InferenceData:
         model: A built ``pm.Model`` from :func:`build_round1_model`.
         config: Model hyperparameters (draws, tune, chains, etc.).
 
+    Raises:
+        ValueError: If ``sample_round1`` receives invalid sampling inputs and
+            PyMC's NUTS/MCMC sampler rejects them.
+        RuntimeError: If ``sample_round1`` fails during NUTS/MCMC sampling
+            initialization or execution.
+
     Returns:
-        az.InferenceData: Posterior, posterior predictive, and sampling stats.
+        az.InferenceData: Posterior and sampling stats only. Posterior
+        predictive samples require ``pm.sample_posterior_predictive``.
 
     Examples:
         >>> model = build_round1_model(polls, None, ModelConfig())
