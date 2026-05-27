@@ -11,10 +11,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 import logging
 import statistics
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 import numpy as np
 import pandas as pd
@@ -59,6 +55,15 @@ def time_weight(
     Returns:
         Series of time weights in ``[0, 1]``.
 
+    Examples:
+        >>> import pandas as pd
+        >>> from datetime import date
+        >>> tw = time_weight(pd.Series([date(2022, 5, 29), date(2022, 4, 29)]), date(2022, 5, 29))
+        >>> round(float(tw.iloc[0]), 2)
+        1.0
+        >>> round(float(tw.iloc[1]), 2)
+        0.5
+
     """
     days_diff = (pd.Timestamp(election_date) - pd.to_datetime(dates)).dt.days.abs()
     return 0.5 ** (days_diff / half_life)
@@ -74,6 +79,14 @@ def sample_size_weight(sample_sizes: pd.Series) -> pd.Series:
 
     Returns:
         Series of positive sample-size weights.
+
+    Examples:
+        >>> import pandas as pd
+        >>> sw = sample_size_weight(pd.Series([100, 1000]))
+        >>> round(float(sw.iloc[0]), 2)
+        4.62
+        >>> round(float(sw.iloc[1]), 2)
+        6.91
 
     """
     safe = sample_sizes.fillna(0).clip(lower=0)
@@ -99,6 +112,16 @@ def pollster_weight_map(
 
     Raises:
         ValueError: If ``ratings`` is empty.
+
+    Examples:
+        >>> import pandas as pd
+        >>> s = pd.Series(["Invamer", "Mosqueteros"])
+        >>> r = {"Invamer": 10.0, "Mosqueteros": 1.0}
+        >>> pm = pollster_weight_map(s, r)
+        >>> float(pm.iloc[0])
+        1.0
+        >>> float(pm.iloc[1])
+        0.82
 
     """
     if not ratings:
@@ -135,9 +158,23 @@ def combined_weight(
     Returns:
         Series of normalized weights summing to 1.0.
 
+    Examples:
+        >>> import pandas as pd
+        >>> from datetime import date
+        >>> df = pd.DataFrame(
+        ...     {"fecha": pd.to_datetime([date(2022, 5, 29), date(2022, 4, 29)]),
+        ...      "encuestadora": ["Invamer", "Invamer"],
+        ...      "muestra_int_voto": pd.array([1000, 1000], dtype="Int64")})
+        >>> cw = combined_weight(df, date(2022, 5, 29), {"Invamer": 10.0})
+        >>> cw.sum()
+        np.float64(1.0)
+
     """
     w_time = time_weight(df["fecha"], election_date, half_life)
 
+    # Prefer muestra_int_voto (voting-intent sample) over muestra (total sample),
+    # since voting-intent sample better reflects the relevant population.
+    # Fall back to 0 if neither column exists to avoid errors.
     if "muestra_int_voto" in df.columns:
         sample_sizes = df["muestra_int_voto"].fillna(
             df["muestra"] if "muestra" in df.columns else 0
@@ -173,6 +210,18 @@ def weighted_average(
 
     Returns:
         Mapping of candidate key to weighted mean vote share (``%``).
+
+    Examples:
+        >>> import pandas as pd
+        >>> from datetime import date
+        >>> df = pd.DataFrame(
+        ...     {"fecha": pd.to_datetime([date(2022, 5, 29), date(2022, 4, 29)]),
+        ...      "encuestadora": ["Invamer", "Invamer"],
+        ...      "muestra_int_voto": pd.array([1000, 1000], dtype="Int64"),
+        ...      "candidate_a": [50.0, 30.0]})
+        >>> wa = weighted_average(df, ["candidate_a"], date(2022, 5, 29), {"Invamer": 10.0})
+        >>> round(wa["candidate_a"], 2)
+        43.33
 
     """
     weights = combined_weight(df, election_date, ratings)
@@ -211,6 +260,18 @@ def aggregation_snapshot(
         Mapping of candidate key to weighted mean vote share (``%``), or
         ``nan`` if no polls are available before ``as_of_date``.
 
+    Examples:
+        >>> import pandas as pd
+        >>> from datetime import date
+        >>> df = pd.DataFrame(
+        ...     {"fecha": pd.to_datetime([date(2022, 5, 29)]),
+        ...      "encuestadora": ["Invamer"],
+        ...      "muestra_int_voto": pd.array([1000], dtype="Int64"),
+        ...      "gustavo_petro": [42.0]})
+        >>> snap = aggregation_snapshot(df, ["gustavo_petro"], date(2022, 6, 1), {"Invamer": 10.0})
+        >>> round(snap["gustavo_petro"], 2)
+        42.0
+
     """
     mask = df["fecha"] <= pd.Timestamp(as_of_date)
     filtered = df[mask].copy()
@@ -242,6 +303,20 @@ def evolution_series(
     Returns:
         DataFrame with columns ``as_of_date``, ``candidate``,
         ``weighted_average``.
+
+    Examples:
+        >>> import pandas as pd
+        >>> from datetime import date
+        >>> df = pd.DataFrame(
+        ...     {"fecha": pd.to_datetime([date(2022, 5, 29)]),
+        ...      "encuestadora": ["Invamer"],
+        ...      "muestra_int_voto": pd.array([1000], dtype="Int64"),
+        ...      "a": [50.0]})
+        >>> ev = evolution_series(df, ["a"], date(2022, 5, 29), {"Invamer": 10.0}, n_snapshots=3)
+        >>> list(ev.columns)
+        ['as_of_date', 'candidate', 'weighted_average']
+        >>> len(ev)
+        3
 
     """
     last_snapshot = election_date - timedelta(days=2)
