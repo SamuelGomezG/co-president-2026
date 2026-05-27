@@ -100,6 +100,16 @@ def build_round1_model(  # noqa: PLR0915
     # Use effective_n (the total expressed preference for modelled candidates)
     # as the DirichletMultinomial trial count.
 
+    # Sample-size-dependent concentration multiplier:
+    # Larger polls contribute more to the concentration parameter via log-based
+    # scaling (phi_poll_n = phi_poll * log(N+1) / log(mean_N+1), sublinear to
+    # avoid over-weighting extremely large samples)
+    eps = 1e-8
+    mean_effective_n = effective_n.mean()
+    numerator = np.log(effective_n + 1 + eps)
+    denominator = np.log(mean_effective_n + 1 + eps)
+    effective_n_multiplier = np.maximum(numerator / denominator, eps)[:, np.newaxis]
+
     # Index arrays
     time_indices = polls["time_idx"].to_numpy().astype(int)
     pollster_indices = polls["pollster_idx"].to_numpy().astype(int)
@@ -133,6 +143,10 @@ def build_round1_model(  # noqa: PLR0915
             "phi_poll",
             alpha=2,
             beta=2.0 / config.concentration_poll_prior_mean,
+        )
+        phi_poll_n = pm.Deterministic(
+            "phi_poll_n",
+            phi_poll * effective_n_multiplier,
         )
 
         # Reverse-time random walk
@@ -178,7 +192,7 @@ def build_round1_model(  # noqa: PLR0915
         theta_adj = theta_selected + house_selected
 
         p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))
-        alpha_poll = p_adj * phi_poll
+        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)
 
         pm.DirichletMultinomial(
             "poll_likelihood",
