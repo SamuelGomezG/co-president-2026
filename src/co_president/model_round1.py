@@ -1,3 +1,5 @@
+"""SPEC-06: Dirichlet-Multinomial + reverse-time RW (1st round)."""
+
 # pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
@@ -27,16 +29,12 @@ def build_round1_model(
     Returns:
         pm.Model: Constructed PyMC model.
 
-    Raises:
-        ValueError: If model graph construction fails.
-        TypeError: If input types are incorrect.
-
     Examples:
         >>> config = ModelConfig()
         >>> model = build_round1_model(polls, None, config)
 
     """
-    _ = results
+    _ = results  # Reserved for future backtest/forecast mode
     num_candidates = len(FIRST_ROUND_CANDIDATES)
     pollsters = polls["encuestadora"].unique()
     num_pollsters = len(pollsters)

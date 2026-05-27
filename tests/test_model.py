@@ -1,3 +1,5 @@
+"""Tests for the first-round Bayesian model (SPEC-06)."""
+
 import pandas as pd
 
 from co_president.config import ModelConfig
