@@ -163,6 +163,9 @@ def validate_runoff(
         actual_share = results.get_share(key)
         within_95ci = ci_95[0] <= actual_share <= ci_95[1]
         error = mean_share - actual_share
+        # RunoffForecast does not carry median or 50% CI fields,
+        # so we approximate median with the mean and conservatively
+        # mark within_50ci as False.
         candidates.append(
             CandidateValidation(
                 candidate_key=key,

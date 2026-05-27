@@ -528,7 +528,7 @@ class TestBrierScore:
         results = _make_sample_results()
         score = brier_score_round1(forecast, results)
         # Manual calculation
-        actual_runoff = {"gustavo_petro": 1, "rodolfo_hernandez": 1}
+        actual_runoff = {"gustavo_petro", "rodolfo_hernandez"}
         total = 0.0
         count = 0
         for c in forecast.candidates:
