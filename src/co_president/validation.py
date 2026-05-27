@@ -110,13 +110,7 @@ def validate_round1(
     errors = np.array([cv.error for cv in candidates])
     mae = float(np.abs(errors).mean())
     rmse = float(np.sqrt(np.mean(errors**2)))
-    n_candidates = len(candidates)
-    cal_95 = (
-        sum(1 for cv in candidates if cv.within_95ci) / n_candidates if n_candidates > 0 else 0.0
-    )
-    cal_50 = (
-        sum(1 for cv in candidates if cv.within_50ci) / n_candidates if n_candidates > 0 else 0.0
-    )
+    cal_95, cal_50 = _compute_calibration(candidates)
     return RoundValidation(
         round_number=1,
         candidates=candidates,
@@ -125,6 +119,26 @@ def validate_round1(
         calibration_95=cal_95,
         calibration_50=cal_50,
     )
+
+
+def _compute_calibration(
+    candidates: list[CandidateValidation],
+) -> tuple[float, float]:
+    """Compute calibration fractions (within 95% CI, within 50% CI).
+
+    Args:
+        candidates: List of per-candidate validation results.
+
+    Returns:
+        Tuple of ``(calibration_95, calibration_50)`` in [0, 1].
+
+    """
+    n = len(candidates)
+    if n == 0:
+        return (0.0, 0.0)
+    cal_95 = sum(1 for cv in candidates if cv.within_95ci) / n
+    cal_50 = sum(1 for cv in candidates if cv.within_50ci) / n
+    return (cal_95, cal_50)
 
 
 def validate_runoff(
@@ -165,13 +179,7 @@ def validate_runoff(
     errors = np.array([cv.error for cv in candidates])
     mae = float(np.abs(errors).mean())
     rmse = float(np.sqrt(np.mean(errors**2)))
-    n_candidates = len(candidates)
-    cal_95 = (
-        sum(1 for cv in candidates if cv.within_95ci) / n_candidates if n_candidates > 0 else 0.0
-    )
-    cal_50 = (
-        sum(1 for cv in candidates if cv.within_50ci) / n_candidates if n_candidates > 0 else 0.0
-    )
+    cal_95, cal_50 = _compute_calibration(candidates)
     return RoundValidation(
         round_number=2,
         candidates=candidates,
