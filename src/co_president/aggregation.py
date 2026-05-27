@@ -225,13 +225,15 @@ def weighted_average(
 
     """
     weights = combined_weight(df, election_date, ratings)
-    total_weight = weights.sum()
     result: dict[str, float] = {}
     for candidate in candidates:
         if candidate in df.columns:
             values = df[candidate].astype(float)
-            if total_weight > 0 and not values.isna().all():
-                result[candidate] = float(np.average(values, weights=weights))
+            mask = ~values.isna()
+            if mask.any():
+                filtered_vals = values[mask]
+                filtered_wts = weights[mask]
+                result[candidate] = float(np.average(filtered_vals, weights=filtered_wts))
             else:
                 result[candidate] = float("nan")
         else:
