@@ -6,6 +6,7 @@ from datetime import date
 import json
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 
 from matplotlib.figure import Figure as MplFigure
 import numpy as np
@@ -21,11 +22,14 @@ from co_president.plotting import plot_calibration, plot_error_over_time, plot_f
 from co_president.validation import (
     CandidateValidation,
     RoundValidation,
+    SensitivityFlag,
+    SensitivityResult,
     brier_score_round1,
     compute_rolling_errors,
     load_rolling_snapshots,
     rolling_forecast,
     save_rolling_snapshot,
+    sensitivity_ns_nr,
     validate_round1,
     validate_runoff,
 )
@@ -692,6 +696,479 @@ class TestRollingSnapshots:
         with tempfile.TemporaryDirectory() as tmpdir:
             loaded = load_rolling_snapshots(str(tmpdir))
         assert loaded == []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SensitivityFlag / SensitivityResult
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSensitivityFlag:
+    """Tests for ``SensitivityFlag`` dataclass."""
+
+    def test_exceeds_threshold_true(self) -> None:
+        """Flag with large shift has exceeds_threshold=True."""
+        flag = SensitivityFlag(
+            candidate_key="gustavo_petro",
+            baseline_mean=0.4034,
+            sensitive_mean=0.4300,
+            shift=0.0266,
+            exceeds_threshold=True,
+        )
+        assert flag.exceeds_threshold is True
+        assert abs(flag.shift) > 0.02
+
+    def test_exceeds_threshold_false(self) -> None:
+        """Flag with small shift has exceeds_threshold=False."""
+        flag = SensitivityFlag(
+            candidate_key="gustavo_petro",
+            baseline_mean=0.4034,
+            sensitive_mean=0.4080,
+            shift=0.0046,
+            exceeds_threshold=False,
+        )
+        assert flag.exceeds_threshold is False
+        assert abs(flag.shift) < 0.02
+
+
+class TestSensitivityResult:
+    """Tests for ``SensitivityResult`` dataclass."""
+
+    def test_has_failures_true(self) -> None:
+        """has_failures is True when at least one flag exceeds threshold."""
+        result = SensitivityResult(
+            flags=[
+                SensitivityFlag("a", 0.30, 0.33, 0.03, exceeds_threshold=True),
+                SensitivityFlag("b", 0.20, 0.20, 0.00, exceeds_threshold=False),
+            ],
+            total_candidates_flagged=1,
+        )
+        assert result.has_failures
+        assert result.total_candidates_flagged == 1
+
+    def test_has_failures_false(self) -> None:
+        """has_failures is False when no flags exceed threshold."""
+        result = SensitivityResult(
+            flags=[
+                SensitivityFlag("a", 0.30, 0.31, 0.01, exceeds_threshold=False),
+                SensitivityFlag("b", 0.20, 0.19, -0.01, exceeds_threshold=False),
+            ],
+            total_candidates_flagged=0,
+        )
+        assert not result.has_failures
+
+    def test_empty_flags(self) -> None:
+        """Empty flags list with zero flagged."""
+        result = SensitivityResult(flags=[], total_candidates_flagged=0)
+        assert not result.has_failures
+        assert len(result.flags) == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# sensitivity_ns_nr
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSensitivityNsNr:
+    """Tests for ``sensitivity_ns_nr`` (mocked MCMC)."""
+
+    def test_no_high_ns_nr_no_flags(self) -> None:
+        """When no polls have ns_nr > 10%, sensitive forecast matches baseline."""
+        baseline = _make_sample_forecast()
+        pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
+        pollsters_r2 = ["Invamer", "MassiveCaller"]
+        ref_date = date(2022, 5, 1)
+        rows_r1 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([ref_date] * 5),
+                "encuestadora": pollsters_r1,
+                "muestra": [1000] * 5,
+                "gustavo_petro": [40.0] * 5,
+                "federico_gutierrez": [24.0] * 5,
+                "rodolfo_hernandez": [28.0] * 5,
+                "blanco": [5.0] * 5,
+                "ns_nr": [5.0] * 5,
+            },
+        )
+        rows_r2 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([date(2022, 6, 10)] * 2),
+                "encuestadora": pollsters_r2,
+                "muestra": [1000] * 2,
+                "gustavo_petro": [50.0] * 2,
+                "rodolfo_hernandez": [50.0] * 2,
+            },
+        )
+        polls = CleanPolls(
+            round1=rows_r1,
+            round2=rows_r2,
+            consultation=[],
+            all_polls=pd.concat([rows_r1, rows_r2], ignore_index=True),
+        )
+
+        with (
+            patch("co_president.validation.build_round1_model") as mock_build,
+            patch("co_president.validation.sample_round1") as mock_sample,
+            patch(
+                "co_president.validation.forecast_round1",
+                return_value=baseline,
+            ) as mock_forecast,
+        ):
+            result = sensitivity_ns_nr(
+                baseline,
+                polls,
+                results=None,
+                config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+            )
+
+        mock_build.assert_called_once()
+        mock_sample.assert_called_once()
+        mock_forecast.assert_called_once()
+        assert result.total_candidates_flagged == 0
+        assert not result.has_failures
+        assert len(result.flags) == len(baseline.candidates)
+
+    def test_high_ns_nr_below_threshold_no_flag(self) -> None:
+        """Shift below 0.02 threshold does not produce a flag."""
+        baseline = _make_sample_forecast()
+        pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
+        pollsters_r2 = ["Invamer", "MassiveCaller"]
+        ref_date = date(2022, 5, 1)
+
+        # Make some polls have high ns_nr to trigger filtering
+        rows_r1 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([ref_date] * 5),
+                "encuestadora": pollsters_r1,
+                "muestra": [1000] * 5,
+                "gustavo_petro": [40.0, 40.0, 42.0, 42.0, 42.0],
+                "federico_gutierrez": [24.0, 24.0, 23.0, 23.0, 23.0],
+                "rodolfo_hernandez": [28.0, 28.0, 27.0, 27.0, 27.0],
+                "blanco": [5.0] * 5,
+                "ns_nr": [15.0, 15.0, 5.0, 5.0, 5.0],
+            },
+        )
+        rows_r2 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([date(2022, 6, 10)] * 2),
+                "encuestadora": pollsters_r2,
+                "muestra": [1000] * 2,
+                "gustavo_petro": [50.0] * 2,
+                "rodolfo_hernandez": [50.0] * 2,
+            },
+        )
+        polls = CleanPolls(
+            round1=rows_r1,
+            round2=rows_r2,
+            consultation=[],
+            all_polls=pd.concat([rows_r1, rows_r2], ignore_index=True),
+        )
+
+        # Build a forecast that differs from baseline (shift > 2pp for Petro)
+        shifted = Round1Forecast(
+            candidates=[
+                CandidateForecast(
+                    candidate_key="gustavo_petro",
+                    mean_share=0.430,
+                    median_share=0.430,
+                    ci_50=(0.415, 0.445),
+                    ci_95=(0.400, 0.460),
+                    prob_first=0.85,
+                    prob_second=0.14,
+                    prob_top_two=0.99,
+                    prob_win_outright=0.05,
+                ),
+                CandidateForecast(
+                    candidate_key="rodolfo_hernandez",
+                    mean_share=0.268,
+                    median_share=0.268,
+                    ci_50=(0.250, 0.285),
+                    ci_95=(0.240, 0.295),
+                    prob_first=0.12,
+                    prob_second=0.70,
+                    prob_top_two=0.82,
+                    prob_win_outright=0.01,
+                ),
+                CandidateForecast(
+                    candidate_key="federico_gutierrez",
+                    mean_share=0.220,
+                    median_share=0.220,
+                    ci_50=(0.205, 0.235),
+                    ci_95=(0.195, 0.245),
+                    prob_first=0.03,
+                    prob_second=0.15,
+                    prob_top_two=0.18,
+                    prob_win_outright=0.0,
+                ),
+                CandidateForecast(
+                    candidate_key="sergio_fajardo",
+                    mean_share=0.050,
+                    median_share=0.050,
+                    ci_50=(0.040, 0.060),
+                    ci_95=(0.030, 0.070),
+                    prob_first=0.0,
+                    prob_second=0.01,
+                    prob_top_two=0.01,
+                    prob_win_outright=0.0,
+                ),
+                CandidateForecast(
+                    candidate_key="ingrid_betancourt",
+                    mean_share=0.007,
+                    median_share=0.007,
+                    ci_50=(0.004, 0.010),
+                    ci_95=(0.003, 0.013),
+                    prob_first=0.0,
+                    prob_second=0.0,
+                    prob_top_two=0.0,
+                    prob_win_outright=0.0,
+                ),
+            ],
+            prob_runoff=0.992,
+            round_number=1,
+        )
+
+        with (
+            patch("co_president.validation.build_round1_model") as mock_build,
+            patch("co_president.validation.sample_round1") as mock_sample,
+            patch(
+                "co_president.validation.forecast_round1",
+                return_value=shifted,
+            ) as mock_forecast,
+        ):
+            result = sensitivity_ns_nr(
+                baseline,
+                polls,
+                results=None,
+                config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+            )
+
+        mock_build.assert_called_once()
+        mock_sample.assert_called_once()
+        mock_forecast.assert_called_once()
+        # Petro shift = 0.430 - 0.412 = 0.018, which is < 0.02 threshold
+        # But actually let's check: 0.430 - 0.412 = 0.018, so it should NOT be flagged
+        # Let's verify
+        petro_flag = next(f for f in result.flags if f.candidate_key == "gustavo_petro")
+        assert petro_flag.exceeds_threshold is False  # 0.018 < 0.02
+
+    def test_missing_ns_nr_column(self) -> None:
+        """When ns_nr column is absent, no filtering occurs."""
+        baseline = _make_sample_forecast()
+        pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
+        pollsters_r2 = ["Invamer", "MassiveCaller"]
+        ref_date = date(2022, 5, 1)
+
+        # No ns_nr column at all
+        rows_r1 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([ref_date] * 5),
+                "encuestadora": pollsters_r1,
+                "muestra": [1000] * 5,
+                "gustavo_petro": [40.0] * 5,
+                "federico_gutierrez": [24.0] * 5,
+                "rodolfo_hernandez": [28.0] * 5,
+                "blanco": [5.0] * 5,
+            },
+        )
+        rows_r2 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([date(2022, 6, 10)] * 2),
+                "encuestadora": pollsters_r2,
+                "muestra": [1000] * 2,
+                "gustavo_petro": [50.0] * 2,
+                "rodolfo_hernandez": [50.0] * 2,
+            },
+        )
+        polls = CleanPolls(
+            round1=rows_r1,
+            round2=rows_r2,
+            consultation=[],
+            all_polls=pd.concat([rows_r1, rows_r2], ignore_index=True),
+        )
+
+        with (
+            patch("co_president.validation.build_round1_model") as mock_build,
+            patch("co_president.validation.sample_round1") as mock_sample,
+            patch(
+                "co_president.validation.forecast_round1",
+                return_value=baseline,
+            ) as mock_forecast,
+        ):
+            result = sensitivity_ns_nr(
+                baseline,
+                polls,
+                results=None,
+                config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+            )
+
+        mock_build.assert_called_once()
+        mock_sample.assert_called_once()
+        mock_forecast.assert_called_once()
+        assert result.total_candidates_flagged == 0
+        assert len(result.flags) == len(baseline.candidates)
+
+    def test_custom_threshold(self) -> None:
+        """A smaller threshold flags candidates with smaller shifts."""
+        baseline = _make_sample_forecast()
+        pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
+        pollsters_r2 = ["Invamer", "MassiveCaller"]
+        ref_date = date(2022, 5, 1)
+        # 2 polls with high ns_nr (filtered out), 3 with low ns_nr (kept)
+        rows_r1 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([ref_date] * 5),
+                "encuestadora": pollsters_r1,
+                "muestra": [1000] * 5,
+                "gustavo_petro": [40.0, 40.0, 42.0, 42.0, 42.0],
+                "federico_gutierrez": [24.0, 24.0, 23.0, 23.0, 23.0],
+                "rodolfo_hernandez": [28.0, 28.0, 27.0, 27.0, 27.0],
+                "blanco": [5.0] * 5,
+                "ns_nr": [15.0, 15.0, 5.0, 5.0, 5.0],
+            },
+        )
+        rows_r2 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([date(2022, 6, 10)] * 2),
+                "encuestadora": pollsters_r2,
+                "muestra": [1000] * 2,
+                "gustavo_petro": [50.0] * 2,
+                "rodolfo_hernandez": [50.0] * 2,
+            },
+        )
+        polls = CleanPolls(
+            round1=rows_r1,
+            round2=rows_r2,
+            consultation=[],
+            all_polls=pd.concat([rows_r1, rows_r2], ignore_index=True),
+        )
+
+        # Build a forecast with a small shift (0.015) for Petro
+        shifted = Round1Forecast(
+            candidates=[
+                CandidateForecast(
+                    candidate_key="gustavo_petro",
+                    mean_share=0.427,
+                    median_share=0.427,
+                    ci_50=(0.410, 0.445),
+                    ci_95=(0.395, 0.460),
+                    prob_first=0.85,
+                    prob_second=0.14,
+                    prob_top_two=0.99,
+                    prob_win_outright=0.05,
+                ),
+                CandidateForecast(
+                    candidate_key="rodolfo_hernandez",
+                    mean_share=0.273,
+                    median_share=0.273,
+                    ci_50=(0.255, 0.290),
+                    ci_95=(0.240, 0.305),
+                    prob_first=0.12,
+                    prob_second=0.70,
+                    prob_top_two=0.82,
+                    prob_win_outright=0.01,
+                ),
+                CandidateForecast(
+                    candidate_key="federico_gutierrez",
+                    mean_share=0.225,
+                    median_share=0.225,
+                    ci_50=(0.210, 0.240),
+                    ci_95=(0.195, 0.255),
+                    prob_first=0.03,
+                    prob_second=0.15,
+                    prob_top_two=0.18,
+                    prob_win_outright=0.0,
+                ),
+                CandidateForecast(
+                    candidate_key="sergio_fajardo",
+                    mean_share=0.051,
+                    median_share=0.051,
+                    ci_50=(0.040, 0.060),
+                    ci_95=(0.030, 0.070),
+                    prob_first=0.0,
+                    prob_second=0.01,
+                    prob_top_two=0.01,
+                    prob_win_outright=0.0,
+                ),
+                CandidateForecast(
+                    candidate_key="ingrid_betancourt",
+                    mean_share=0.008,
+                    median_share=0.008,
+                    ci_50=(0.005, 0.010),
+                    ci_95=(0.003, 0.013),
+                    prob_first=0.0,
+                    prob_second=0.0,
+                    prob_top_two=0.0,
+                    prob_win_outright=0.0,
+                ),
+            ],
+            prob_runoff=0.992,
+            round_number=1,
+        )
+
+        with (
+            patch("co_president.validation.build_round1_model") as mock_build,
+            patch("co_president.validation.sample_round1") as mock_sample,
+            patch(
+                "co_president.validation.forecast_round1",
+                return_value=shifted,
+            ) as mock_forecast,
+        ):
+            # Use threshold=0.01 (1pp) so that even small shifts are caught
+            result = sensitivity_ns_nr(
+                baseline,
+                polls,
+                results=None,
+                config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+                threshold=0.01,
+            )
+
+        mock_build.assert_called_once()
+        mock_sample.assert_called_once()
+        mock_forecast.assert_called_once()
+        # Petro: 0.427 - 0.412 = 0.015 -> > 0.01 threshold -> flagged
+        petro_flag = next(f for f in result.flags if f.candidate_key == "gustavo_petro")
+        assert petro_flag.exceeds_threshold is True
+        assert result.total_candidates_flagged >= 1
+        assert result.has_failures
+
+    def test_empty_polls_after_filter_raises(self) -> None:
+        """Raises ValueError when all polls are filtered out."""
+        baseline = _make_sample_forecast()
+        pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
+        pollsters_r2 = ["Invamer", "MassiveCaller"]
+        ref_date = date(2022, 5, 1)
+        rows_r1 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([ref_date] * 5),
+                "encuestadora": pollsters_r1,
+                "muestra": [1000] * 5,
+                "gustavo_petro": [40.0] * 5,
+                "ns_nr": [20.0] * 5,
+            },
+        )
+        rows_r2 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([date(2022, 6, 10)] * 2),
+                "encuestadora": pollsters_r2,
+                "muestra": [1000] * 2,
+                "gustavo_petro": [50.0] * 2,
+                "rodolfo_hernandez": [50.0] * 2,
+            },
+        )
+        polls = CleanPolls(
+            round1=rows_r1,
+            round2=rows_r2,
+            consultation=[],
+            all_polls=pd.concat([rows_r1, rows_r2], ignore_index=True),
+        )
+
+        with pytest.raises(ValueError, match="no polls remain"):
+            sensitivity_ns_nr(
+                baseline,
+                polls,
+                results=None,
+                config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════
