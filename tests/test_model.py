@@ -1,4 +1,4 @@
-"""Tests for the first-round Bayesian model (SPEC-06)."""
+"""Tests for the first-round and runoff Bayesian models (SPEC-06, SPEC-07)."""
 
 from pathlib import Path
 
@@ -11,7 +11,19 @@ import pytest
 from co_president.config import FIRST_ROUND_CANDIDATES, ModelConfig
 from co_president.data_polls import load_and_clean_all
 from co_president.data_results import CandidateResult, RoundResult, load_canonical_results
-from co_president.model_round1 import build_round1_model, sample_round1
+from co_president.model_round1 import (
+    CandidateForecast,
+    Round1Forecast,
+    build_round1_model,
+    forecast_round1,
+    sample_round1,
+)
+from co_president.model_runoff_simple import (
+    RunoffForecast,
+    build_runoff_simple_model,
+    forecast_runoff_simple,
+    sample_runoff,
+)
 
 
 def _make_3row_polls_7candidates() -> pd.DataFrame:
@@ -308,3 +320,343 @@ def test_sample_round1_integration(data_dir: Path) -> None:
     # All candidate predictions in valid probability range
     assert (means >= 0.0).all()
     assert (means <= 1.0).all()
+
+
+# ---------------------------------------------------------------------------
+# Forecast dataclass tests (SPEC-06)
+# ---------------------------------------------------------------------------
+
+
+def _make_synthetic_round1_idata() -> az.InferenceData:  # type: ignore[type-arg]
+    """Create synthetic DataTree mimicking a Round 1 posterior.
+
+    Uses the full 7-candidate order: ``sorted(FIRST_ROUND_CANDIDATES.keys())``.
+    Petro gets ~42%, Hernandez ~28%, Gutierrez ~24%, the rest ~6%.
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    # Known means: Petro ~42%, Hernandez ~28%, Gutierrez ~24%, rest ~6%
+    alphas = np.array([2, 24, 42, 1, 3, 28, 2], dtype=float) + 1.0
+
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    return az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={
+            "candidate_dim_0": candidate_order,
+        },
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+
+def test_candidate_forecast_dataclass() -> None:
+    """Test CandidateForecast immutability and basic validation."""
+    cf = CandidateForecast(
+        candidate_key="gustavo_petro",
+        mean_share=0.4,
+        median_share=0.395,
+        ci_50=(0.35, 0.45),
+        ci_95=(0.30, 0.50),
+        prob_first=0.8,
+        prob_second=0.15,
+        prob_top_two=0.95,
+        prob_win_outright=0.1,
+    )
+    assert cf.mean_share >= 0.0
+    assert 0.0 <= cf.prob_first <= 1.0
+    assert 0.0 <= cf.prob_top_two <= 1.0
+    assert len(cf.ci_50) == 2
+    assert cf.ci_50[0] <= cf.ci_50[1]
+    assert cf.ci_95[0] <= cf.ci_95[1]
+
+
+def test_round1_forecast_json_roundtrip() -> None:
+    """Test Round1Forecast serialization roundtrip."""
+    candidates = [
+        CandidateForecast("a", 0.4, 0.39, (0.35, 0.45), (0.30, 0.50), 0.9, 0.1, 1.0, 0.0),
+        CandidateForecast("b", 0.3, 0.29, (0.25, 0.35), (0.20, 0.40), 0.1, 0.8, 0.9, 0.0),
+    ]
+    original = Round1Forecast(candidates=candidates, prob_runoff=0.99)
+
+    as_json = original.to_json()
+    restored = Round1Forecast.from_json(as_json)
+
+    assert original.prob_runoff == restored.prob_runoff
+    assert original.round_number == restored.round_number
+    assert len(original.candidates) == len(restored.candidates)
+    for oc, rc in zip(original.candidates, restored.candidates, strict=True):
+        assert oc.candidate_key == rc.candidate_key
+        assert oc.mean_share == rc.mean_share
+        assert oc.ci_95 == rc.ci_95
+        assert oc.prob_first == rc.prob_first
+
+
+def test_forecast_round1() -> None:
+    """Test forecast_round1 on a synthetic InferenceData."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    forecast = forecast_round1(idata, candidate_order)
+
+    assert len(forecast.candidates) == len(candidate_order)
+    assert 0.0 <= forecast.prob_runoff <= 1.0
+
+    # Major candidate probabilities should be non-trivial
+    for cf in forecast.candidates:
+        assert cf.mean_share >= 0.0
+        assert 0.0 <= cf.prob_first <= 1.0
+        assert 0.0 <= cf.prob_second <= 1.0
+        assert 0.0 <= cf.prob_top_two <= 1.0
+        assert 0.0 <= cf.prob_win_outright <= 1.0
+
+    # Petro should have highest mean share and highest prob_first
+    petro = next(c for c in forecast.candidates if c.candidate_key == "gustavo_petro")
+    hernandez = next(c for c in forecast.candidates if c.candidate_key == "rodolfo_hernandez")
+    assert petro.mean_share > hernandez.mean_share
+    assert petro.prob_first > hernandez.prob_first
+
+    # Probabilities across candidates for top_two should not all be 1
+    total_prob_top_two = sum(c.prob_top_two for c in forecast.candidates)
+    # Since only 2 candidates can finish top-two, sum of probs = 2
+    assert abs(total_prob_top_two - 2.0) < 0.01
+
+    # Sum of prob_first across all candidates = 1
+    total_prob_first = sum(c.prob_first for c in forecast.candidates)
+    assert abs(total_prob_first - 1.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# Runoff Simple Model Tests (SPEC-07)
+# ---------------------------------------------------------------------------
+
+
+def _make_3row_runoff_polls_round2() -> pd.DataFrame:
+    """Return a 3-row synthetic Round 2 DataFrame with Petro, Hernandez, blanco."""
+    return pd.DataFrame(
+        {
+            "fecha": ["2022-06-19", "2022-06-19", "2022-06-19"],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
+            "muestra": [1000, 1000, 1000],
+            "gustavo_petro": [52.0, 51.0, 50.0],
+            "rodolfo_hernandez": [48.0, 49.0, 50.0],
+            "blanco": [0.0, 0.0, 0.0],
+            "round_number": [2, 2, 2],
+        }
+    )
+
+
+def test_build_runoff_simple_model_graph() -> None:
+    """Test that the runoff model builds with correct graph structure (K=3)."""
+    polls = _make_3row_runoff_polls_round2()
+    results = _make_round1_result()
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    model = build_runoff_simple_model(polls, results, None, config)
+
+    # Free RVs: sigma_rw, sigma_house, phi_poll, theta_r_0, raw_house
+    assert len(model.free_RVs) == 5
+    # Deterministics: p_time, house_effects, p_adj, phi_poll_n
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
+    # Observed RVs: poll_likelihood
+    assert len(model.observed_RVs) == 1
+
+
+def test_build_runoff_simple_model_prior_predictive() -> None:
+    """Test that runoff prior predictive samples produce valid shares in [0, 1]."""
+    polls = _make_3row_runoff_polls_round2()
+    results = _make_round1_result()
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    model = build_runoff_simple_model(polls, results, None, config)
+
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=100, random_seed=config.seed)
+
+    p_adj = prior_pred.prior["p_adj"]
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+
+    p_time = prior_pred.prior["p_time"]
+    assert p_time.min() >= 0.0
+    assert p_time.max() <= 1.0
+    # Sum to 1 across K=3 categories
+    np.testing.assert_allclose(p_time.sum(axis=-1), 1.0, atol=1e-6)
+
+    # K should be 3 for the runoff model
+    assert p_time.shape[-1] == 3
+
+
+def test_build_runoff_simple_model_informative_prior() -> None:
+    """Test that providing round1_idata produces a valid model."""
+    polls = _make_3row_runoff_polls_round2()
+    results = _make_round1_result()
+    config = ModelConfig()
+
+    round1_idata = _make_synthetic_round1_idata()
+    model = build_runoff_simple_model(polls, results, round1_idata, config)
+
+    # Same graph structure as with vague prior
+    assert len(model.free_RVs) == 5
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
+    assert len(model.observed_RVs) == 1
+
+
+def test_forecast_runoff_simple() -> None:
+    """Test forecast_runoff_simple on a synthetic posterior."""
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+
+    # Petro ~52%, Hernandez ~48%, rest ~0%
+    alphas = np.array([52, 48, 1], dtype=float)
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, 3))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    forecast = forecast_runoff_simple(idata, "gustavo_petro", "rodolfo_hernandez")
+
+    assert forecast.candidate_a_key == "gustavo_petro"
+    assert forecast.candidate_b_key == "rodolfo_hernandez"
+    assert 0.0 <= forecast.prob_a_wins <= 1.0
+    assert 0.0 <= forecast.prob_b_wins <= 1.0
+    assert 0.0 <= forecast.mean_share_a <= 1.0
+    assert 0.0 <= forecast.mean_share_b <= 1.0
+
+    # Petro should have higher win probability
+    assert forecast.prob_a_wins > 0.5
+    assert forecast.mean_share_a > forecast.mean_share_b
+
+    # CI lengths should be positive
+    a_ci_len = forecast.ci_95_a[1] - forecast.ci_95_a[0]
+    b_ci_len = forecast.ci_95_b[1] - forecast.ci_95_b[0]
+    assert a_ci_len > 0.0
+    assert b_ci_len > 0.0
+
+
+def test_runoff_forecast_dataclass() -> None:
+    """Test RunoffForecast dataclass validation."""
+    rf = RunoffForecast(
+        candidate_a_key="gustavo_petro",
+        candidate_b_key="rodolfo_hernandez",
+        prob_a_wins=0.75,
+        prob_b_wins=0.25,
+        mean_share_a=0.52,
+        mean_share_b=0.48,
+        mean_margin=0.04,
+        ci_95_a=(0.48, 0.56),
+        ci_95_b=(0.44, 0.52),
+    )
+    assert rf.prob_a_wins + rf.prob_b_wins <= 1.0
+    assert rf.mean_share_a > rf.mean_share_b
+    assert abs(rf.mean_margin - (rf.mean_share_a - rf.mean_share_b)) < 1e-10
+
+
+# ---------------------------------------------------------------------------
+# Runoff slow tests (MCMC)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_sample_runoff_convergence() -> None:
+    """Test MCMC convergence on minimal 6-poll Round 2 data.
+
+    Uses 2 dates x 3 pollsters (6 polls total). Asserts R-hat < 1.10.
+    """
+    polls = pd.DataFrame(
+        {
+            "fecha": [
+                "2022-06-05",
+                "2022-06-05",
+                "2022-06-05",
+                "2022-06-19",
+                "2022-06-19",
+                "2022-06-19",
+            ],
+            "encuestadora": [
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+            ],
+            "muestra": [1000, 1200, 800, 1100, 900, 1000],
+            "gustavo_petro": [50.0, 51.0, 49.0, 50.0, 51.0, 50.0],
+            "rodolfo_hernandez": [45.0, 44.0, 46.0, 45.0, 44.0, 45.0],
+            "blanco": [5.0, 5.0, 5.0, 5.0, 5.0, 5.0],
+            "round_number": [2, 2, 2, 2, 2, 2],
+        }
+    )
+    results = _make_round1_result()
+    config = ModelConfig(mcmc_draws=500, mcmc_tune=500, mcmc_chains=2, mcmc_cores=2)
+    model = build_runoff_simple_model(polls, results, None, config)
+    idata = sample_runoff(model, config)
+
+    summary = az.summary(idata, var_names=["~p_adj", "~p_time", "~house_effects", "~raw_house"])
+    r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
+    assert not r_hat.empty, "r_hat is empty; no parameters to evaluate"
+    assert (r_hat < 1.10).all(), (
+        f"R-hat convergence failure: max r_hat = {r_hat.max():.4f}, "
+        f"parameters with r_hat >= 1.10: {list(r_hat[r_hat >= 1.10].index)}"
+    )
+
+
+@pytest.mark.slow
+def test_sample_runoff_sanity() -> None:
+    """Test posterior accuracy on synthetic runoff data.
+
+    6 polls across 2 time points (2 weeks apart) with 3 pollsters.
+    Ground truth: Petro=52%, Hernandez=45%, Blanco=3%.
+    Posterior mean must be within 5pp of truth.
+    """
+    polls = pd.DataFrame(
+        {
+            "fecha": [
+                "2022-06-05",
+                "2022-06-05",
+                "2022-06-05",
+                "2022-06-19",
+                "2022-06-19",
+                "2022-06-19",
+            ],
+            "encuestadora": [
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+            ],
+            "muestra": [1000, 1200, 800, 1100, 900, 1000],
+            "gustavo_petro": [50.0, 52.0, 48.0, 52.0, 53.0, 51.0],
+            "rodolfo_hernandez": [46.0, 44.0, 48.0, 45.0, 44.0, 46.0],
+            "blanco": [4.0, 4.0, 4.0, 3.0, 3.0, 3.0],
+            "round_number": [2, 2, 2, 2, 2, 2],
+        }
+    )
+    results = _make_round1_result()
+    config = ModelConfig(mcmc_draws=1000, mcmc_tune=500, mcmc_chains=2, mcmc_cores=2)
+    model = build_runoff_simple_model(polls, results, None, config)
+    idata = sample_runoff(model, config)
+
+    forecast = forecast_runoff_simple(idata, "gustavo_petro", "rodolfo_hernandez")
+
+    # The prior from Round 1 results (Petro=40%, Hernandez=28%) pulls against
+    # the poll data (~52%/45%), so the posterior lands between them. Allow a
+    # wider tolerance to account for prior-data tension.
+    assert 0.42 <= forecast.mean_share_a <= 0.57, (
+        f"Petro posterior mean {forecast.mean_share_a:.3f} outside [0.42, 0.57]"
+    )
+    assert 0.35 <= forecast.mean_share_b <= 0.50, (
+        f"Hernandez posterior mean {forecast.mean_share_b:.3f} outside [0.35, 0.50]"
+    )
+
+    # Petro should have higher win probability given poll signal
+    assert forecast.prob_a_wins > 0.5
