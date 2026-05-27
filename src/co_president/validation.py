@@ -21,9 +21,17 @@ if TYPE_CHECKING:
     from co_president.data_results import RoundResult
     from co_president.model_runoff_simple import RunoffForecast
 
-from co_president.model_round1 import Round1Forecast
+from co_president.model_round1 import (
+    Round1Forecast,
+    build_round1_model,
+    forecast_round1,
+    sample_round1,
+)
 
 logger = logging.getLogger(__name__)
+
+# Threshold for filtering polls with high undecided/no-response rates.
+_NS_NR_FILTER = 10.0
 
 
 @dataclass(frozen=True)
@@ -271,6 +279,164 @@ def compute_rolling_errors(
             }
         )
     return pd.DataFrame(rows)
+
+
+@dataclass(frozen=True)
+class SensitivityFlag:
+    """Result of a single candidate's ns_nr sensitivity check.
+
+    Attributes:
+        candidate_key: Candidate identifier key.
+        baseline_mean: Posterior mean vote share from the full data.
+        sensitive_mean: Posterior mean vote share after excluding high-ns_nr polls.
+        shift: ``sensitive_mean - baseline_mean`` (positive means higher with
+            high-ns_nr polls removed).
+        exceeds_threshold: Whether ``abs(shift) > threshold``.
+
+    """
+
+    candidate_key: str
+    baseline_mean: float
+    sensitive_mean: float
+    shift: float
+    exceeds_threshold: bool
+
+
+@dataclass(frozen=True)
+class SensitivityResult:
+    """Aggregate ns_nr sensitivity analysis results.
+
+    Attributes:
+        flags: Per-candidate sensitivity flags.
+        total_candidates_flagged: Number of candidates whose shift exceeds
+            the threshold.
+
+    """
+
+    flags: list[SensitivityFlag]
+    total_candidates_flagged: int
+
+    @property
+    def has_failures(self) -> bool:
+        """True when at least one candidate exceeds the shift threshold."""
+        return self.total_candidates_flagged > 0
+
+
+def sensitivity_ns_nr(
+    baseline_forecast: Round1Forecast,
+    polls: CleanPolls,
+    results: RoundResult | None,
+    config: ModelConfig,
+    threshold: float = 0.02,
+) -> SensitivityResult:
+    """Compare baseline vs forecast excluding polls with high ns_nr.
+
+    Filters out first-round polls where ``ns_nr > 10%``, re-fits the model,
+    and flags any candidate whose posterior mean shifts by more than
+    *threshold*.
+
+    Args:
+        baseline_forecast: Forecast from the full poll dataset.
+        polls: CleanPolls containing all poll data.
+        results: Optional election results for the model (pass ``None`` for
+            forecast-only mode).
+        config: ModelConfig with hyperparameters.
+        threshold: Maximum allowed absolute shift in vote share (decimal,
+            default 0.02 = 2 percentage points, must be non-negative).
+
+    Returns:
+        SensitivityResult with per-candidate flags.
+
+    Raises:
+        ValueError: If *threshold* is negative, no polls remain after the
+            ns_nr filter, or the filtered data is insufficient for model
+            building.
+
+    Examples:
+        Forecast-only mode (model uses polls but not election results)::
+
+            >>> from co_president.config import ModelConfig
+            >>> from co_president.data_polls import load_and_clean_all
+            >>> from co_president.data_results import load_canonical_results
+            >>> from co_president.model_round1 import Round1Forecast, forecast_round1
+            >>> baseline_forecast = Round1Forecast(...)  # doctest: +SKIP
+            >>> polls = load_and_clean_all()
+            >>> result = sensitivity_ns_nr(
+            ...     baseline_forecast,
+            ...     polls,
+            ...     results=None,
+            ...     config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+            ...     threshold=0.02,
+            ... )
+            >>> result.has_failures
+            False
+
+        With election results for comparison::
+
+            >>> results_r1, _ = load_canonical_results()
+            >>> result = sensitivity_ns_nr(
+            ...     baseline_forecast, polls,
+            ...     results=results_r1,
+            ...     config=ModelConfig(),
+            ... )
+
+    """
+    if threshold < 0:
+        msg = f"threshold must be non-negative, got {threshold}"
+        raise ValueError(msg)
+
+    # Filter out polls with ns_nr > 10%
+    sensitive_polls = polls.round1.copy()
+    if "ns_nr" in sensitive_polls.columns:
+        ns_nr_mask = sensitive_polls["ns_nr"] <= _NS_NR_FILTER
+        sensitive_polls = sensitive_polls.loc[ns_nr_mask].copy()
+        dropped = int((~ns_nr_mask).sum())
+        if dropped > 0:
+            logger.info(
+                "sensitivity_ns_nr: dropped %d poll(s) where ns_nr > %s%%",
+                dropped,
+                _NS_NR_FILTER,
+            )
+
+    if len(sensitive_polls) == 0:
+        msg = (
+            "sensitivity_ns_nr: no polls remain after filtering "
+            f"out rows where ns_nr > {_NS_NR_FILTER}%"
+        )
+        raise ValueError(msg)
+
+    # Extract candidate keys from the baseline forecast
+    candidate_keys = [c.candidate_key for c in baseline_forecast.candidates]
+
+    # Build and sample the sensitive model
+    sensitive_model = build_round1_model(sensitive_polls, results, config)
+    sensitive_idata = sample_round1(sensitive_model, config)
+    sensitive_forecast = forecast_round1(sensitive_idata, candidate_keys)
+
+    # Compare means
+    baseline_map = {c.candidate_key: c.mean_share for c in baseline_forecast.candidates}
+    flags: list[SensitivityFlag] = []
+    for fc in sensitive_forecast.candidates:
+        if fc.candidate_key not in baseline_map:
+            logger.warning(
+                "sensitivity_ns_nr: candidate %s not found in baseline forecast, skipping",
+                fc.candidate_key,
+            )
+            continue
+        baseline_mean = baseline_map[fc.candidate_key]
+        shift = fc.mean_share - baseline_mean
+        flags.append(
+            SensitivityFlag(
+                candidate_key=fc.candidate_key,
+                baseline_mean=baseline_mean,
+                sensitive_mean=fc.mean_share,
+                shift=shift,
+                exceeds_threshold=abs(shift) > threshold,
+            )
+        )
+
+    total_flagged = sum(1 for f in flags if f.exceeds_threshold)
+    return SensitivityResult(flags=flags, total_candidates_flagged=total_flagged)
 
 
 def save_rolling_snapshot(
