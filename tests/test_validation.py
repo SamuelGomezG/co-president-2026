@@ -824,6 +824,11 @@ class TestSensitivityNsNr:
         mock_build.assert_called_once()
         mock_sample.assert_called_once()
         mock_forecast.assert_called_once()
+        # Verify the DataFrame passed to build_round1_model was filtered
+        filtered_df = mock_build.call_args[0][0]
+        assert len(filtered_df) == 5  # all 5 kept (ns_nr=5 <= 10)
+        if "ns_nr" in filtered_df.columns:
+            assert filtered_df["ns_nr"].max() <= 10.0
         assert result.total_candidates_flagged == 0
         assert not result.has_failures
         assert len(result.flags) == len(baseline.candidates)
@@ -945,9 +950,11 @@ class TestSensitivityNsNr:
         mock_build.assert_called_once()
         mock_sample.assert_called_once()
         mock_forecast.assert_called_once()
-        # Petro shift = 0.430 - 0.412 = 0.018, which is < 0.02 threshold
-        # But actually let's check: 0.430 - 0.412 = 0.018, so it should NOT be flagged
-        # Let's verify
+        # Verify the DataFrame passed to build_round1_model was filtered
+        filtered_df = mock_build.call_args[0][0]
+        assert len(filtered_df) == 3  # 2 of 5 dropped (ns_nr=15 > 10)
+        if "ns_nr" in filtered_df.columns:
+            assert filtered_df["ns_nr"].max() <= 10.0
         petro_flag = next(f for f in result.flags if f.candidate_key == "gustavo_petro")
         assert petro_flag.exceeds_threshold is False  # 0.018 < 0.02
 
@@ -1004,6 +1011,9 @@ class TestSensitivityNsNr:
         mock_build.assert_called_once()
         mock_sample.assert_called_once()
         mock_forecast.assert_called_once()
+        # No ns_nr column → no filtering
+        filtered_df = mock_build.call_args[0][0]
+        assert len(filtered_df) == 5  # all 5 kept
         assert result.total_candidates_flagged == 0
         assert len(result.flags) == len(baseline.candidates)
 
@@ -1125,6 +1135,11 @@ class TestSensitivityNsNr:
         mock_build.assert_called_once()
         mock_sample.assert_called_once()
         mock_forecast.assert_called_once()
+        # Verify the DataFrame passed to build_round1_model was filtered
+        filtered_df = mock_build.call_args[0][0]
+        assert len(filtered_df) == 3  # 2 of 5 dropped (ns_nr=15 > 10)
+        if "ns_nr" in filtered_df.columns:
+            assert filtered_df["ns_nr"].max() <= 10.0
         # Petro: 0.427 - 0.412 = 0.015 -> > 0.01 threshold -> flagged
         petro_flag = next(f for f in result.flags if f.candidate_key == "gustavo_petro")
         assert petro_flag.exceeds_threshold is True

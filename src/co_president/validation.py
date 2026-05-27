@@ -342,16 +342,49 @@ def sensitivity_ns_nr(
             forecast-only mode).
         config: ModelConfig with hyperparameters.
         threshold: Maximum allowed absolute shift in vote share (decimal,
-            default 0.02 = 2 percentage points).
+            default 0.02 = 2 percentage points, must be non-negative).
 
     Returns:
         SensitivityResult with per-candidate flags.
 
     Raises:
-        ValueError: If no polls remain after the ns_nr filter or if the
-            filtered data is insufficient for model building.
+        ValueError: If *threshold* is negative, no polls remain after the
+            ns_nr filter, or the filtered data is insufficient for model
+            building.
+
+    Examples:
+        Forecast-only mode (model uses polls but not election results)::
+
+            >>> from co_president.config import ModelConfig
+            >>> from co_president.data_polls import load_and_clean_all
+            >>> from co_president.data_results import load_canonical_results
+            >>> from co_president.model_round1 import Round1Forecast, forecast_round1
+            >>> baseline_forecast = Round1Forecast(...)  # doctest: +SKIP
+            >>> polls = load_and_clean_all()
+            >>> result = sensitivity_ns_nr(
+            ...     baseline_forecast,
+            ...     polls,
+            ...     results=None,
+            ...     config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
+            ...     threshold=0.02,
+            ... )
+            >>> result.has_failures
+            False
+
+        With election results for comparison::
+
+            >>> results_r1, _ = load_canonical_results()
+            >>> result = sensitivity_ns_nr(
+            ...     baseline_forecast, polls,
+            ...     results=results_r1,
+            ...     config=ModelConfig(),
+            ... )
 
     """
+    if threshold < 0:
+        msg = f"threshold must be non-negative, got {threshold}"
+        raise ValueError(msg)
+
     # Filter out polls with ns_nr > 10%
     sensitive_polls = polls.round1.copy()
     if "ns_nr" in sensitive_polls.columns:

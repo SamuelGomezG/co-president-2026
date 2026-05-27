@@ -24,6 +24,31 @@ from co_president.config import (
 # ruff: noqa: T201 — CLI output uses print() for user-facing text
 
 
+def _non_negative_float(value: str) -> float:
+    """Parse a non-negative float from a string argument.
+
+    Args:
+        value: String to parse.
+
+    Returns:
+        Parsed non-negative float.
+
+    Raises:
+        argparse.ArgumentTypeError: If value is not a parseable float or is
+            negative.
+
+    """
+    try:
+        parsed = float(value)
+    except ValueError:
+        msg = f"cannot parse as float: {value!r}"
+        raise argparse.ArgumentTypeError(msg) from None
+    if parsed < 0:
+        msg = f"threshold must be non-negative, got {parsed}"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the argument parser with all subcommands.
 
@@ -48,9 +73,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     validate_parser.add_argument(
         "--threshold",
-        type=float,
+        type=_non_negative_float,
         default=0.02,
-        help="Shift threshold in vote share (default 0.02 = 2pp)",
+        help="Shift threshold in vote share (default 0.02 = 2pp, must be >= 0)",
     )
 
     subparsers.add_parser(
@@ -157,7 +182,26 @@ def _run_config() -> None:
 
 
 def main() -> None:
-    """Parse CLI arguments and dispatch to the appropriate subcommand."""
+    """Parse CLI arguments and dispatch to the appropriate subcommand.
+
+    Args:
+        None.  CLI arguments are read from ``sys.argv`` via
+        :func:`argparse.ArgumentParser.parse_args`.
+
+    Returns:
+        None.
+
+    Raises:
+        SystemExit: If an unrecognised subcommand is given or a required
+            argument is missing.
+
+    Examples:
+        Run from the command line::
+
+            python -m co_president validate --baseline-forecast forecast.json
+            python -m co_president config
+
+    """
     parser = _build_parser()
     args = parser.parse_args()
 
