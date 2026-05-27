@@ -17,6 +17,8 @@ from co_president.config import (
 )
 
 if TYPE_CHECKING:
+    import arviz as az  # type: ignore[reportMissingTypeStubs]
+
     from co_president.config import ModelConfig
     from co_president.data_results import RoundResult
 
@@ -195,3 +197,31 @@ def build_round1_model(  # noqa: PLR0915
             )
 
     return model
+
+
+def sample_round1(model: pm.Model, config: ModelConfig) -> az.InferenceData:
+    """Sample posterior draws from a built first-round model via NUTS.
+
+    Runs MCMC sampling with the hyperparameters specified in *config*.
+
+    Args:
+        model: A built ``pm.Model`` from :func:`build_round1_model`.
+        config: Model hyperparameters (draws, tune, chains, etc.).
+
+    Returns:
+        az.InferenceData: Posterior, posterior predictive, and sampling stats.
+
+    Examples:
+        >>> model = build_round1_model(polls, None, ModelConfig())
+        >>> idata = sample_round1(model, ModelConfig(mcmc_draws=200, mcmc_tune=100))
+
+    """
+    with model:
+        return pm.sample(
+            draws=config.mcmc_draws,
+            tune=config.mcmc_tune,
+            chains=config.mcmc_chains,
+            cores=config.mcmc_cores,
+            target_accept=config.target_accept,
+            random_seed=config.seed,
+        )
