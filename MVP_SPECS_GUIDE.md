@@ -1054,7 +1054,7 @@ K_runoff = 3  # A, B, rest
    - Set `K = 3` (A, B, rest)
    - Time indices anchored on `ELECTION_DATE_ROUND2`
    - If `round1_idata` is provided, use the Round 1 posterior of the top-two's relative margins as an informative prior for the runoff's starting point
-   - Otherwise, use a vague prior (this is the fallback for when Round 1 model hasn't been run)
+    - Otherwise, use the Round 1 election results as an informed prior (this is the fallback for when the Round 1 model hasn't been run)
 
 2. **`sample_runoff(model: pm.Model, config: ModelConfig) -> InferenceData`**: Same MCMC configuration as SPEC-06.
 

@@ -80,7 +80,9 @@ def build_runoff_simple_model(  # noqa: PLR0915
             candidates and to compute the prior for ``theta[T-1]``.
         round1_idata: Posterior samples from the Round 1 model. If provided,
             the prior for ``theta[T-1]`` uses the posterior means of the
-            top-two candidates' vote shares.
+            top-two candidates' vote shares. If ``None``, the Round 1 actual
+            election results are used as an informed prior instead (the
+            fallback path for when the Round 1 model hasn't been run).
         config: Model hyperparameters.
 
     Returns:
