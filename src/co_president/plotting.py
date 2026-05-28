@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from matplotlib.figure import Figure
 
-    from co_president.data_results import RoundResult
+    from co_president.data import RoundResult
     from co_president.model_round1 import Round1Forecast
     from co_president.validation import RoundValidation
 

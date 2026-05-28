@@ -9,8 +9,7 @@ import pandas as pd
 import pytest
 
 from co_president.config import ELECTION_DATE_ROUND1, ELECTION_DATE_ROUND2, get_active_candidates
-from co_president.data_polls import CleanPolls
-from co_president.data_results import CandidateResult, RoundResult
+from co_president.data import CandidateResult, CleanPolls, RoundResult
 
 # ═══════════════════════════════════════════════════════════════════════
 # Module import tests (validate the interface)

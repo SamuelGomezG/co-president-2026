@@ -124,7 +124,7 @@ class ModelConfig:
             or empty dict if unavailable.
 
         """
-        from co_president.data_polls import get_computed_consultation_prior_strengths  # noqa: PLC0415, I001
+        from co_president.data import get_computed_consultation_prior_strengths  # noqa: PLC0415, I001
 
         try:
             computed = get_computed_consultation_prior_strengths().copy()

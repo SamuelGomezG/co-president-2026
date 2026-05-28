@@ -93,4 +93,5 @@ addopts = [
 ]
 markers = [
     "slow: slow MCMC tests (excluded from CI)",
+    "integration: tests requiring full production CSV datasets",
 ]

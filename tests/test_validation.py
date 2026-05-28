@@ -14,8 +14,7 @@ import pandas as pd
 import pytest
 
 from co_president.config import ModelConfig
-from co_president.data_polls import CleanPolls
-from co_president.data_results import CandidateResult, RoundResult
+from co_president.data import CandidateResult, CleanPolls, RoundResult
 from co_president.model_round1 import CandidateForecast, Round1Forecast
 from co_president.model_runoff_simple import RunoffForecast
 from co_president.plotting import plot_calibration, plot_error_over_time, plot_forecast_evolution

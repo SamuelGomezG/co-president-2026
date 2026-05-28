@@ -19,8 +19,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from co_president.config import ModelConfig
-    from co_president.data_polls import CleanPolls
-    from co_president.data_results import RoundResult
+    from co_president.data import CleanPolls, RoundResult
     from co_president.model_runoff_simple import RunoffForecast
 
 from co_president.model_round1 import (
@@ -358,8 +357,7 @@ def sensitivity_ns_nr(
         Forecast-only mode (model uses polls but not election results)::
 
             >>> from co_president.config import ModelConfig
-            >>> from co_president.data_polls import load_and_clean_all
-            >>> from co_president.data_results import load_canonical_results
+            >>> from co_president.data import load_and_clean_all, load_canonical_results
             >>> from co_president.model_round1 import Round1Forecast, forecast_round1
             >>> baseline_forecast = Round1Forecast(...)  # doctest: +SKIP
             >>> polls = load_and_clean_all()
@@ -623,7 +621,7 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
         return _empty_validation_result()
 
     df = polls.copy()
-    df = df.assign(date_group=df["fecha"].dt.floor("D"))
+    df = df.assign(date_group=df["fecha"].dt.floor("D"))  # type: ignore[reportUnknownArgumentType]
 
     excluded = _SHARE_COLS_EXCLUDED | {"blanco", "otros", "date_group", "forced_choice"}
     candidate_cols = [col for col in df.columns if col not in excluded]

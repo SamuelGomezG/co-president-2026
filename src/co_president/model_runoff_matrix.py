@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from co_president.config import ModelConfig
-    from co_president.data_results import RoundResult
+    from co_president.data import RoundResult
 
 
 @dataclass(frozen=True)

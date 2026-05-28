@@ -1,8 +1,9 @@
-"""SPEC-04+09: Data quality diagnostics for the poll pipeline.
+"""Internal diagnostic utilities for SPEC-04 poll data quality.
 
-Functions here are diagnostic/validation only. They do not modify the data
-pipeline, the configuration, or the model. They surface insights about data
-quality for human review.
+This module is private (``_data_quality``) and should not be imported
+directly by external code. Functions here are diagnostic/validation only.
+They do not modify the data pipeline, the configuration, or the model.
+They surface insights about data quality for human review.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from co_president.config import (
 )
 
 if TYPE_CHECKING:
-    from co_president.data_results import RoundResult
+    from co_president.data import RoundResult
 
 logger = logging.getLogger(__name__)
 
