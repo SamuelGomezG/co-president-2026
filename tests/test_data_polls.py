@@ -20,7 +20,6 @@ from co_president.data_polls import (
     CleanPolls,
     ConsultationPoll,
     PollRow,
-    UnclassifiedPollRow,
     _detect_forced_choice,
     _fix_yanhaas_20220611,
     _validate_normalized_rows,
@@ -193,47 +192,6 @@ class TestPollRow:
         )
         assert row.sample_voting is None
         assert row.margin_of_error is None
-
-
-# ── UnclassifiedPollRow dataclass ──
-
-
-class TestUnclassifiedPollRow:
-    """Tests for the UnclassifiedPollRow frozen dataclass."""
-
-    @pytest.fixture
-    def shares(self) -> CandidateShares:
-        """Provide a standard CandidateShares fixture."""
-        return CandidateShares(candidates={}, ns_nr=0.0, blanco=0.0, otros=0.0)
-
-    def test_instantiation(self, shares: CandidateShares) -> None:
-        """Verify UnclassifiedPollRow creates without round_number."""
-        row = UnclassifiedPollRow(
-            date=date(2022, 2, 1),
-            pollster="CNC",
-            sample_size=2206,
-            sample_voting=None,
-            margin_of_error=2.1,
-            survey_method="presencial",
-            shares=shares,
-        )
-        assert row.date == date(2022, 2, 1)
-        assert row.pollster == "CNC"
-        assert not hasattr(row, "round_number")
-
-    def test_immutability(self, shares: CandidateShares) -> None:
-        """Verify frozen dataclass rejects attribute assignment."""
-        row = UnclassifiedPollRow(
-            date=date(2022, 2, 1),
-            pollster="CNC",
-            sample_size=2206,
-            sample_voting=None,
-            margin_of_error=None,
-            survey_method="telefonica",
-            shares=shares,
-        )
-        with pytest.raises(FrozenInstanceError):
-            row.pollster = "Invamer"  # type: ignore[misc]
 
 
 # ── ConsultationPoll dataclass ──
