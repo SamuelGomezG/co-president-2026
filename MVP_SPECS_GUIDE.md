@@ -399,6 +399,8 @@ class Candidate:
 
 Plus sentinel entries for `rest` (aggregate of "otros" + all minor candidates) and `blanco`.
 
+**Round 2 resolution (blanco ⊂ rest):** `rest` has `runoff=True` and absorbs both minor-party and blank votes in the runoff. `blanco` has `runoff=False` — it is not a separate entity in K=3 modeling. This means `get_active_candidates(2)` returns `[gustavo_petro, rodolfo_hernandez, rest]`.
+
 #### 5.1.4 Coalition-to-Candidate Mapping
 
 `COALITION_TO_CANDIDATE: dict[str, str]` for translating Registraduría/MOE coalition names to candidate keys:
@@ -511,7 +513,7 @@ CONSULTATION_KEY_MAP: dict[str, str] = {
 - `pyright src/co_president/config.py` passes with zero errors
 - `ruff check src/co_president/config.py` passes
 - `get_active_candidates(1)` returns 5 candidates + `rest` + `blanco`
-- `get_active_candidates(2)` returns 2 candidates + `blanco`
+- `get_active_candidates(2)` returns 2 candidates + `rest` (which absorbs `blanco` in the runoff)
 - `POLLSTER_WEIGHT_FORMULA(10.0) == 1.0` and `POLLSTER_WEIGHT_FORMULA(0.0) == 0.8`
 - `COALITION_TO_CANDIDATE["COALICION PACTO HISTORICO"] == "gustavo_petro"`
 
