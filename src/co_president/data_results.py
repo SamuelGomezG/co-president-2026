@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 import unicodedata
 
 if TYPE_CHECKING:
     from datetime import date
+    from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,7 @@ from co_president.config import (
     ELECTION_DATE_ROUND1,
     ELECTION_DATE_ROUND2,
 )
+from co_president.paths import resolve_data_dir
 
 __all__ = [
     "CandidateResult",
@@ -233,29 +234,6 @@ def _normalize_coalition_name(name: str) -> str:
     stripped = name.strip().upper()
     normalized = unicodedata.normalize("NFKD", stripped)
     return "".join(c for c in normalized if not unicodedata.combining(c))
-
-
-def _resolve_data_dir(data_dir: Path | None) -> Path:
-    """Locate the project data directory.
-
-    When ``data_dir`` is provided, returns it directly. Otherwise resolves
-    relative to the installed package, falling back to a file-relative path.
-    """
-    if data_dir is not None:
-        return data_dir
-    try:
-        import co_president  # noqa: PLC0415
-
-        candidate = Path(co_president.__file__).resolve().parent.parent.parent / "data"
-        if candidate.is_dir():
-            return candidate
-    except (ImportError, AttributeError, TypeError):
-        pass
-    fallback = Path(__file__).resolve().parent.parent.parent / "data"
-    if not fallback.is_dir():
-        msg = f"data/ directory not found at {fallback}"
-        raise FileNotFoundError(msg)
-    return fallback
 
 
 def _resolve_mmv_path(results_dir: Path, stem: str) -> Path:
@@ -522,7 +500,7 @@ def load_registraduria_round1(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     results_dir = resolved / "2022-presidential-results"
     path = _resolve_mmv_path(results_dir, "MMV_NACIONAL_PRESIDENTE_2022_1v")
     df = _read_mmv(path)
@@ -539,7 +517,7 @@ def load_registraduria_round2(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     results_dir = resolved / "2022-presidential-results"
     path = _resolve_mmv_path(results_dir, "MMV_NACIONAL_PRESIDENTE_2022_2v")
     df = _read_mmv(path)
@@ -556,7 +534,7 @@ def load_moe_round1(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "moe_vuelta1.csv"
     df = _read_moe(path)
     return _aggregate_and_map(df, "nomparti", "votos")
@@ -572,7 +550,7 @@ def load_moe_round2(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame indexed by candidate key with a ``votes`` column.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "moe_vuelta2.csv"
     df = _read_moe(path)
     return _aggregate_and_map(df, "nomparti", "votos")
@@ -588,7 +566,7 @@ def load_participation_round1(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame with columns including ``Total censo`` and ``Código Puesto``.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "reg_participacion_vuelta1.csv"
     return _read_participation(path)
 
@@ -603,7 +581,7 @@ def load_participation_round2(data_dir: Path | None = None) -> pd.DataFrame:
         DataFrame with columns including ``Total censo`` and ``Código Puesto``.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
     path = resolved / "2022-presidential-results" / "reg_participacion_vuelta2.csv"
     return _read_participation(path)
 
@@ -715,7 +693,7 @@ def load_canonical_results(
         ``(round1, round2)`` as ``RoundResult`` objects.
 
     """
-    resolved = _resolve_data_dir(data_dir)
+    resolved = resolve_data_dir(data_dir)
 
     # Load Registraduría data
     reg1_df = load_registraduria_round1(resolved)
