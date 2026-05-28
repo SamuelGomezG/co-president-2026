@@ -555,6 +555,7 @@ def _print_run_summary_table(  # noqa: PLR0913
     r2_validation: RoundValidation | None,
 ) -> None:
     """Print the formatted summary table after a full pipeline run."""
+    display_names = {c.key: c.display_name for c in FIRST_ROUND_CANDIDATES.values()}
     _print_separator()
     print("  CO-PRESIDENT 2026 — 2022 Backtesting Results")
     _print_separator()
@@ -569,8 +570,9 @@ def _print_run_summary_table(  # noqa: PLR0913
             actual = 0.0
         error = fc.mean_share - actual
         ci_str = _format_ci(fc.ci_95)
+        name = display_names.get(fc.candidate_key, fc.candidate_key)
         print(
-            f"  | {fc.candidate_key:17s} | {_format_pct(fc.mean_share):>8s} | "
+            f"  | {name:17s} | {_format_pct(fc.mean_share):>8s} | "
             f"{_format_pct(actual):>8s} | {_format_error(error):>11s} | "
             f"{ci_str:>18s} |",
         )
@@ -586,19 +588,19 @@ def _print_run_summary_table(  # noqa: PLR0913
     print()
 
     if runoff_forecast is not None:
+        name_a = display_names.get(runoff_forecast.candidate_a_key, runoff_forecast.candidate_a_key)
+        name_b = display_names.get(runoff_forecast.candidate_b_key, runoff_forecast.candidate_b_key)
         print(
-            f"  RUNOFF ({results_r2.date}) — "
-            f"{runoff_forecast.candidate_a_key} vs. "
-            f"{runoff_forecast.candidate_b_key}",
+            f"  RUNOFF ({results_r2.date}) — {name_a} vs. {name_b}",
         )
         print(
-            f"  {runoff_forecast.candidate_a_key:20s}: "
+            f"  {name_a:20s}: "
             f"{_format_pct(runoff_forecast.mean_share_a)} "
             f"{_format_ci(runoff_forecast.ci_95_a)}  "
             f"-> Win prob: {runoff_forecast.prob_a_wins * 100:.1f}%",
         )
         print(
-            f"  {runoff_forecast.candidate_b_key:20s}: "
+            f"  {name_b:20s}: "
             f"{_format_pct(runoff_forecast.mean_share_b)} "
             f"{_format_ci(runoff_forecast.ci_95_b)}  "
             f"-> Win prob: {runoff_forecast.prob_b_wins * 100:.1f}%",
@@ -607,7 +609,7 @@ def _print_run_summary_table(  # noqa: PLR0913
             print(
                 f"  MAE: {r2_validation.mae * 100:.2f}pp  |  "
                 f"Expected margin: {runoff_forecast.mean_margin * 100:+.1f}pp "
-                f"{runoff_forecast.candidate_a_key}",
+                f"{name_a}",
             )
     else:
         print("  RUNOFF: No forecast available (sampling failed)")
