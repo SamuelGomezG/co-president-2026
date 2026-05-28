@@ -703,18 +703,21 @@ def load_canonical_results(
     moe1_df = load_moe_round1(resolved)
     moe2_df = load_moe_round2(resolved)
 
-    # Load participation data (used for census totals for both rounds)
+    # Load participation data
     part1 = load_participation_round1(resolved)
-    registered_voters = int(part1["Total censo"].sum())
-    polling_stations = int(part1["Código Puesto"].nunique())
+    part2 = load_participation_round2(resolved)
+    registered_voters_r1 = int(part1["Total censo"].sum())
+    polling_stations_r1 = int(part1["Código Puesto"].nunique())
+    registered_voters_r2 = int(part2["Total censo"].sum())
+    polling_stations_r2 = int(part2["Código Puesto"].nunique())
 
     # Build RoundResults for Registraduría
-    reg_r1 = _build_round_result(reg1_df, 1, registered_voters, polling_stations)
-    reg_r2 = _build_round_result(reg2_df, 2, registered_voters, polling_stations)
+    reg_r1 = _build_round_result(reg1_df, 1, registered_voters_r1, polling_stations_r1)
+    reg_r2 = _build_round_result(reg2_df, 2, registered_voters_r2, polling_stations_r2)
 
-    # Build RoundResults for MOE (using same census totals)
-    moe_r1 = _build_round_result(moe1_df, 1, registered_voters, polling_stations)
-    moe_r2 = _build_round_result(moe2_df, 2, registered_voters, polling_stations)
+    # Build RoundResults for MOE
+    moe_r1 = _build_round_result(moe1_df, 1, registered_voters_r1, polling_stations_r1)
+    moe_r2 = _build_round_result(moe2_df, 2, registered_voters_r2, polling_stations_r2)
 
     # Cross-validate and consolidate
     result1 = consolidate_round(reg_r1, moe_r1, 1)
