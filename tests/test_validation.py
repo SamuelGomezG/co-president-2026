@@ -30,6 +30,7 @@ from co_president.validation import (
     rolling_forecast,
     save_rolling_snapshot,
     sensitivity_ns_nr,
+    validate_cross_pollster_consistency,
     validate_round1,
     validate_runoff,
 )
@@ -1184,6 +1185,72 @@ class TestSensitivityNsNr:
                 results=None,
                 config=ModelConfig(mcmc_draws=10, mcmc_tune=5),
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# validate_cross_pollster_consistency
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCrossPollsterConsistency:
+    """Tests for validate_cross_pollster_consistency diagnostics."""
+
+    def test_same_day_agreement_no_flags(self) -> None:
+        """Verify identical polls on same day produce no flags."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["PollsterA", "PollsterB"],
+                "fecha": pd.to_datetime(["2022-05-15", "2022-05-15"]),
+                "gustavo_petro": [40.0, 40.0],
+                "rodolfo_hernandez": [28.0, 28.0],
+                "margen_error": [2.0, 2.0],
+            }
+        )
+        result = validate_cross_pollster_consistency(df)
+        assert result.empty
+
+    def test_three_pollster_disagreement_flagged(self) -> None:
+        """Verify outlier pollsters exceeding 2x MoE are flagged."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["A", "B", "C"],
+                "fecha": pd.to_datetime(["2022-05-19", "2022-05-19", "2022-05-19"]),
+                "gustavo_petro": [40.0, 50.0, 41.0],
+                "rodolfo_hernandez": [28.0, 18.0, 29.0],
+                "margen_error": [1.5, 1.5, 1.5],
+            }
+        )
+        result = validate_cross_pollster_consistency(df)
+        assert not result.empty
+        assert "gustavo_petro" in result["candidate"].to_numpy()
+
+    def test_single_pollster_date_empty(self) -> None:
+        """Verify single-pollster dates produce empty diagnostics."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["Solo"],
+                "fecha": pd.to_datetime(["2022-05-01"]),
+                "gustavo_petro": [40.0],
+                "rodolfo_hernandez": [28.0],
+                "margen_error": [2.0],
+            }
+        )
+        result = validate_cross_pollster_consistency(df)
+        assert result.empty
+
+    def test_within_moe_not_flagged(self) -> None:
+        """Verify small differences within MoE are not flagged."""
+        df = pd.DataFrame(
+            {
+                "encuestadora": ["A", "B"],
+                "fecha": pd.to_datetime(["2022-05-15", "2022-05-15"]),
+                "gustavo_petro": [40.0, 41.0],
+                "rodolfo_hernandez": [28.0, 27.0],
+                "margen_error": [2.0, 2.0],
+            }
+        )
+        result = validate_cross_pollster_consistency(df)
+        assert result.empty
 
 
 # ═══════════════════════════════════════════════════════════════════════
