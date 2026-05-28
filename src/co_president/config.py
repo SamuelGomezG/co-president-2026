@@ -299,7 +299,7 @@ def compute_consultation_prior_strength() -> dict[str, float]:
     csv_path = data_dir / "2022-polls" / "consultas.csv"
     strengths: dict[str, list[float]] = {}
 
-    with csv_path.open(encoding="latin-1") as f:
+    with csv_path.open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             name = _normalize_name(row["candidato"])
