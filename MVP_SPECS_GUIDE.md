@@ -1119,7 +1119,7 @@ K_runoff = 3  # A, B, rest
    ```python
    @dataclass(frozen=True)
    class RunoffMatrix:
-       pairings: list[PairingForecast]
+        pairings: tuple[PairingForecast, ...]
        prob_runoff: float            # Σ pairing probabilities = P(no outright winner)
        ordered_by_likelihood: tuple[tuple[str, str], ...]  # Pairings from most to least likely
    ```
