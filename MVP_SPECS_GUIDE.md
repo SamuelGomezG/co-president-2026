@@ -487,13 +487,17 @@ Returns mapping from CSV column name (`gustavo_petro`) to candidate key (`gustav
 
 #### 5.1.9 Transfer Heuristic Constants (SPEC-08)
 
-These are placeholder values for the runoff probability matrix transfer heuristic (SPEC-08). They MUST be refined with actual legislative election data before the 2026 cycle.
+These values are empirically calibrated from round-1 → round-2 poll deltas
+across eight pollsters. The aggregate split is approximately 73% of eliminated-
+candidate votes flowing to Hernandez and 27% to Petro. The calibration is
+documented in ``notebooks/derive_transfer_constants.py`` and should be updated
+if new data or a broader poll set is introduced.
 
 ```python
-TRANSFER_FAJARDO_PETRO: float = 0.60       # Fraction of Fajardo voters going to Petro
-TRANSFER_FAJARDO_HERNANDEZ: float = 0.40   # Fraction going to Hernández (1 - above)
-TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.70 # Fraction of Gutiérrez voters going to Hernández
-TRANSFER_GUTIERREZ_PETRO: float = 0.30     # Fraction going to Petro (1 - above)
+TRANSFER_FAJARDO_PETRO: float = 0.40       # Fraction of Fajardo voters going to Petro
+TRANSFER_FAJARDO_HERNANDEZ: float = 0.60   # Fraction going to Hernandez (1 - above)
+TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.87 # Fraction of Gutierrez voters going to Hernandez
+TRANSFER_GUTIERREZ_PETRO: float = 0.13     # Fraction going to Petro (1 - above)
 TRANSFER_BLANCO_SPLIT: float = 0.5   # Fraction of blank votes going to candidate A (Petro by convention); 1-split goes to B
 
 # Mapping from consultation candidate display names to canonical keys

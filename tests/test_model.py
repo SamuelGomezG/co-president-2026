@@ -18,6 +18,7 @@ from co_president.model_round1 import (
     forecast_round1,
     sample_round1,
 )
+import co_president.model_runoff_matrix as runoff_matrix
 from co_president.model_runoff_matrix import (
     PairingForecast,
     RunoffMatrix,
@@ -992,3 +993,29 @@ def test_transfer_heuristic_pairing_probs_sum_to_one() -> None:
             f"Pairing {pf.candidate_first} vs {pf.candidate_second}: "
             f"prob_first_wins + prob_second_wins = {prob_sum} != 1.0"
         )
+
+
+def test_transfer_heuristic_vote_share_bounds() -> None:
+    """Ensure transfer heuristic never yields >100% shares."""
+    rng = np.random.default_rng(123)
+    n_chains, n_draws = 2, 200
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+    election_day = p_time[:, :, 0, :]
+
+    shares_first, shares_second = runoff_matrix._compute_transfer_shares(  # noqa: SLF001
+        election_day,
+        candidate_order,
+        "gustavo_petro",
+        "rodolfo_hernandez",
+    )
+
+    assert (shares_first + shares_second <= 1.0 + 1e-9).all()
+
+    assert (shares_first >= 0.0).all()
+    assert (shares_first <= 1.0).all()
+    assert (shares_second >= 0.0).all()
+    assert (shares_second <= 1.0).all()
