@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -24,8 +25,10 @@ if TYPE_CHECKING:
     from co_president.config import ModelConfig
     from co_president.data_results import RoundResult
 
+logger = logging.getLogger(__name__)
 
-def build_round1_model(  # noqa: PLR0915
+
+def build_round1_model(  # noqa: C901, PLR0915
     polls: pd.DataFrame, results: RoundResult | None, config: ModelConfig
 ) -> pm.Model:
     """Build the PyMC model graph for the first round.
@@ -90,27 +93,44 @@ def build_round1_model(  # noqa: PLR0915
     polls["pollster_idx"] = polls["encuestadora"].map(pollster_to_idx)
 
     # Observed poll counts from percentage shares.
-    # Candidate columns (e.g. "rest"/"otros" is excluded from the model) may
-    # not sum to 100%, so we normalise the total to the observed-count sum
-    # rather than the raw muestra.  The DirichletMultinomial likelihood
-    # requires sum(observed) == n.
+    # The DirichletMultinomial trial count is the raw sample size (SPEC-06 §9.1),
+    # not the sum of rounded per-candidate counts.
     sample_sizes = polls["muestra"].to_numpy().astype(int)
     observed_counts = np.round(
         polls[candidate_keys].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
     ).astype(int)
-    effective_n = observed_counts.sum(axis=1)
-    # Use effective_n (the total expressed preference for modelled candidates)
-    # as the DirichletMultinomial trial count.
+
+    # Adjust discrepancy so each row sums to its sample size
+    # (DirichletMultinomial requires observed.sum(axis=1) == n).
+    # Discrepancy arises from (a) rounding after multiplying percentages by
+    # sample sizes, or (b) unmodeled candidate categories missing from the
+    # DataFrame columns.  In either case the largest per-row count absorbs
+    # the difference to preserve the trial-count semantics of SPEC-06 §9.1.
+    row_sums = observed_counts.sum(axis=1)
+    diff = sample_sizes - row_sums
+    if not np.all(diff == 0):
+        n_candidates = len(candidate_keys)
+        if np.any(np.abs(diff) > n_candidates):
+            logger.warning(
+                "Rounding mismatch >%d votes in %d row(s); "
+                "largest |diff| = %d. Some candidate categories may "
+                "be missing from the poll DataFrame.",
+                n_candidates,
+                int((np.abs(diff) > n_candidates).sum()),
+                int(np.abs(diff).max()),
+            )
+        max_idx = np.argmax(observed_counts, axis=1)
+        observed_counts[np.arange(len(observed_counts)), max_idx] += diff
 
     # Sample-size-dependent concentration multiplier:
     # Larger polls contribute more to the concentration parameter via log-based
     # scaling (phi_poll_n = phi_poll * log(N+1) / log(mean_N+1), sublinear to
     # avoid over-weighting extremely large samples)
     eps = 1e-8
-    mean_effective_n = effective_n.mean()
-    numerator = np.log(effective_n + 1 + eps)
-    denominator = np.log(mean_effective_n + 1 + eps)
-    effective_n_multiplier = np.maximum(numerator / denominator, eps)[:, np.newaxis]
+    mean_sample_size = sample_sizes.mean()
+    numerator = np.log(sample_sizes + 1 + eps)
+    denominator = np.log(mean_sample_size + 1 + eps)
+    sample_size_multiplier = np.maximum(numerator / denominator, eps)[:, np.newaxis]
 
     # Index arrays
     time_indices = polls["time_idx"].to_numpy().astype(int)
@@ -148,7 +168,7 @@ def build_round1_model(  # noqa: PLR0915
         )
         phi_poll_n = pm.Deterministic(
             "phi_poll_n",
-            phi_poll * effective_n_multiplier,
+            phi_poll * sample_size_multiplier,
         )
 
         # Reverse-time random walk
@@ -198,7 +218,7 @@ def build_round1_model(  # noqa: PLR0915
 
         pm.DirichletMultinomial(
             "poll_likelihood",
-            n=effective_n,
+            n=sample_sizes,
             a=alpha_poll,
             observed=observed_counts,
         )

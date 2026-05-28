@@ -144,6 +144,32 @@ def test_build_round1_model_forecast_mode() -> None:
     assert len(model.observed_RVs) == 1  # Only poll_likelihood
 
 
+def test_build_round1_model_rounding_correction() -> None:
+    """Test that observed_counts rounding drift is corrected.
+
+    Uses percentages that don't sum to 100% (33.3+33.3+33.3 = 99.9%), so
+    ``np.round(percentage/100 * sample_size)`` creates a row-sum mismatch
+    that the correction step must fix.
+    """
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
+            "muestra": [1000, 1000, 1000],
+            "gustavo_petro": [33.3, 33.3, 33.3],
+            "rodolfo_hernandez": [33.3, 33.3, 33.3],
+            "blanco": [33.3, 33.3, 33.3],
+            "round_number": [1, 1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config)
+
+    # Verify the model built (the correction didn't raise)
+    assert len(model.free_RVs) == 5
+    assert len(model.observed_RVs) == 1
+
+
 def test_build_round1_model_backtest_mode() -> None:
     """Test that backtest mode (results=RoundResult) includes election likelihood."""
     polls = _make_3row_polls_3candidates()
