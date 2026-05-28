@@ -90,9 +90,6 @@ skips = []
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
-    "--cov=src/co_president",
-    "--cov-report=term-missing",
-    "--cov-report=xml",
 ]
 markers = [
     "slow: slow MCMC tests (excluded from CI)",
