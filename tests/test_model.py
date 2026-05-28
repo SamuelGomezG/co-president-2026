@@ -993,6 +993,7 @@ def test_transfer_heuristic_pairing_probs_sum_to_one() -> None:
             f"prob_first_wins + prob_second_wins = {prob_sum} != 1.0"
         )
 
+
 def test_build_round1_model_phi_poll_n_scaling() -> None:
     """Test that poll concentration scales with log(sample size)."""
     # 3-row DataFrame as per requirements
@@ -1015,10 +1016,10 @@ def test_build_round1_model_phi_poll_n_scaling() -> None:
         prior_pred = pm.sample_prior_predictive(draws=10, random_seed=config.seed)
 
     phi_poll_n = prior_pred.prior["phi_poll_n"].to_numpy()
-    
+
     # Assert shape is (..., num_polls=3, 1)
     assert phi_poll_n.shape[-2:] == (len(polls), 1)
-    
+
     # Ratio of poll 2 (2000) to poll 1 (500)
     ratio = phi_poll_n[..., 1, 0] / phi_poll_n[..., 0, 0]
     eps = 1e-8
