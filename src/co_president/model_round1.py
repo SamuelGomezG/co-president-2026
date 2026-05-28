@@ -311,24 +311,35 @@ class Round1Forecast:
     round_number: Literal[1] = 1
 
     def to_dict(self) -> dict[str, Any]:
-        # Any used because JSON values can be str/number/bool/list/dict
-        """Serialize to a JSON-compatible dict.
+        """Serialize the Round1Forecast to a plain dictionary.
+
+        Uses ``dataclasses.asdict`` to recursively convert all fields,
+        including nested ``CandidateForecast`` objects. CI tuples
+        (``ci_50``, ``ci_95``) become lists in the output dict.
 
         Returns:
-            Dictionary representation suitable for JSON serialization.
+            dict[str, Any]: Dictionary representation with str keys.
 
         """
         return asdict(self)
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> Round1Forecast:
-        """Deserialize from a dict created by ``to_dict``.
+        """Reconstruct a Round1Forecast from a dictionary.
+
+        Handles type-casting of CI fields (lists back to tuples,
+        ints back to floats). Recursively reconstructs nested
+        ``CandidateForecast`` objects.
 
         Args:
-            d: Dictionary created by ``to_dict``.
+            d: Dictionary produced by ``to_dict()``.
 
         Returns:
-            Reconstructed :class:`Round1Forecast` instance.
+            Round1Forecast: Reconstructed dataclass instance.
+
+        Raises:
+            ValueError: If the dict is missing required keys or has
+                malformed CI fields.
 
         """
         candidates = []
@@ -355,23 +366,26 @@ class Round1Forecast:
         )
 
     def to_json(self) -> str:
-        """Serialize to a JSON string.
+        """Serialize the Round1Forecast to a JSON string.
 
         Returns:
-            JSON string representation of the forecast.
+            str: JSON-encoded string via ``json.dumps(self.to_dict())``.
 
         """
         return json.dumps(self.to_dict())
 
     @staticmethod
     def from_json(s: str) -> Round1Forecast:
-        """Deserialize from a JSON string created by ``to_json``.
+        """Deserialize a Round1Forecast from a JSON string.
 
         Args:
-            s: JSON string created by ``to_json``.
+            s: JSON string produced by ``to_json()``.
 
         Returns:
-            Reconstructed :class:`Round1Forecast` instance.
+            Round1Forecast: Reconstructed dataclass instance.
+
+        Raises:
+            ValueError: If the JSON is malformed or missing required keys.
 
         """
         return Round1Forecast.from_dict(json.loads(s))
