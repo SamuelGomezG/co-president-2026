@@ -21,22 +21,14 @@ not empirically identified parameters.
 
 from __future__ import annotations
 
-import contextlib
-import csv
 from dataclasses import dataclass
 from datetime import date
-import functools
 import math
-from pathlib import Path
 import statistics
 from typing import Literal
-import unicodedata
-
-from co_president.paths import resolve_data_dir
 
 __all__ = [
     "COALITION_TO_CANDIDATE",
-    "COMPUTED_CONSULTATION_PRIOR_STRENGTHS",
     "CONSULTATION_DATE",
     "CONSULTATION_KEY_MAP",
     "CONSULTATION_VOTES",
@@ -51,13 +43,10 @@ __all__ = [
     "TRANSFER_GUTIERREZ_PETRO",
     "Candidate",
     "ModelConfig",
-    "compute_consultation_prior_strength",
     "consultation_log_share_prior",
     "get_active_candidates",
     "get_candidate_column_map",
-    "get_computed_consultation_prior_strengths",
     "pollster_weight_formula",
-    "validate_consultation_prior_means",
 ]
 
 
@@ -97,13 +86,12 @@ class ModelConfig:
         target_accept: NUTS target acceptance rate.
         seed: RNG seed for reproducibility.
         time_decay_half_life_days: Days for poll weight to halve.
-        consultation_prior_strength: Sigma for Normal prior on theta[T-1].
-            Can be overridden by candidate-specific values in
-            ``COMPUTED_CONSULTATION_PRIOR_STRENGTHS``.
-        consultation_prior_strength_override: Candidate-specific override of
-            ``consultation_prior_strength``. Keys are candidate keys, values
-            are standard-deviation strengths. When provided, these take
-            precedence over ``COMPUTED_CONSULTATION_PRIOR_STRENGTHS``.
+    consultation_prior_strength: Sigma for Normal prior on theta[T-1].
+        Used as a fallback when computed or overridden values are unavailable.
+    consultation_prior_strength_override: Candidate-specific override of
+        ``consultation_prior_strength``. Keys are candidate keys, values
+        are standard-deviation strengths. When provided, these take
+        precedence over computed strengths from ``data_polls``.
 
     """
 
@@ -120,6 +108,32 @@ class ModelConfig:
     time_decay_half_life_days: float = 30.0
     consultation_prior_strength: float = 0.5
     consultation_prior_strength_override: dict[str, float] | None = None
+
+    @property
+    def computed_consultation_prior_strengths(self) -> dict[str, float]:
+        """Lazily computed candidate-specific prior strengths.
+
+        Calls ``get_computed_consultation_prior_strengths`` from
+        ``data_polls`` on first access (not at module import time).
+        Merges with ``consultation_prior_strength_override``, which takes
+        precedence. Returns empty dict when ``consultas.csv`` is missing
+        or cannot be read.
+
+        Returns:
+            Mapping of candidate key to prior standard deviation,
+            or empty dict if unavailable.
+
+        """
+        from co_president.data_polls import get_computed_consultation_prior_strengths  # noqa: PLC0415, I001
+
+        try:
+            computed = get_computed_consultation_prior_strengths().copy()
+        except (FileNotFoundError, KeyError, ValueError):
+            computed = {}
+
+        if self.consultation_prior_strength_override is not None:
+            computed.update(self.consultation_prior_strength_override)
+        return computed
 
 
 FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
@@ -216,20 +230,6 @@ CONSULTATION_KEY_MAP: dict[str, str] = {
 }
 
 
-def _normalize_name(name: str) -> str:
-    """Normalize name for case-insensitive, accent-insensitive comparison."""
-    return unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").casefold()
-
-
-_NORMALIZED_CONSULTATION_MAP: dict[str, str] = {
-    _normalize_name(k): v for k, v in CONSULTATION_KEY_MAP.items()
-}
-
-
-# Note: Values are approximate (±200K) and serve as rough proxies for
-# coalition base support. The model can deviate if poll data disagrees.
-
-
 def consultation_log_share_prior() -> dict[str, float]:
     """Compute log-scale prior means from consultation vote shares.
 
@@ -267,160 +267,6 @@ def consultation_log_share_prior() -> dict[str, float]:
         else:
             shares[k] = math.log(min_share / 2.0)
     return shares
-
-
-def compute_consultation_prior_strength() -> dict[str, float]:
-    """Compute candidate-specific prior strengths from consultation polls.
-
-    Reads ``consultas.csv`` from the project data directory, groups poll
-    results by candidate, and computes the standard deviation of ``int_voto``
-    values (expressed as proportions in [0,1]). Enforces a minimum standard
-    deviation floor of 0.10. For candidates without consultation data, uses a
-    fallback of the mean strength * 1.5.
-
-    The result is memoized via :func:`get_computed_consultation_prior_strengths`
-    so repeated calls incur no I/O after the first.
-
-    Returns:
-        Mapping of candidate key to prior standard deviation.
-
-    Raises:
-        ValueError: If any key in ``CONSULTATION_KEY_MAP`` produced zero rows,
-            indicating a name mismatch between the CSV and the key map.
-
-    Examples:
-        >>> strengths = compute_consultation_prior_strength()
-        >>> isinstance(strengths, dict)
-        True
-        >>> all(v >= 0.10 for v in strengths.values())
-        True
-
-    """
-    data_dir = resolve_data_dir(None)
-    csv_path = data_dir / "2022-polls" / "consultas.csv"
-    strengths: dict[str, list[float]] = {}
-
-    with csv_path.open(encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            name = _normalize_name(row["candidato"])
-            key = _NORMALIZED_CONSULTATION_MAP.get(name)
-            if key is not None:
-                strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
-
-    results: dict[str, float] = {}
-    for key, values in strengths.items():
-        if len(values) > 1:
-            results[key] = max(0.10, statistics.stdev(values))
-        else:
-            results[key] = 0.10
-
-    # Fallback for candidates with zero consultation votes (independents)
-    if results:
-        mean_strength = statistics.mean(results.values())
-        for key in CONSULTATION_VOTES:
-            if key not in results:
-                results[key] = mean_strength * 1.5
-
-    # Candidates with non-zero consultation votes are expected in the CSV;
-    # those with zero votes (independents) are not.
-    expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
-    missing = [k for k in expected if k not in strengths]
-    if missing:
-        msg = f"No consultation data found for candidates: {missing}"
-        raise ValueError(msg)
-
-    return results
-
-
-def validate_consultation_prior_means(
-    means: dict[str, float],
-    consultas_path: str | None = None,
-) -> None:
-    """Validate prior means against ``consultas.csv`` polling ranges.
-
-    Reads ``consultas.csv``, groups by candidate key (using
-    ``CONSULTATION_KEY_MAP``), and computes the min/max ``int_voto/100`` for
-    each candidate. Every mean must fall within ``[min, max]`` of that
-    candidate's polling range.
-
-    Args:
-        means: Mapping of candidate key to prior mean (proportion in [0,1]).
-        consultas_path: Override path to ``consultas.csv``. If ``None``,
-            resolves via ``resolve_data_dir``.
-
-    Returns:
-        None. Raises on validation failure.
-
-    Raises:
-        ValueError: If any mean falls outside its candidate's polling range,
-            or if a candidate key has no polling data.
-
-    Examples:
-        >>> validate_consultation_prior_means({"gustavo_petro": 0.77})
-        >>> validate_consultation_prior_means({"gustavo_petro": 0.99})
-        Traceback (most recent call last):
-            ...
-        ValueError: Prior mean for ...
-
-    """
-    if consultas_path is None:
-        data_dir = resolve_data_dir(None)
-        consultas_path = str(data_dir / "2022-polls" / "consultas.csv")
-
-    ranges: dict[str, list[float]] = {}
-    with Path(consultas_path).open(encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            name = _normalize_name(row["candidato"])
-            key = _NORMALIZED_CONSULTATION_MAP.get(name)
-            if key is not None:
-                ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
-
-    for key, mean in means.items():
-        if key not in ranges:
-            msg = f"No consultation data found for candidate '{key}'"
-            raise ValueError(msg)
-        vals = ranges[key]
-        lo, hi = min(vals), max(vals)
-        if not (lo <= mean <= hi):
-            msg = (
-                f"Prior mean for '{key}' ({mean:.4f}) is outside polling range [{lo:.4f}, {hi:.4f}]"
-            )
-            raise ValueError(msg)
-
-
-@functools.cache
-def get_computed_consultation_prior_strengths() -> dict[str, float]:
-    """Memoized wrapper around ``compute_consultation_prior_strength``.
-
-    On first call, reads ``consultas.csv``, computes candidate-specific
-    standard deviations, and caches the result. Subsequent calls return the
-    cached dict without I/O.
-
-    Returns:
-        Mapping of candidate key to prior standard deviation, computed from
-        ``consultas.csv``.
-
-    Examples:
-        >>> strengths = get_computed_consultation_prior_strengths()
-        >>> isinstance(strengths, dict)
-        True
-        >>> strengths is get_computed_consultation_prior_strengths()
-        True
-
-    """
-    return compute_consultation_prior_strength()
-
-
-def _get_strengths_safe() -> dict[str, float]:
-    """Compute consultation prior strengths, returning empty dict on failure."""
-    with contextlib.suppress(FileNotFoundError, KeyError, ValueError):
-        return get_computed_consultation_prior_strengths()
-    return {}
-
-
-COMPUTED_CONSULTATION_PRIOR_STRENGTHS: dict[str, float] = dict(_get_strengths_safe())
 
 
 POLLSTER_RATINGS: dict[str, float] = {

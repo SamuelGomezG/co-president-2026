@@ -6,9 +6,12 @@ analysis-ready ``CleanPolls`` container.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from functools import cache
 import logging
+from pathlib import Path
+import statistics
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 import unicodedata
@@ -16,13 +19,13 @@ import unicodedata
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import date
-    from pathlib import Path
 
 import pandas as pd
 
 from co_president.config import (
     CONSULTATION_DATE,
     CONSULTATION_KEY_MAP,
+    CONSULTATION_VOTES,
     ELECTION_DATE_ROUND1,
     get_active_candidates,
 )
@@ -33,8 +36,10 @@ __all__ = [
     "CleanPolls",
     "ConsultationPoll",
     "PollRow",
+    "compute_consultation_prior_strength",
     "deduplicate_polls",
     "fix_invamer_date",
+    "get_computed_consultation_prior_strengths",
     "infer_round_number",
     "load_and_clean_all",
     "load_raw_consultas",
@@ -43,6 +48,7 @@ __all__ = [
     "normalize_undecided",
     "parse_consultations",
     "retain_active_candidates",
+    "validate_consultation_prior_means",
 ]
 
 logger = logging.getLogger(__name__)
@@ -123,12 +129,10 @@ def _get_timestamp_or_none(row: pd.Series, col: str) -> pd.Timestamp | None:
 def _normalize_consultation_name(name: str) -> str:
     """Normalize a candidate name for accent-insensitive lookup.
 
-    Strips whitespace, applies NFKD Unicode normalization, removes
-    combining marks (accents), and lowercases.
+    Delegates to :func:`_normalize_name` for consistent normalization
+    across consultation and poll data.
     """
-    stripped = name.strip()
-    normalized = unicodedata.normalize("NFKD", stripped)
-    return "".join(c for c in normalized if not unicodedata.combining(c)).lower()
+    return _normalize_name(name)
 
 
 @cache
@@ -284,6 +288,170 @@ def map_consultation_name_to_key(name: str) -> str:
         msg = f"Unrecognized consultation candidate name: {name!r}"
         raise ValueError(msg)
     return key
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize name for case-insensitive, accent-insensitive comparison."""
+    stripped = name.strip()
+    normalized = unicodedata.normalize("NFKD", stripped)
+    return "".join(c for c in normalized if not unicodedata.combining(c)).casefold()
+
+
+_NORMALIZED_CONSULTATION_MAP: dict[str, str] = {
+    _normalize_name(k): v for k, v in CONSULTATION_KEY_MAP.items()
+}
+
+
+def compute_consultation_prior_strength() -> dict[str, float]:
+    """Compute candidate-specific prior strengths from consultation polls.
+
+    Reads ``consultas.csv`` from the project data directory, groups poll
+    results by candidate, and computes the standard deviation of ``int_voto``
+    values (expressed as proportions in [0,1]). Enforces a minimum standard
+    deviation floor of 0.10. For candidates without consultation data, uses a
+    fallback of the mean strength * 1.5.
+
+    The result is memoized via :func:`get_computed_consultation_prior_strengths`
+    so repeated calls incur no I/O after the first.
+
+    Returns:
+        Mapping of candidate key to prior standard deviation.
+
+    Raises:
+        ValueError: If any key in ``CONSULTATION_KEY_MAP`` produced zero rows,
+            indicating a name mismatch between the CSV and the key map.
+
+    Examples:
+        >>> strengths = compute_consultation_prior_strength()
+        >>> isinstance(strengths, dict)
+        True
+        >>> all(v >= 0.10 for v in strengths.values())
+        True
+
+    """
+    data_dir = resolve_data_dir(None)
+    csv_path = data_dir / "2022-polls" / "consultas.csv"
+    strengths: dict[str, list[float]] = {}
+
+    with csv_path.open(encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = _normalize_name(row["candidato"])
+            key = _NORMALIZED_CONSULTATION_MAP.get(name)
+            if key is not None:
+                try:
+                    strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
+                except ValueError:
+                    logger.warning(
+                        "Skipping row %d: invalid int_voto %r for candidate %r",
+                        reader.line_num,
+                        row.get("int_voto"),
+                        row.get("candidato"),
+                    )
+
+    results: dict[str, float] = {}
+    for key, values in strengths.items():
+        if len(values) > 1:
+            results[key] = max(0.10, statistics.stdev(values))
+        else:
+            results[key] = 0.10
+
+    # Fallback for candidates with zero consultation votes (independents)
+    if results:
+        mean_strength = statistics.mean(results.values())
+        for key in CONSULTATION_VOTES:
+            if key not in results:
+                results[key] = mean_strength * 1.5
+
+    # Candidates with non-zero consultation votes are expected in the CSV;
+    # those with zero votes (independents) are not.
+    expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
+    missing = [k for k in expected if k not in strengths]
+    if missing:
+        msg = f"No consultation data found for candidates: {missing}"
+        raise ValueError(msg)
+
+    return results
+
+
+def validate_consultation_prior_means(
+    means: dict[str, float],
+    consultas_path: str | None = None,
+) -> None:
+    """Validate prior means against ``consultas.csv`` polling ranges.
+
+    Reads ``consultas.csv``, groups by candidate key (using
+    ``CONSULTATION_KEY_MAP``), and computes the min/max ``int_voto/100`` for
+    each candidate. Every mean must fall within ``[min, max]`` of that
+    candidate's polling range.
+
+    Args:
+        means: Mapping of candidate key to prior mean (proportion in [0,1]).
+        consultas_path: Override path to ``consultas.csv``. If ``None``,
+            resolves via ``resolve_data_dir``.
+
+    Returns:
+        None. Raises on validation failure.
+
+    Raises:
+        ValueError: If any mean falls outside its candidate's polling range,
+            or if a candidate key has no polling data.
+
+    Examples:
+        >>> validate_consultation_prior_means({"gustavo_petro": 0.77})
+        >>> validate_consultation_prior_means({"gustavo_petro": 0.99})
+        Traceback (most recent call last):
+            ...
+        ValueError: Prior mean for ...
+
+    """
+    if consultas_path is None:
+        data_dir = resolve_data_dir(None)
+        consultas_path = str(data_dir / "2022-polls" / "consultas.csv")
+
+    ranges: dict[str, list[float]] = {}
+    with Path(consultas_path).open(encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = _normalize_name(row["candidato"])
+            key = _NORMALIZED_CONSULTATION_MAP.get(name)
+            if key is not None:
+                ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
+
+    for key, mean in means.items():
+        if key not in ranges:
+            msg = f"No consultation data found for candidate '{key}'"
+            raise ValueError(msg)
+        vals = ranges[key]
+        lo, hi = min(vals), max(vals)
+        if not (lo <= mean <= hi):
+            msg = (
+                f"Prior mean for '{key}' ({mean:.4f}) is outside polling range [{lo:.4f}, {hi:.4f}]"
+            )
+            raise ValueError(msg)
+
+
+@cache
+def get_computed_consultation_prior_strengths() -> dict[str, float]:
+    """Memoized wrapper around ``compute_consultation_prior_strength``.
+
+    On first call, reads ``consultas.csv``, computes candidate-specific
+    standard deviations, and caches the result. Subsequent calls return the
+    cached dict without I/O.
+
+    Returns:
+        Mapping of candidate key to prior standard deviation, computed from
+        ``consultas.csv``.
+
+    Examples:
+        >>> strengths = get_computed_consultation_prior_strengths()
+        >>> isinstance(strengths, dict)
+        True
+        >>> strengths is get_computed_consultation_prior_strengths()
+        True
+
+    """
+    return compute_consultation_prior_strength()
 
 
 def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:

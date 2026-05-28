@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 from datetime import date
+import importlib
 import logging
+import math
+import statistics
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -13,7 +16,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from co_president.config import get_active_candidates
+from co_president.config import CONSULTATION_VOTES, ModelConfig, get_active_candidates
 from co_president.data_polls import (
     _SHARE_COLS_EXCLUDED,
     CandidateShares,
@@ -23,8 +26,10 @@ from co_president.data_polls import (
     _detect_forced_choice,
     _fix_yanhaas_20220611,
     _validate_normalized_rows,
+    compute_consultation_prior_strength,
     deduplicate_polls,
     fix_invamer_date,
+    get_computed_consultation_prior_strengths,
     infer_round_number,
     load_and_clean_all,
     load_raw_consultas,
@@ -33,6 +38,7 @@ from co_president.data_polls import (
     normalize_undecided,
     parse_consultations,
     retain_active_candidates,
+    validate_consultation_prior_means,
 )
 from co_president.paths import resolve_data_dir
 
@@ -1348,3 +1354,329 @@ class TestLoadAndCleanAllEmptyRounds:
 
         clean = load_and_clean_all(data_dir)
         assert clean.round2.empty
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Consultation Prior Strength (relocated from test_config.py)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestConsultationPriorStrength:
+    """Tests for compute_consultation_prior_strength with tmp_path CSV data."""
+
+    CSV_HEADER = "candidato,int_voto\n"
+    CSV_MULTI = CSV_HEADER + (
+        # Wide spread so stdev > 0.10 after /100
+        "Gustavo Petro,90.0\n"
+        "Gustavo Petro,50.0\n"
+        "Gustavo Petro,70.0\n"
+        "Federico Gutierrez,81.0\n"
+        "Sergio Fajardo,84.0\n"
+    )
+
+    CSV_SINGLE = CSV_HEADER + ("Gustavo Petro,77.0\nFederico Gutierrez,81.0\nSergio Fajardo,84.0\n")
+
+    CSV_EMPTY = CSV_HEADER + "\n"
+
+    def _write_csv(
+        self,
+        tmp_path: Path,
+        csv_text: str,
+        filename: str = "consultas.csv",
+    ) -> Path:
+        """Write CSV content to tmp_path/data/2022-polls/ and return data dir."""
+        data_dir = tmp_path / "data"
+        polls_dir = data_dir / "2022-polls"
+        polls_dir.mkdir(parents=True)
+        path = polls_dir / filename
+        path.write_text(csv_text, encoding="utf-8")
+        return data_dir
+
+    def _setup(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        csv_text: str,
+    ) -> None:
+        """Write CSV and patch resolve_data_dir to point at tmp_path."""
+        data_dir = self._write_csv(tmp_path, csv_text)
+        monkeypatch.setattr(
+            "co_president.data_polls.resolve_data_dir",
+            lambda _: data_dir,
+        )
+
+    def test_multiple_rows_returns_correct_stdev(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify stdev of multiple rows is computed on [0,1] values."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        result = compute_consultation_prior_strength()
+        expected_stdev = statistics.stdev([0.9, 0.5, 0.7])
+        assert math.isclose(result["gustavo_petro"], expected_stdev)
+
+    def test_single_row_returns_floor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a candidate with one data row gets the 0.10 floor."""
+        self._setup(monkeypatch, tmp_path, self.CSV_SINGLE)
+        result = compute_consultation_prior_strength()
+        assert result["gustavo_petro"] == 0.10
+
+    def test_hernandez_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify Hernández (absent from data) gets mean * 1.5 fallback."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        result = compute_consultation_prior_strength()
+        assert "rodolfo_hernandez" in result
+        mean_base = statistics.mean(
+            [v for k, v in result.items() if CONSULTATION_VOTES.get(k, 0) > 0]
+        )
+        assert math.isclose(result["rodolfo_hernandez"], mean_base * 1.5)
+
+    def test_contains_all_expected_keys(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify candidates with non-zero CONSULTATION_VOTES have results."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        result = compute_consultation_prior_strength()
+        expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0] + ["rodolfo_hernandez"]
+        for key in expected:
+            assert key in result, f"{key} missing from results"
+
+    def test_values_are_positive(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify all values are positive."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        for val in compute_consultation_prior_strength().values():
+            assert val > 0
+
+    def test_floor_is_at_least_0_10(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify values >= 0.10."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        for val in compute_consultation_prior_strength().values():
+            assert val >= 0.10
+
+    def test_not_empty(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the function returns non-empty dict."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        assert len(compute_consultation_prior_strength()) > 0
+
+    def test_deterministic(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify two calls with same data return identical results."""
+        self._setup(monkeypatch, tmp_path, self.CSV_MULTI)
+        a = compute_consultation_prior_strength()
+        b = compute_consultation_prior_strength()
+        assert a == b
+
+    def test_missing_key_raises_valueerror(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a missing CSV name for a mapped key raises ValueError."""
+        csv_missing_fajardo = self.CSV_HEADER + "Gustavo Petro,77.0\n" + "Federico Gutierrez,81.0\n"
+        self._setup(monkeypatch, tmp_path, csv_missing_fajardo)
+        with pytest.raises(ValueError, match="No consultation data found"):
+            compute_consultation_prior_strength()
+
+
+class TestConsultationPriorMeans:
+    """Tests for the validate_consultation_prior_means function."""
+
+    CSV_DATA = (
+        "candidato,int_voto\nGustavo Petro,77.0\nFederico Gutierrez,81.0\nSergio Fajardo,84.0\n"
+    )
+
+    def _write_csv(self, tmp_path: Path) -> Path:
+        path = tmp_path / "consultas.csv"
+        path.write_text(self.CSV_DATA, encoding="utf-8")
+        return path
+
+    def test_positive_means_passes(self, tmp_path: Path) -> None:
+        """Verify a mean within polling range passes."""
+        csv_path = self._write_csv(tmp_path)
+        validate_consultation_prior_means(
+            {"gustavo_petro": 0.77},
+            consultas_path=str(csv_path),
+        )
+
+    def test_negative_mean_raises_valueerror(self, tmp_path: Path) -> None:
+        """Verify negative mean raises ValueError when outside polling range."""
+        csv_path = tmp_path / "consultas.csv"
+        csv_path.write_text("candidato,int_voto\nGustavo Petro,77.0\n", encoding="utf-8")
+        with pytest.raises(ValueError, match=r"Prior mean for 'gustavo_petro' \(-0.5"):
+            validate_consultation_prior_means(
+                {"gustavo_petro": -0.5},
+                consultas_path=str(csv_path),
+            )
+
+    def test_empty_dict_passes(self, tmp_path: Path) -> None:
+        """Verify an empty dict passes validation trivially."""
+        csv_path = self._write_csv(tmp_path)
+        validate_consultation_prior_means({}, consultas_path=str(csv_path))
+
+    def test_zero_mean(self, tmp_path: Path) -> None:
+        """Verify a mean of 0.0 raises (outside polling range)."""
+        csv_path = self._write_csv(tmp_path)
+        with pytest.raises(
+            ValueError,
+            match=r"Prior mean for 'gustavo_petro' \(0.0000\) is outside polling range",
+        ):
+            validate_consultation_prior_means(
+                {"gustavo_petro": 0.0},
+                consultas_path=str(csv_path),
+            )
+
+    def test_multiple_keys(self, tmp_path: Path) -> None:
+        """Verify multiple valid keys all pass."""
+        csv_path = self._write_csv(tmp_path)
+        validate_consultation_prior_means(
+            {
+                "gustavo_petro": 0.77,
+                "federico_gutierrez": 0.81,
+                "sergio_fajardo": 0.84,
+            },
+            consultas_path=str(csv_path),
+        )
+
+    def test_out_of_range_raises(self, tmp_path: Path) -> None:
+        """Verify a mean above the polling max raises ValueError."""
+        csv_path = self._write_csv(tmp_path)
+        with pytest.raises(ValueError, match=r"Prior mean for 'gustavo_petro' \(0.99"):
+            validate_consultation_prior_means(
+                {"gustavo_petro": 0.99},
+                consultas_path=str(csv_path),
+            )
+
+    def test_no_data_for_key_raises(self, tmp_path: Path) -> None:
+        """Verify a key with no polling data raises ValueError."""
+        csv_path = self._write_csv(tmp_path)
+        with pytest.raises(ValueError, match="No consultation data found for candidate"):
+            validate_consultation_prior_means(
+                {"rodolfo_hernandez": 0.50},
+                consultas_path=str(csv_path),
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Lazy Evaluation Tests (SPEC-02: Issue #133)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestComputedPriorStrengthsLazyEval:
+    """Tests for lazy evaluation of computed consultation prior strengths."""
+
+    def test_not_called_during_import(self) -> None:
+        """Verify the function is not called during module import."""
+        get_computed_consultation_prior_strengths.cache_clear()
+
+        mod = importlib.import_module("co_president.config")
+        try:
+            importlib.reload(mod)
+            info = get_computed_consultation_prior_strengths.cache_info()
+            assert info.hits == 0
+            assert info.misses == 0
+        finally:
+            importlib.reload(mod)
+
+    def test_recovers_after_missing_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify a cached empty result does not poison subsequent calls.
+
+        ``get_computed_consultation_prior_strengths`` is decorated with
+        ``@functools.cache``. This test relies on the intentional behavior
+        that ``functools.cache`` does **not** cache raised exceptions —
+        only successful return values are memoized. A ``FileNotFoundError``
+        on first call is ephemeral; the second call (after restoring the
+        file) correctly reads and caches fresh data.
+        """
+        get_computed_consultation_prior_strengths.cache_clear()
+
+        def raise_on_call(*args: object, **kwargs: object) -> str:  # noqa: ARG001
+            msg = "Simulated missing data directory"
+            raise FileNotFoundError(msg)
+
+        with monkeypatch.context() as m:
+            m.setattr(
+                "co_president.data_polls.resolve_data_dir",
+                raise_on_call,
+            )
+            with pytest.raises(FileNotFoundError):
+                get_computed_consultation_prior_strengths()
+
+        result = get_computed_consultation_prior_strengths()
+        assert isinstance(result, dict)
+        assert len(result) > 0
+        assert all(v >= 0.10 for v in result.values())
+
+    def test_model_config_property_lazy(self) -> None:
+        """Verify the property access does not raise at instantiation time."""
+        cfg = ModelConfig()
+        strengths = cfg.computed_consultation_prior_strengths
+        assert isinstance(strengths, dict)
+
+    def test_model_config_property_merges_override(self) -> None:
+        """Verify the property includes override values when set."""
+        overrides = {"gustavo_petro": 0.05, "rodolfo_hernandez": 0.03}
+        cfg = ModelConfig(consultation_prior_strength_override=overrides)
+        strengths = cfg.computed_consultation_prior_strengths
+        assert strengths["gustavo_petro"] == 0.05
+        assert strengths["rodolfo_hernandez"] == 0.03
+
+    def test_model_config_override_does_not_mutate_cache(self) -> None:
+        """Verify that ModelConfig overrides do not mutate the memoized cache."""
+        get_computed_consultation_prior_strengths.cache_clear()
+
+        cached = get_computed_consultation_prior_strengths()
+        petro_before = cached["gustavo_petro"]
+
+        overrides = {"gustavo_petro": 0.99}
+        cfg = ModelConfig(consultation_prior_strength_override=overrides)
+        _ = cfg.computed_consultation_prior_strengths
+
+        cached_after = get_computed_consultation_prior_strengths()
+        assert cached_after["gustavo_petro"] == petro_before
+        assert cached_after["gustavo_petro"] != 0.99
+
+    def test_model_config_property_empty_on_missing_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Verify the property returns empty dict when file is missing."""
+        get_computed_consultation_prior_strengths.cache_clear()
+
+        def raise_missing(*args: object, **kwargs: object) -> str:  # noqa: ARG001
+            msg = "Simulated missing file"
+            raise FileNotFoundError(msg)
+
+        monkeypatch.setattr(
+            "co_president.data_polls.resolve_data_dir",
+            raise_missing,
+        )
+
+        cfg = ModelConfig()
+        strengths = cfg.computed_consultation_prior_strengths
+        assert strengths == {}
