@@ -28,7 +28,7 @@ jobs:
       - run: uv run ruff format --check src/ tests/
       - run: uv run ruff check src/ tests/
       - run: uv run pyright src/
-      - run: uv run pytest tests/ -v --ignore=tests/test_model.py
+      - run: uv run pytest tests/ -v --ignore=tests/test_model.py --cov=src/co_president --cov-report=term-missing --cov-report=xml
       - run: uv run pip-audit
       - run: uv run bandit -c pyproject.toml -r src/
 
