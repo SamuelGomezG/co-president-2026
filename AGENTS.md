@@ -126,9 +126,11 @@ Each SPEC has a corresponding GitHub issue with `spec:XX` label, assigned to a m
 
 ## 9. CodeRabbit
 
-Use CodeRabbit skill with `/code-review`. Run a code review in the background, let it take as long as it needs, and check on it periodically. Evaluate the fixes and considerations. Fix major issues only, or fix any critical issues and ignore the nits. Once those changes are implemented, run a code review one more time to make sure we addressed all the critical issues and didn't introduce any additional bugs. Only run the loop twice. If on the second run you don't find any critical issues, ignore the nits and you're complete. Give me a summary of everything that was completed and why.
+**The CodeRabbit workflow MUST be executed BEFORE every commit — no exceptions. Never commit without running a CodeRabbit review first.**
 
-The CodeRabbit workflow must be executed **before** any changes are committed.
+Use CodeRabbit skill with `/code-review --uncommitted`. The `--uncommitted` flag ensures all uncommitted changes are reviewed. Always run the code review with the longest timeout possible, in the background, and check on it frequently to ensure it does not time out — timeouts waste credits and force re-runs.
+
+Evaluate the fixes and considerations. Fix major issues only, or fix any critical issues and ignore the nits. Once those changes are implemented, run a code review one more time to make sure we addressed all the critical issues and didn't introduce any additional bugs. Only run the loop twice. If on the second run you don't find any critical issues, ignore the nits and you're complete. Give me a summary of everything that was completed and why.
 
 ---
 
