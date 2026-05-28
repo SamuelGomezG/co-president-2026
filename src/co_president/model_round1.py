@@ -8,6 +8,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
+import arviz as az  # type: ignore[reportMissingTypeStubs]
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
@@ -20,8 +21,6 @@ from co_president.config import (
 )
 
 if TYPE_CHECKING:
-    import arviz as az  # type: ignore[reportMissingTypeStubs]
-
     from co_president.config import ModelConfig
     from co_president.data_results import RoundResult
 
@@ -423,27 +422,6 @@ class Round1Forecast:
         return Round1Forecast.from_dict(json.loads(s))
 
 
-def _percentile_tuple(vals: np.ndarray, q: list[float]) -> tuple[float, float]:
-    """Compute percentile values and return as an explicitly sized tuple.
-
-    Args:
-        vals: Input array.
-        q: Percentile values to compute (must be a 2-element list).
-
-    Returns:
-        A 2-tuple of floats for the specified percentiles.
-
-    Raises:
-        ValueError: If ``q`` does not have exactly two elements.
-
-    """
-    if len(q) != 2:  # noqa: PLR2004
-        msg = f"q must have exactly 2 elements, got {len(q)}"
-        raise ValueError(msg)
-    result = np.percentile(vals, q)
-    return (float(result[0]), float(result[1]))
-
-
 def forecast_round1(
     idata: az.InferenceData,
     candidates: list[str],
@@ -497,6 +475,10 @@ def forecast_round1(
     # Compute ranks for probability calculations (n_candidates >= 2 guaranteed)
     ranks = np.argsort(-shares, axis=1)
 
+    # Highest Density Intervals for all candidates at once
+    ci_50_all = az.hdi(shares, prob=0.5, axis=0)
+    ci_95_all = az.hdi(shares, prob=0.95, axis=0)
+
     candidate_forecasts: list[CandidateForecast] = []
     for i, key in enumerate(candidates):
         vals = shares[:, i]
@@ -506,8 +488,8 @@ def forecast_round1(
                 candidate_key=key,
                 mean_share=float(vals.mean()),
                 median_share=float(np.median(vals)),
-                ci_50=_percentile_tuple(vals, [25, 75]),
-                ci_95=_percentile_tuple(vals, [2.5, 97.5]),
+                ci_50=(float(ci_50_all[i, 0]), float(ci_50_all[i, 1])),
+                ci_95=(float(ci_95_all[i, 0]), float(ci_95_all[i, 1])),
                 prob_first=float((ranks[:, 0] == i).mean()),
                 prob_second=float((ranks[:, 1] == i).mean()),
                 prob_top_two=float(np.any(ranks[:, :2] == i, axis=1).mean()),

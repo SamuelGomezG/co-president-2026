@@ -1,16 +1,16 @@
-# PLAN — Issue #151
+# PLAN — Issue #140
 
 ## Summary
-**Title:** fix(SPEC-03): rename load_actual_results to load_canonical_results throughout codebase and spec  
-**SPEC:** SPEC-03 — §5.1.7, §6.1.3 item 7  
-**Classification:** REFACTOR | **Isolation:** ISOLATED | **Velocity:** QUICK WIN  
-**Stream:** Phase 1 / Stream C
+**Title:** fix(SPEC-06): use Highest Density Interval instead of percentile-based credible intervals  
+**SPEC:** SPEC-06 — §9.2.2 item 6, §15 (glossary: HDI)  
+**Classification:** CORE | **Isolation:** ISOLATED  
+**Stream:** Phase 2 / Stream A
 
 ---
 
 ## Objective
 
-The spec mandates `load_actual_results()` but the implementation uses `load_canonical_results()`. A stale reference to the old name persists in `test_data_results.py:622` and in `MVP_SPECS_GUIDE.md` §5.1.7. The preferred fix is to update the spec and stale reference to match the code's better name.
+SPEC-06 mandates HDI (Highest Density Interval) for credible intervals, but the implementation uses symmetric percentile-based (equal-tailed) intervals via `np.percentile()`. For skewed posteriors, HDI produces narrower, more informative intervals. Replace `np.percentile()` with ArviZ's `az.hdi()` throughout `model_round1.py` and `model_runoff_simple.py`.
 
 ---
 
@@ -18,53 +18,69 @@ The spec mandates `load_actual_results()` but the implementation uses `load_cano
 
 | File | Change |
 |------|--------|
-| `tests/test_data_results.py` | Change `load_actual_results` → `load_canonical_results` at line ~622 |
-| `MVP_SPECS_GUIDE.md` | Update §5.1.7 to reference `load_canonical_results()` |
+| `src/co_president/model_round1.py` | Replace `np.percentile()` calls in `forecast_round1()` with `az.hdi()` |
+| `src/co_president/model_runoff_simple.py` | Replace `np.percentile()` calls in `forecast_runoff_simple()` with `az.hdi()` |
+| `tests/test_model.py` | Update assertions that check for specific CI values |
 
 ---
 
 ## Implementation Plan
 
-### Step 1: Find the stale reference in `test_data_results.py`
+### Step 1: Understand the current implementation
 
-Open `tests/test_data_results.py` and go to line 622 (or search for `load_actual_results`):
+In `forecast_round1()` (model_round1.py), the code likely does:
 
-```bash
-grep -n "load_actual_results" tests/test_data_results.py MVP_SPECS_GUIDE.md
-```
-
-### Step 2: Fix the test file
-
-If the test file imports or references `load_actual_results`, change it to `load_canonical_results`. The function is already named `load_canonical_results` in `data_results.py` — this is purely a naming fix for stale references.
-
-Example fix:
 ```python
-# Before:
-from co_president.data_results import load_actual_results
-
-# After:
-from co_president.data_results import load_canonical_results
+# Current: percentile-based equal-tailed intervals
+ci_50_lower = np.percentile(draws, 25, axis=0)
+ci_50_upper = np.percentile(draws, 75, axis=0)
+ci_95_lower = np.percentile(draws, 2.5, axis=0)
+ci_95_upper = np.percentile(draws, 97.5, axis=0)
 ```
 
-### Step 3: Update the spec document
+### Step 2: Replace with `az.hdi()`
 
-In `MVP_SPECS_GUIDE.md` §5.1.7, the text currently says:
+```python
+import arviz as az
 
-> `load_actual_results() -> tuple[RoundResult, RoundResult]` is a lazy-loading function...
-
-Change to:
-
-> `load_canonical_results() -> tuple[RoundResult, RoundResult]` is the single entry point...
-
-Also check §6.1.3 item 7 which says "`load_canonical_results()`" — that section may already be correct, in which case only §5.1.7 needs updating.
-
-### Step 4: Verify no other stale references
-
-```bash
-grep -rn "load_actual_results" src/ tests/ docs/ *.md
+# HDI-based intervals
+ci_50 = az.hdi(draws, hdi_prob=0.5)   # returns (lower, upper) tuple per candidate
+ci_95 = az.hdi(draws, hdi_prob=0.95)
 ```
 
-All hits should be resolved.
+`az.hdi()` returns a NumPy array with shape `(2, K)` where `[0, :]` is lower bounds and `[1, :]` is upper bounds.
+
+### Step 3: Update the CandidateForecast construction
+
+The HDI result needs to be unpacked correctly:
+
+```python
+ci_50 = az.hdi(draws, hdi_prob=0.5)
+ci_95 = az.hdi(draws, hdi_prob=0.95)
+
+candidate = CandidateForecast(
+    candidate_key=key,
+    mean_share=float(np.mean(draws)),
+    median_share=float(np.median(draws)),
+    ci_50=(float(ci_50[0, i]), float(ci_50[1, i])),
+    ci_95=(float(ci_95[0, i]), float(ci_95[1, i])),
+    ...
+)
+```
+
+### Step 4: Apply the same change in `model_runoff_simple.py`
+
+In `forecast_runoff_simple()`, replace any `np.percentile()` calls with `az.hdi()` for `ci_95_a` and `ci_95_b` (and median/50% CI if they will be added later).
+
+### Step 5: Update tests
+
+Tests in `test_model.py` may have assertions on CI values. Since HDI can differ from percentile-based intervals (especially for skewed distributions), update test expectations:
+- For synthetic symmetric posteriors: HDI ≈ percentile intervals (verify within tolerance)
+- For real/synthetic skewed posteriors: HDI may be narrower — update expected ranges
+
+### Step 6: Add `arviz` import
+
+Ensure `import arviz as az` is present at the top of both files (it likely already is, since both files use `az.summary` and `az.plot_trace`).
 
 ---
 
@@ -72,19 +88,28 @@ All hits should be resolved.
 
 | Gate | Command |
 |------|---------|
-| Lint | `ruff check tests/test_data_results.py` |
-| Format | `ruff format tests/test_data_results.py` |
-| Tests | `uv run pytest tests/test_data_results.py -v` |
-| Spec review | Manual check of `MVP_SPECS_GUIDE.md` §5.1.7 |
+| Lint | `ruff check src/co_president/model_round1.py src/co_president/model_runoff_simple.py` |
+| Format | `ruff format src/co_president/model_round1.py src/co_president/model_runoff_simple.py` |
+| Typecheck | `pyright src/co_president/model_round1.py src/co_president/model_runoff_simple.py` |
+| Tests (fast) | `uv run pytest tests/test_model.py -v -m "not slow"` |
+| Tests (all model) | `uv run pytest tests/test_model.py -v` |
+
+---
+
+## Notes
+
+- `az.hdi()` is already available since ArviZ ≥0.18 is a dependency
+- HDI is a strictly more correct credible interval per Bayesian literature
+- The difference from percentile intervals is minimal for well-behaved, roughly symmetric posteriors (like a balanced two-candidate race), but can be significant for skewed posteriors (like minor candidates with low vote shares near 0%)
 
 ---
 
 ## Commit
 
 ```
-fix(SPEC-03): rename stale load_actual_results references to load_canonical_results
+fix(SPEC-06): use Highest Density Interval instead of percentile-based credible intervals
 
-Updates the spec §5.1.7 and test_data_results.py to use the
-implementation's canonical name load_canonical_results, preventing
-ImportError for developers following the spec.
+Replaces np.percentile() with az.hdi() in forecast_round1 and
+forecast_runoff_simple. HDI produces narrower, more informative
+intervals for skewed posteriors as mandated by SPEC-06.
 ```

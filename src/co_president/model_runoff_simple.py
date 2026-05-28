@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import arviz as az  # type: ignore[reportMissingTypeStubs]
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
@@ -26,8 +27,6 @@ from co_president.config import (
 )
 
 if TYPE_CHECKING:
-    import arviz as az  # type: ignore[reportMissingTypeStubs]
-
     from co_president.config import ModelConfig
     from co_president.data_results import RoundResult
 
@@ -332,10 +331,10 @@ def forecast_runoff_simple(
     mean_share_b = float(b_values.mean())
     mean_margin = mean_share_a - mean_share_b
 
-    ci_result_a = np.percentile(a_values, [2.5, 97.5])
-    ci_result_b = np.percentile(b_values, [2.5, 97.5])
-    ci_95_a = (float(ci_result_a[0]), float(ci_result_a[1]))
-    ci_95_b = (float(ci_result_b[0]), float(ci_result_b[1]))
+    ci_95_a_result = az.hdi(a_values, prob=0.95)
+    ci_95_b_result = az.hdi(b_values, prob=0.95)
+    ci_95_a = (float(ci_95_a_result[0]), float(ci_95_a_result[1]))
+    ci_95_b = (float(ci_95_b_result[0]), float(ci_95_b_result[1]))
 
     return RunoffForecast(
         candidate_a_key=candidate_a,
