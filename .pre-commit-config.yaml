@@ -20,7 +20,6 @@ repos:
         entry: uv run pytest tests/ -v --ignore=tests/test_model.py -x
         language: system
         pass_filenames: false
-        always_run: true
         types: [python]
 
       - id: pip-audit
