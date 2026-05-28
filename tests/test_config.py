@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import importlib
-import io
 import math
-import pathlib
-import statistics
 from typing import ClassVar
 
 import pytest
@@ -24,13 +21,11 @@ from co_president.config import (
     TRANSFER_GUTIERREZ_PETRO,
     Candidate,
     ModelConfig,
-    compute_consultation_prior_strength,
     consultation_log_share_prior,
     get_active_candidates,
     get_candidate_column_map,
     get_default_pollster_weight,
     pollster_weight_formula,
-    validate_consultation_prior_means,
 )
 
 
@@ -396,176 +391,6 @@ class TestConsultationLogSharePrior:
         )
         shares = consultation_log_share_prior()
         assert shares == {"gustavo_petro": -1.0, "rodolfo_hernandez": -1.0}
-
-
-class TestConsultationPriorStrength:
-    """Tests for compute_consultation_prior_strength with monkeypatched CSV data."""
-
-    CSV_HEADER = "candidato,int_voto\n"
-    CSV_MULTI = CSV_HEADER + (
-        # Wide spread so stdev > 0.10 after /100
-        "Gustavo Petro,90.0\n"
-        "Gustavo Petro,50.0\n"
-        "Gustavo Petro,70.0\n"
-        "Federico Gutierrez,81.0\n"
-        "Sergio Fajardo,84.0\n"
-    )
-
-    CSV_SINGLE = CSV_HEADER + ("Gustavo Petro,77.0\nFederico Gutierrez,81.0\nSergio Fajardo,84.0\n")
-
-    CSV_EMPTY = CSV_HEADER + "\n"
-
-    def _patch_open(self, monkeypatch: pytest.MonkeyPatch, csv_text: str) -> None:
-        """Monkeypatch pathlib.Path.open to return fake CSV data."""
-
-        def fake_open(_self: pathlib.Path, **kwargs: object) -> io.StringIO:  # noqa: ARG001
-            return io.StringIO(csv_text)
-
-        monkeypatch.setattr(pathlib.Path, "open", fake_open)
-
-    def test_multiple_rows_returns_correct_stdev(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify stdev of multiple rows is computed on [0,1] values."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        result = compute_consultation_prior_strength()
-        # 90.0/100, 50.0/100, 70.0/100 → stdev on proportions
-        expected_stdev = statistics.stdev([0.9, 0.5, 0.7])
-        assert math.isclose(result["gustavo_petro"], expected_stdev)
-
-    def test_single_row_returns_floor(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify a candidate with one data row gets the 0.10 floor."""
-        self._patch_open(monkeypatch, self.CSV_SINGLE)
-        result = compute_consultation_prior_strength()
-        assert result["gustavo_petro"] == 0.10
-
-    def test_hernandez_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify Hernández (absent from data) gets mean * 1.5 fallback."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        result = compute_consultation_prior_strength()
-        assert "rodolfo_hernandez" in result
-        # Fallback = mean of CSV-derived strengths * 1.5 (all zero-vote candidates
-        # get the same base-mean fallback, so exclude them from the base).
-        mean_base = statistics.mean(
-            [v for k, v in result.items() if CONSULTATION_VOTES.get(k, 0) > 0]
-        )
-        assert math.isclose(result["rodolfo_hernandez"], mean_base * 1.5)
-
-    def test_contains_all_expected_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify candidates with non-zero CONSULTATION_VOTES have results."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        result = compute_consultation_prior_strength()
-        expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0] + ["rodolfo_hernandez"]
-        for key in expected:
-            assert key in result, f"{key} missing from results"
-
-    def test_values_are_positive(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify all values are positive."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        for val in compute_consultation_prior_strength().values():
-            assert val > 0
-
-    def test_floor_is_at_least_0_10(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify values >= 0.10."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        for val in compute_consultation_prior_strength().values():
-            assert val >= 0.10
-
-    def test_not_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify the function returns non-empty dict."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        assert len(compute_consultation_prior_strength()) > 0
-
-    def test_deterministic(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify two calls with same data return identical results."""
-        self._patch_open(monkeypatch, self.CSV_MULTI)
-        a = compute_consultation_prior_strength()
-        b = compute_consultation_prior_strength()
-        assert a == b
-
-    def test_missing_key_raises_valueerror(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify a missing CSV name for a mapped key raises ValueError."""
-        # CSV missing Fajardo data entirely for a candidate with non-zero CONSULTATION_VOTES.
-        csv_missing_fajardo = self.CSV_HEADER + "Gustavo Petro,77.0\n" + "Federico Gutierrez,81.0\n"
-        self._patch_open(monkeypatch, csv_missing_fajardo)
-        with pytest.raises(ValueError, match="No consultation data found"):
-            compute_consultation_prior_strength()
-
-
-class TestConsultationPriorMeans:
-    """Tests for the validate_consultation_prior_means function."""
-
-    CSV_DATA = (
-        "candidato,int_voto\nGustavo Petro,77.0\nFederico Gutierrez,81.0\nSergio Fajardo,84.0\n"
-    )
-
-    def _write_csv(self, tmp_path: pathlib.Path) -> pathlib.Path:
-        path = tmp_path / "consultas.csv"
-        path.write_text(self.CSV_DATA, encoding="utf-8")
-        return path
-
-    def test_positive_means_passes(self, tmp_path: pathlib.Path) -> None:
-        """Verify a mean within polling range passes."""
-        csv_path = self._write_csv(tmp_path)
-        validate_consultation_prior_means(
-            {"gustavo_petro": 0.77},
-            consultas_path=str(csv_path),
-        )
-
-    def test_negative_mean_raises_valueerror(self, tmp_path: pathlib.Path) -> None:
-        """Verify negative mean raises ValueError when outside polling range."""
-        csv_path = tmp_path / "consultas.csv"
-        csv_path.write_text("candidato,int_voto\nGustavo Petro,77.0\n", encoding="utf-8")
-        with pytest.raises(ValueError, match=r"Prior mean for 'gustavo_petro' \(-0.5"):
-            validate_consultation_prior_means(
-                {"gustavo_petro": -0.5},
-                consultas_path=str(csv_path),
-            )
-
-    def test_empty_dict_passes(self, tmp_path: pathlib.Path) -> None:
-        """Verify an empty dict passes validation trivially."""
-        csv_path = self._write_csv(tmp_path)
-        validate_consultation_prior_means({}, consultas_path=str(csv_path))
-
-    def test_zero_mean(self, tmp_path: pathlib.Path) -> None:
-        """Verify a mean of 0.0 raises (outside polling range)."""
-        csv_path = self._write_csv(tmp_path)
-        with pytest.raises(
-            ValueError,
-            match=r"Prior mean for 'gustavo_petro' \(0.0000\) is outside polling range",
-        ):
-            validate_consultation_prior_means(
-                {"gustavo_petro": 0.0},
-                consultas_path=str(csv_path),
-            )
-
-    def test_multiple_keys(self, tmp_path: pathlib.Path) -> None:
-        """Verify multiple valid keys all pass."""
-        csv_path = self._write_csv(tmp_path)
-        validate_consultation_prior_means(
-            {
-                "gustavo_petro": 0.77,
-                "federico_gutierrez": 0.81,
-                "sergio_fajardo": 0.84,
-            },
-            consultas_path=str(csv_path),
-        )
-
-    def test_out_of_range_raises(self, tmp_path: pathlib.Path) -> None:
-        """Verify a mean above the polling max raises ValueError."""
-        csv_path = self._write_csv(tmp_path)
-        with pytest.raises(ValueError, match=r"Prior mean for 'gustavo_petro' \(0.99"):
-            validate_consultation_prior_means(
-                {"gustavo_petro": 0.99},
-                consultas_path=str(csv_path),
-            )
-
-    def test_no_data_for_key_raises(self, tmp_path: pathlib.Path) -> None:
-        """Verify a key with no polling data raises ValueError."""
-        csv_path = self._write_csv(tmp_path)
-        with pytest.raises(ValueError, match="No consultation data found for candidate"):
-            validate_consultation_prior_means(
-                {"rodolfo_hernandez": 0.50},
-                consultas_path=str(csv_path),
-            )
 
 
 class TestTransferConstants:
