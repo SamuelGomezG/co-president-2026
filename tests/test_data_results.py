@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 import logging
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -555,7 +556,7 @@ class TestRegistraduriaLoaders:
     def test_load_registraduria_round2_rest_includes_blanco(self, data_dir: Path) -> None:
         """Verify final round 2 result merges blanco into rest."""
         raw = load_registraduria_round2(data_dir)
-        part = load_participation_round1(data_dir)
+        part = load_participation_round2(data_dir)
         r2 = _build_round_result(
             raw,
             2,
@@ -752,28 +753,28 @@ class TestLoadCanonicalResults:
         self,
         canonical_results: tuple[RoundResult, RoundResult],
     ) -> None:
-        """Verify registered voters count is within ±1% of official ~39M."""
+        """Verify registered voters count is within ±1% of official ~39M for both rounds."""
         round1, round2 = canonical_results
         assert 38_500_000 < round1.registered_voters < 39_500_000
-        assert round1.registered_voters == round2.registered_voters
+        assert 38_500_000 < round2.registered_voters < 39_500_000
 
     def test_polling_stations_reasonable(
         self,
         canonical_results: tuple[RoundResult, RoundResult],
     ) -> None:
-        """Verify polling station count is reasonable."""
+        """Verify polling station count is reasonable for both rounds."""
         round1, round2 = canonical_results
         assert 10_000 < round1.polling_stations < 15_000
-        assert round1.polling_stations == round2.polling_stations
+        assert 10_000 < round2.polling_stations < 15_000
 
     # ── Cross-validation ──
 
-    def test_cross_validation_zero_warnings(
+    def test_cross_validation_zero_warnings_round1(
         self,
         canonical_results: tuple[RoundResult, RoundResult],
         data_dir: Path,
     ) -> None:
-        """Verify cross-validation between Reg and MOE produces zero warnings."""
+        """Verify cross-validation between Reg and MOE for round 1 produces zero warnings."""
         round1, _ = canonical_results
         moe1 = load_moe_round1(data_dir)
         part1 = load_participation_round1(data_dir)
@@ -786,6 +787,26 @@ class TestLoadCanonicalResults:
             polling_stations=int(part1["Código Puesto"].nunique()),
         )
         warnings = cross_validate(round1, moe_r1)
+        assert warnings == [], f"Cross-validation warnings: {warnings}"
+
+    def test_cross_validation_zero_warnings_round2(
+        self,
+        canonical_results: tuple[RoundResult, RoundResult],
+        data_dir: Path,
+    ) -> None:
+        """Verify cross-validation between Reg and MOE for round 2 produces zero warnings."""
+        _, round2 = canonical_results
+        moe2 = load_moe_round2(data_dir)
+        part2 = load_participation_round2(data_dir)
+
+        # Build MOE RoundResult
+        moe_r2 = _build_round_result(
+            moe2,
+            round_number=2,
+            registered_voters=int(part2["Total censo"].sum()),
+            polling_stations=int(part2["Código Puesto"].nunique()),
+        )
+        warnings = cross_validate(round2, moe_r2)
         assert warnings == [], f"Cross-validation warnings: {warnings}"
 
     # ── Vote share sum consistency ──
@@ -807,3 +828,26 @@ class TestLoadCanonicalResults:
         _, round2 = canonical_results
         total = sum(c.vote_share for c in round2.candidates)
         assert total == pytest.approx(1.0, abs=0.01)
+
+    # ── Participation data correctness ──
+
+    def test_round2_loads_correct_participation_data(
+        self,
+        data_dir: Path,
+    ) -> None:
+        """Verify round 2 RoundResult uses round 2 participation data, not round 1's."""
+        _, round2 = load_canonical_results(data_dir)
+        part2 = load_participation_round2(data_dir)
+        expected_voters = int(part2["Total censo"].sum())
+        expected_puestos = int(part2["Código Puesto"].nunique())
+        assert round2.registered_voters == expected_voters
+        assert round2.polling_stations == expected_puestos
+
+    def test_canonical_results_calls_round2_loader(self, data_dir: Path) -> None:
+        """Verify load_canonical_results() actually calls load_participation_round2()."""
+        with patch(
+            "co_president.data_results.load_participation_round2",
+            wraps=load_participation_round2,
+        ) as mock_loader:
+            load_canonical_results(data_dir)
+        mock_loader.assert_called_once()
