@@ -15,6 +15,14 @@ repos:
         types: [python]
         pass_filenames: false
 
+      - id: pytest-fast
+        name: pytest-fast
+        entry: uv run pytest tests/ -v --ignore=tests/test_model.py -x
+        language: system
+        pass_filenames: false
+        always_run: true
+        types: [python]
+
       - id: pip-audit
         name: pip-audit
         entry: uv run pip-audit --skip-editable
