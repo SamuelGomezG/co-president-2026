@@ -297,11 +297,6 @@ def _normalize_name(name: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c)).casefold()
 
 
-_NORMALIZED_CONSULTATION_MAP: dict[str, str] = {
-    _normalize_name(k): v for k, v in CONSULTATION_KEY_MAP.items()
-}
-
-
 def compute_consultation_prior_strength() -> dict[str, float]:
     """Compute candidate-specific prior strengths from consultation polls.
 
@@ -337,7 +332,7 @@ def compute_consultation_prior_strength() -> dict[str, float]:
         reader = csv.DictReader(f)
         for row in reader:
             name = _normalize_name(row["candidato"])
-            key = _NORMALIZED_CONSULTATION_MAP.get(name)
+            key = _build_normalized_consultation_map().get(name)
             if key is not None:
                 try:
                     strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
@@ -414,9 +409,17 @@ def validate_consultation_prior_means(
         reader = csv.DictReader(f)
         for row in reader:
             name = _normalize_name(row["candidato"])
-            key = _NORMALIZED_CONSULTATION_MAP.get(name)
+            key = _build_normalized_consultation_map().get(name)
             if key is not None:
-                ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
+                try:
+                    ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "Skipping row %d: invalid int_voto %r for candidate %r",
+                        reader.line_num,
+                        row.get("int_voto"),
+                        row.get("candidato"),
+                    )
 
     for key, mean in means.items():
         if key not in ranges:
