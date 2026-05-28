@@ -863,14 +863,14 @@ def test_overall_win_probability_with_runoff() -> None:
     )
 
     prob_outright: dict[str, float] = {
-        "candidate_a": 0.1,
+        "candidate_a": 0.0,
         "candidate_b": 0.0,
         "candidate_c": 0.0,
     }
     overall = overall_win_probability(matrix, prob_outright)
 
-    # A: 0.1 (outright) + 0.6*0.55 (wins vs B) + 0.3*0.7 (wins vs C) = 0.55
-    expected_a = 0.1 + 0.6 * 0.55 + 0.3 * 0.7
+    # A: 0.0 (outright) + 0.6*0.55 (wins vs B) + 0.3*0.7 (wins vs C) = 0.54
+    expected_a = 0.0 + 0.6 * 0.55 + 0.3 * 0.7
     assert abs(overall["candidate_a"] - expected_a) < 1e-10, (
         f"Candidate A overall win prob {overall['candidate_a']:.4f} != {expected_a:.4f}"
     )
@@ -885,6 +885,10 @@ def test_overall_win_probability_with_runoff() -> None:
     expected_c = 0.0 + 0.3 * 0.3 + 0.1 * 0.4
     assert abs(overall["candidate_c"] - expected_c) < 1e-10, (
         f"Candidate C overall win prob {overall['candidate_c']:.4f} != {expected_c:.4f}"
+    )
+
+    assert abs(sum(overall.values()) - 1.0) < 1e-9, (
+        f"Total probability {sum(overall.values()):.4f} != 1.0"
     )
 
 
