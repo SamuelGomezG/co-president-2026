@@ -286,7 +286,7 @@ def _read_mmv(path: Path) -> pd.DataFrame:
         low_memory=False,
         dtype=None,
     )
-    required_cols = {"PARNOMBRE", "VOTOS"}
+    required_cols = {"CANNOMBRE", "PARNOMBRE", "VOTOS"}
     missing = required_cols - set(df.columns)
     if missing:
         msg = f"MMV file {path} missing columns: {', '.join(sorted(missing))}"
