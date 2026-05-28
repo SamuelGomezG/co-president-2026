@@ -555,7 +555,7 @@ def _print_run_summary_table(  # noqa: PLR0913
     r2_validation: RoundValidation | None,
 ) -> None:
     """Print the formatted summary table after a full pipeline run."""
-    display_names = {c.key: c.display_name for c in FIRST_ROUND_CANDIDATES.values()}
+    display_names = {key: c.display_name for key, c in FIRST_ROUND_CANDIDATES.items()}
     _print_separator()
     print("  CO-PRESIDENT 2026 — 2022 Backtesting Results")
     _print_separator()
