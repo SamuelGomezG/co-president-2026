@@ -469,7 +469,7 @@ POLLSTER_RATINGS: dict[str, float] = {
 
 #### 5.1.7 Actual Election Results (Lazy-Loaded)
 
-`load_actual_results() -> tuple[RoundResult, RoundResult]` is a lazy-loading function defined in `data.py` (SPEC-03). Downstream models call this function at runtime — `config.py` does NOT import from `data.py`. The function returns both rounds' `RoundResult` objects populated from consolidated election results. This breaks the circular dependency between `config.py` and `data.py`.
+`load_canonical_results() -> tuple[RoundResult, RoundResult]` is a lazy-loading function defined in `data.py` (SPEC-03). Downstream models call this function at runtime — `config.py` does NOT import from `data.py`. The function returns both rounds' `RoundResult` objects populated from consolidated election results. This breaks the circular dependency between `config.py` and `data.py`.
 
 #### 5.1.8 Active Candidate Helpers
 
