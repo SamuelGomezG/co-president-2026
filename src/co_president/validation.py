@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 import logging
 import math
+import numbers
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -622,7 +623,7 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
         return _empty_validation_result()
 
     df = polls.copy()
-    df = df.assign(date_group=df["fecha"].dt.floor("D").dt.round("1D"))
+    df = df.assign(date_group=df["fecha"].dt.floor("D"))
 
     excluded = _SHARE_COLS_EXCLUDED | {"blanco", "otros", "date_group", "forced_choice"}
     candidate_cols = [col for col in df.columns if col not in excluded]
@@ -636,9 +637,12 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
             median_moe = float(median_value)
 
     def _resolve_moe(value: object) -> float:
-        if isinstance(value, (int, float)) and not pd.isna(value):
-            return float(value)
-        return median_moe
+        if not isinstance(value, numbers.Real):
+            return median_moe
+        v = float(value)
+        if math.isnan(v):
+            return median_moe
+        return v
 
     results: list[dict[str, object]] = []
     for date_group, g in df.groupby("date_group", sort=False):
