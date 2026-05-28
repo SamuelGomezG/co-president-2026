@@ -352,6 +352,14 @@ class TestResultHelpers:
         with pytest.raises(ValueError, match="PARNOMBRE"):
             _read_mmv(path)
 
+    def test_read_mmv_missing_cannombre_raises(self, tmp_path: Path) -> None:
+        """Verify missing CANNOMBRE column raises ValueError."""
+        path = tmp_path / "mmv.csv"
+        df = pd.DataFrame({"PARNOMBRE": ["A", "B"], "VOTOS": [1, 2]})
+        df.to_csv(path, sep=";", index=False, encoding="latin-1")
+        with pytest.raises(ValueError, match="CANNOMBRE"):
+            _read_mmv(path)
+
     def test_read_mmv_missing_votos_raises(self, tmp_path: Path) -> None:
         """Verify missing VOTOS column raises ValueError."""
         path = tmp_path / "mmv.csv"
@@ -363,7 +371,7 @@ class TestResultHelpers:
     def test_read_mmv_gz_supported(self, tmp_path: Path) -> None:
         """Verify gzip-compressed MMV files are readable."""
         path = tmp_path / "mmv.csv.gz"
-        df = pd.DataFrame({"PARNOMBRE": ["A"], "VOTOS": [1]})
+        df = pd.DataFrame({"CANNOMBRE": ["CAND A"], "PARNOMBRE": ["A"], "VOTOS": [1]})
         df.to_csv(path, sep=";", index=False, encoding="latin-1", compression="gzip")
         result = _read_mmv(path)
         assert "PARNOMBRE" in result.columns
