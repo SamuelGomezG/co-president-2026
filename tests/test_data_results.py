@@ -627,7 +627,7 @@ class TestParticipationLoaders:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# End-to-end integration tests: load_actual_results()
+# End-to-end integration tests: load_canonical_results()
 # ═══════════════════════════════════════════════════════════════════
 
 
