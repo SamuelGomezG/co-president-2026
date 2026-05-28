@@ -65,8 +65,18 @@ def time_weight(
         0.5
 
     """
-    days_diff = (pd.Timestamp(election_date) - pd.to_datetime(dates)).dt.days.abs()
-    return 0.5 ** (days_diff / half_life)
+    days_diff = (pd.Timestamp(election_date) - pd.to_datetime(dates)).dt.days
+
+    if (days_diff < 0).any():
+        num_future = (days_diff < 0).sum()
+        logger.warning(
+            "time_weight: %d poll(s) have dates after election date %s. "
+            "Setting their weights to 0.",
+            num_future,
+            election_date,
+        )
+
+    return (0.5 ** (days_diff / half_life)).where(days_diff >= 0, 0.0)
 
 
 def sample_size_weight(sample_sizes: pd.Series) -> pd.Series:

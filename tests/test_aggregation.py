@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import logging
 
 import numpy as np
 import pandas as pd
@@ -58,11 +59,27 @@ class TestTimeWeight:
         assert result.iloc[1] == pytest.approx(0.5, rel=1e-3)
         assert result.iloc[2] == pytest.approx(0.25, rel=1e-3)
 
-    def test_poll_after_election(self) -> None:
-        """A poll after the election date receives a decaying weight."""
+    def test_poll_after_election_is_zero(self) -> None:
+        """A poll after the election date receives zero weight."""
         dates = pd.Series([date(2022, 6, 19)])
         result = time_weight(dates, ELECTION_DATE_ROUND1)
-        assert result.iloc[0] < 1.0
+        assert result.iloc[0] == pytest.approx(0.0)
+
+    def test_time_weight_future_poll_is_zero(self) -> None:
+        """A poll after election day gets zero weight (not decaying positive)."""
+        election_date = date(2022, 5, 29)
+        dates = pd.Series([date(2022, 5, 29), date(2022, 6, 1)])
+        weights = time_weight(dates, election_date)
+        assert weights.iloc[0] == pytest.approx(1.0)
+        assert weights.iloc[1] == pytest.approx(0.0)
+
+    def test_time_weight_future_poll_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A future poll triggers a warning log."""
+        election_date = date(2022, 5, 29)
+        dates = pd.Series([date(2022, 5, 29), date(2022, 6, 10)])
+        with caplog.at_level(logging.WARNING):
+            time_weight(dates, election_date)
+        assert "after election date" in caplog.text
 
     def test_returns_series(self) -> None:
         """Returns a pandas Series of the same length as input."""
