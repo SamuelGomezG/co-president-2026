@@ -34,7 +34,6 @@ __all__ = [
     "CleanPolls",
     "ConsultationPoll",
     "PollRow",
-    "UnclassifiedPollRow",
     "deduplicate_polls",
     "fix_invamer_date",
     "infer_round_number",
@@ -197,22 +196,6 @@ class PollRow:
     margin_of_error: float | None
     survey_method: str
     round_number: Literal[1, 2]
-    shares: CandidateShares
-
-
-@dataclass(frozen=True)
-class UnclassifiedPollRow:
-    """One row of cleaned poll data that could not be classified to a round.
-
-    Identical to ``PollRow`` but omits ``round_number``.
-    """
-
-    date: date
-    pollster: str
-    sample_size: int | None
-    sample_voting: int | None
-    margin_of_error: float | None
-    survey_method: str
     shares: CandidateShares
 
 
