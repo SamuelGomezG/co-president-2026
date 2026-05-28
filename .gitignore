@@ -6,7 +6,7 @@ __pycache__/
 .Rhistory
 .RData
 .DS_Store
-notebooks/*
+notebooks/**
 !notebooks/derive_transfer_constants.py
 results/
 *.nc

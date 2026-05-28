@@ -116,7 +116,7 @@ def compute_transfer_split(data_dir: str | None = None) -> tuple[float, float, l
             row["gutierrez"]
             + row["fajardo"]
             + row["betancourt"]
-            + row["rest"]
+            + row["rest_r1"]
             + row["blanco"]
         )
         petro_delta = row["petro_r2"] - row["petro_r1"]

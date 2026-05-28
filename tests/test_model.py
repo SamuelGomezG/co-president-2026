@@ -1013,9 +1013,17 @@ def test_transfer_heuristic_vote_share_bounds() -> None:
         "rodolfo_hernandez",
     )
 
-    assert (shares_first + shares_second <= 1.0 + 1e-9).all()
+    expected_flat = n_chains * n_draws
+    assert shares_first.shape == (expected_flat,), (
+        f"shares_first has shape {shares_first.shape}, expected ({expected_flat},)"
+    )
+    assert shares_second.shape == (expected_flat,), (
+        f"shares_second has shape {shares_second.shape}, expected ({expected_flat},)"
+    )
 
-    assert (shares_first >= 0.0).all()
-    assert (shares_first <= 1.0).all()
-    assert (shares_second >= 0.0).all()
-    assert (shares_second <= 1.0).all()
+    assert (shares_first + shares_second <= 1.0 + 1e-9).all(), "Sum of transfer shares exceeds 1.0"
+
+    assert (shares_first >= 0.0).all(), "shares_first contains values < 0"
+    assert (shares_first <= 1.0).all(), "shares_first contains values > 1"
+    assert (shares_second >= 0.0).all(), "shares_second contains values < 0"
+    assert (shares_second <= 1.0).all(), "shares_second contains values > 1"
