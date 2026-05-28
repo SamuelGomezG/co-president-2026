@@ -26,17 +26,15 @@ _PLOT_STYLE = "seaborn-v0_8"
 
 # Distinct (linestyle, marker) pairs for monochrome readability.
 # Applied in order; cycles if there are more candidates than styles.
-_LINE_MARKER_CYCLE: cycle = cycle(
-    [
-        ("solid", "o"),
-        ("dashed", "s"),
-        ("dotted", "^"),
-        ("dashdot", "D"),
-        ((0, (1, 2)), "v"),
-        ((0, (3, 1, 1, 1)), "p"),
-        ((0, (5, 2)), "h"),
-    ]
-)
+_LINE_MARKER_STYLES: list[tuple[str | tuple[int, tuple[int, ...]], str]] = [
+    ("solid", "o"),
+    ("dashed", "s"),
+    ("dotted", "^"),
+    ("dashdot", "D"),
+    ((0, (1, 2)), "v"),
+    ((0, (3, 1, 1, 1)), "p"),
+    ((0, (5, 2)), "h"),
+]
 
 
 def plot_forecast_evolution(
@@ -63,6 +61,8 @@ def plot_forecast_evolution(
 
         candidates = [c.candidate_key for c in rolling[0][1].candidates]
 
+        style_cycle = cycle(_LINE_MARKER_STYLES)
+
         for candidate_key in candidates:
             ts: list[float] = []
             means: list[float] = []
@@ -78,7 +78,7 @@ def plot_forecast_evolution(
                         break
             if not ts:
                 continue
-            linestyle, marker = next(_LINE_MARKER_CYCLE)  # pyright: ignore[reportUnknownVariableType]
+            linestyle, marker = next(style_cycle)
             ax.fill_between(ts, ci_low, ci_high, alpha=0.2)
             ax.plot(
                 ts,
