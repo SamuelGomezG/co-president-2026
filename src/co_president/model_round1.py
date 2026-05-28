@@ -311,67 +311,93 @@ class Round1Forecast:
     round_number: Literal[1] = 1
 
     def to_dict(self) -> dict[str, Any]:
-        # Any used because JSON values can be str/number/bool/list/dict
-        """Serialize to a JSON-compatible dict.
+        """Serialize the Round1Forecast to a plain dictionary.
+
+        Uses ``dataclasses.asdict`` to recursively convert all fields,
+        including nested ``CandidateForecast`` objects. CI tuples
+        (``ci_50``, ``ci_95``) become lists in the output dict.
 
         Returns:
-            Dictionary representation suitable for JSON serialization.
+            dict[str, Any]: Dictionary representation with str keys.
+
+        Examples:
+            >>> f = Round1Forecast(candidates=[], prob_runoff=0.5)
+            >>> d = f.to_dict()
+            >>> isinstance(d["candidates"], list)
+            True
 
         """
         return asdict(self)
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> Round1Forecast:
-        """Deserialize from a dict created by ``to_dict``.
+        """Reconstruct a Round1Forecast from a dictionary.
+
+        Handles type-casting of CI fields (lists back to tuples,
+        ints back to floats). Recursively reconstructs nested
+        ``CandidateForecast`` objects.
 
         Args:
-            d: Dictionary created by ``to_dict``.
+            d: Dictionary produced by ``to_dict()``.
 
         Returns:
-            Reconstructed :class:`Round1Forecast` instance.
+            Round1Forecast: Reconstructed dataclass instance.
+
+        Raises:
+            ValueError: If the dict is missing required keys or has
+                malformed CI fields.
 
         """
-        candidates = []
-        for c in d["candidates"]:
-            ci_50: tuple[float, float] = tuple(c["ci_50"])
-            ci_95: tuple[float, float] = tuple(c["ci_95"])
-            candidates.append(
-                CandidateForecast(
-                    candidate_key=str(c["candidate_key"]),
-                    mean_share=float(c["mean_share"]),
-                    median_share=float(c["median_share"]),
-                    ci_50=ci_50,
-                    ci_95=ci_95,
-                    prob_first=float(c["prob_first"]),
-                    prob_second=float(c["prob_second"]),
-                    prob_top_two=float(c["prob_top_two"]),
-                    prob_win_outright=float(c["prob_win_outright"]),
+        try:
+            candidates = []
+            for c in d["candidates"]:
+                ci_50: tuple[float, float] = tuple(c["ci_50"])
+                ci_95: tuple[float, float] = tuple(c["ci_95"])
+                candidates.append(
+                    CandidateForecast(
+                        candidate_key=str(c["candidate_key"]),
+                        mean_share=float(c["mean_share"]),
+                        median_share=float(c["median_share"]),
+                        ci_50=ci_50,
+                        ci_95=ci_95,
+                        prob_first=float(c["prob_first"]),
+                        prob_second=float(c["prob_second"]),
+                        prob_top_two=float(c["prob_top_two"]),
+                        prob_win_outright=float(c["prob_win_outright"]),
+                    )
                 )
+            return Round1Forecast(
+                candidates=candidates,
+                prob_runoff=d["prob_runoff"],
+                round_number=d["round_number"],
             )
-        return Round1Forecast(
-            candidates=candidates,
-            prob_runoff=d["prob_runoff"],
-            round_number=d["round_number"],
-        )
+        except (KeyError, TypeError) as exc:
+            msg = f"Malformed Round1Forecast dict: missing keys or bad CI fields ({exc})"
+            raise ValueError(msg) from exc
 
     def to_json(self) -> str:
-        """Serialize to a JSON string.
+        """Serialize the Round1Forecast to a JSON string.
 
         Returns:
-            JSON string representation of the forecast.
+            str: JSON-encoded string via ``json.dumps(self.to_dict())``.
 
         """
         return json.dumps(self.to_dict())
 
     @staticmethod
     def from_json(s: str) -> Round1Forecast:
-        """Deserialize from a JSON string created by ``to_json``.
+        """Deserialize a Round1Forecast from a JSON string.
 
         Args:
-            s: JSON string created by ``to_json``.
+            s: JSON string produced by ``to_json()``.
 
         Returns:
-            Reconstructed :class:`Round1Forecast` instance.
+            Round1Forecast: Reconstructed dataclass instance.
+
+        Raises:
+            json.JSONDecodeError: If the string is not valid JSON.
+            ValueError: If the JSON is valid but missing required keys or
+                has malformed CI fields.
 
         """
         return Round1Forecast.from_dict(json.loads(s))
