@@ -562,9 +562,9 @@ def _compare_pollster_pair(  # noqa: PLR0913
 
 
 def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PLR0912
-    """Check cross-pollster consistency within ±1-day windows.
+    """Check cross-pollster consistency within same-day windows.
 
-    This diagnostic scans polls grouped by date (rounded to a 1-day window),
+    This diagnostic scans polls grouped by same-day buckets (using ``fecha.dt.floor("D")``),
     compares candidate shares between pollster pairs, and flags candidates
     whose pairwise differences exceed twice the combined margin of error.
     The input DataFrame is not modified.
@@ -637,6 +637,7 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
             median_moe = float(median_value)
 
     def _resolve_moe(value: object) -> float:
+        """Return a margin-of-error value or fall back to median_moe for non-numeric/NaN inputs."""
         if not isinstance(value, numbers.Real):
             return median_moe
         v = float(value)
