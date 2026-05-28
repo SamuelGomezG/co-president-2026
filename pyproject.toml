@@ -37,7 +37,7 @@ packages = ["src/co_president"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
-extend-exclude = ["notebooks", ".venv"]
+extend-exclude = ["notebooks", ".venv", ".agents", ".claude"]
 
 [tool.ruff.lint]
 select = ["ALL"]
