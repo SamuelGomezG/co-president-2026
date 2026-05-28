@@ -320,6 +320,12 @@ class Round1Forecast:
         Returns:
             dict[str, Any]: Dictionary representation with str keys.
 
+        Examples:
+            >>> f = Round1Forecast(candidates=[], prob_runoff=0.5)
+            >>> d = f.to_dict()
+            >>> isinstance(d["candidates"], list)
+            True
+
         """
         return asdict(self)
 
@@ -342,28 +348,32 @@ class Round1Forecast:
                 malformed CI fields.
 
         """
-        candidates = []
-        for c in d["candidates"]:
-            ci_50: tuple[float, float] = tuple(c["ci_50"])
-            ci_95: tuple[float, float] = tuple(c["ci_95"])
-            candidates.append(
-                CandidateForecast(
-                    candidate_key=str(c["candidate_key"]),
-                    mean_share=float(c["mean_share"]),
-                    median_share=float(c["median_share"]),
-                    ci_50=ci_50,
-                    ci_95=ci_95,
-                    prob_first=float(c["prob_first"]),
-                    prob_second=float(c["prob_second"]),
-                    prob_top_two=float(c["prob_top_two"]),
-                    prob_win_outright=float(c["prob_win_outright"]),
+        try:
+            candidates = []
+            for c in d["candidates"]:
+                ci_50: tuple[float, float] = tuple(c["ci_50"])
+                ci_95: tuple[float, float] = tuple(c["ci_95"])
+                candidates.append(
+                    CandidateForecast(
+                        candidate_key=str(c["candidate_key"]),
+                        mean_share=float(c["mean_share"]),
+                        median_share=float(c["median_share"]),
+                        ci_50=ci_50,
+                        ci_95=ci_95,
+                        prob_first=float(c["prob_first"]),
+                        prob_second=float(c["prob_second"]),
+                        prob_top_two=float(c["prob_top_two"]),
+                        prob_win_outright=float(c["prob_win_outright"]),
+                    )
                 )
+            return Round1Forecast(
+                candidates=candidates,
+                prob_runoff=d["prob_runoff"],
+                round_number=d["round_number"],
             )
-        return Round1Forecast(
-            candidates=candidates,
-            prob_runoff=d["prob_runoff"],
-            round_number=d["round_number"],
-        )
+        except (KeyError, TypeError) as exc:
+            msg = f"Malformed Round1Forecast dict: missing keys or bad CI fields ({exc})"
+            raise ValueError(msg) from exc
 
     def to_json(self) -> str:
         """Serialize the Round1Forecast to a JSON string.
@@ -385,7 +395,9 @@ class Round1Forecast:
             Round1Forecast: Reconstructed dataclass instance.
 
         Raises:
-            ValueError: If the JSON is malformed or missing required keys.
+            json.JSONDecodeError: If the string is not valid JSON.
+            ValueError: If the JSON is valid but missing required keys or
+                has malformed CI fields.
 
         """
         return Round1Forecast.from_dict(json.loads(s))
