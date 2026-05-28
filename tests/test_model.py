@@ -531,11 +531,52 @@ def test_build_runoff_simple_model_informative_prior() -> None:
     round1_idata = _make_synthetic_round1_idata()
     model = build_runoff_simple_model(polls, results, round1_idata, config)
 
-    # Same graph structure as with vague prior
+    # Same graph structure as with informed prior
     assert len(model.free_RVs) == 5
     det_names = {d.name for d in model.deterministics}
     assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     assert len(model.observed_RVs) == 1
+
+
+def test_build_runoff_simple_model_informed_fallback() -> None:
+    """Test that round1_idata=None uses actual election results as informed prior.
+
+    When ``round1_idata`` is ``None``, the fallback computes the prior for
+    ``theta[T-1]`` from the actual Round 1 vote shares (``results.get_share``).
+    This test verifies that prior predictive samples center around those shares.
+    """
+    polls = _make_3row_runoff_polls_round2()
+    results = _make_round1_result()
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    # Petro 40%, Hernandez 28%, rest+blanco 32%
+    expected_a = 0.40
+    expected_b = 0.28
+    expected_rest = 0.32
+
+    model = build_runoff_simple_model(polls, results, None, config)
+
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=500, random_seed=config.seed)
+
+    # p_time at the last time index (T-1, the initial time point) should
+    # reflect the informed prior from round 1 results
+    p_time = prior_pred.prior["p_time"]  # (chain, draw, time, candidate=3)
+    initial_p = p_time[:, :, -1, :]  # last time index = T-1
+
+    prior_mean = initial_p.mean(dim=("chain", "draw")).to_numpy()
+
+    # Prior means should be closer to the informed election-result values
+    # than to a uniform (33% each) vague prior
+    assert prior_mean[0] > 0.30  # A (Petro) > 30%
+    assert prior_mean[1] > 0.20  # B (Hernandez) > 20%
+    assert prior_mean[0] > prior_mean[1]  # Petro > Hernandez
+
+    # The shares at T-1 should be within reasonable distance of the
+    # informed-prior targets (allowing Monte Carlo noise)
+    np.testing.assert_allclose(prior_mean[0], expected_a, atol=0.08)
+    np.testing.assert_allclose(prior_mean[1], expected_b, atol=0.08)
+    np.testing.assert_allclose(prior_mean[2], expected_rest, atol=0.08)
 
 
 def test_forecast_runoff_simple() -> None:
