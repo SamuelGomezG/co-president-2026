@@ -886,7 +886,11 @@ for t in T-2, ..., 0:
 # Observation model (polls)
 θ_adj[n] = θ[t_n] + η[pollster[n]]        # Logit-scale intention adjusted for house effects
 p_adj[n] = softmax(θ_adj[n])              # Convert to probability simplex
-α_poll[n] = p_adj[n] × φ_poll             # Concentration vector (DirichletMultinomial parameter)
+# Sample-size log-scaling (sublinear) to avoid over-weighting large polls
+ε = 1e-8  # numerical stability floor
+mean_sample_size = mean(sample_size)
+m[n] = max(log(sample_size[n] + 1 + ε) / log(mean_sample_size + 1 + ε), ε)
+α_poll[n] = p_adj[n] × φ_poll × m[n]       # Concentration vector (DirichletMultinomial parameter)
 observed[n] ~ DirichletMultinomial(       # n-th poll observation
     n = sample_size[n],
     a = α_poll[n]                         # PyMC: a is the concentration vector

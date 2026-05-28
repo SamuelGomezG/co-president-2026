@@ -135,6 +135,34 @@ def test_build_round1_model_prior_predictive() -> None:
     np.testing.assert_allclose(p_time.sum(axis=-1), 1.0, atol=1e-6)
 
 
+def test_build_round1_model_phi_poll_n_scaling() -> None:
+    """Test that poll concentration scales with log(sample size)."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterA"],
+            "muestra": [500, 2000],
+            "gustavo_petro": [50.0, 50.0],
+            "rodolfo_hernandez": [40.0, 40.0],
+            "blanco": [10.0, 10.0],
+            "round_number": [1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    # Same pollster to isolate sample-size scaling from house effects.
+    model = build_round1_model(polls, None, config)
+
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=10, random_seed=config.seed)
+
+    phi_poll_n = prior_pred.prior["phi_poll_n"].to_numpy()
+    assert phi_poll_n.shape[-2:] == (2, 1)
+    ratio = phi_poll_n[..., 1, 0] / phi_poll_n[..., 0, 0]
+    eps = 1e-8
+    expected_ratio = np.log(2000 + 1 + eps) / np.log(500 + 1 + eps)
+    np.testing.assert_allclose(ratio, expected_ratio, rtol=1e-6, atol=1e-8)
+
+
 def test_build_round1_model_forecast_mode() -> None:
     """Test that forecast mode (results=None) has no election likelihood."""
     polls = _make_3row_polls_3candidates()
