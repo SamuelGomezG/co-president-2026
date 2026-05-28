@@ -15,7 +15,7 @@ typecheck:
 	uv run pyright src/
 
 test:
-	uv run pytest tests/ -v
+	uv run pytest tests/ -v --cov=src/co_president --cov-report=term-missing --cov-report=xml
 
 test-fast:
 	uv run pytest tests/ -v --ignore=tests/test_model.py

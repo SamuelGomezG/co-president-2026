@@ -1027,3 +1027,36 @@ def test_transfer_heuristic_vote_share_bounds() -> None:
     assert (shares_first <= 1.0).all(), "shares_first contains values > 1"
     assert (shares_second >= 0.0).all(), "shares_second contains values < 0"
     assert (shares_second <= 1.0).all(), "shares_second contains values > 1"
+
+
+def test_build_round1_model_phi_poll_n_scaling() -> None:
+    """Test that poll concentration scales with log(sample size)."""
+    # 3-row DataFrame as per requirements
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterA", "PollsterA"],
+            "muestra": [500, 2000, 1000],
+            "gustavo_petro": [50.0, 50.0, 50.0],
+            "rodolfo_hernandez": [40.0, 40.0, 40.0],
+            "blanco": [10.0, 10.0, 10.0],
+            "round_number": [1, 1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    # Same pollster to isolate sample-size scaling from house effects.
+    model = build_round1_model(polls, None, config)
+
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=10, random_seed=config.seed)
+
+    phi_poll_n = prior_pred.prior["phi_poll_n"].to_numpy()
+
+    # Assert shape is (..., num_polls=3, 1)
+    assert phi_poll_n.shape[-2:] == (len(polls), 1)
+
+    # Ratio of poll 2 (2000) to poll 1 (500)
+    ratio = phi_poll_n[..., 1, 0] / phi_poll_n[..., 0, 0]
+    eps = 1e-8
+    expected_ratio = np.log(2000 + 1 + eps) / np.log(500 + 1 + eps)
+    np.testing.assert_allclose(ratio, expected_ratio, rtol=1e-6, atol=1e-8)
