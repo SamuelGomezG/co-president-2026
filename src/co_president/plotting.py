@@ -7,6 +7,7 @@ and error-over-time plots.
 # pyright: reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownArgumentType=false, reportMissingTypeArgument=false
 from __future__ import annotations
 
+from itertools import cycle
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
@@ -22,6 +23,20 @@ if TYPE_CHECKING:
     from co_president.validation import RoundValidation
 
 _PLOT_STYLE = "seaborn-v0_8"
+
+# Distinct (linestyle, marker) pairs for monochrome readability.
+# Applied in order; cycles if there are more candidates than styles.
+_LINE_MARKER_CYCLE: cycle = cycle(
+    [
+        ("solid", "o"),
+        ("dashed", "s"),
+        ("dotted", "^"),
+        ("dashdot", "D"),
+        ((0, (1, 2)), "v"),
+        ((0, (3, 1, 1, 1)), "p"),
+        ((0, (5, 2)), "h"),
+    ]
+)
 
 
 def plot_forecast_evolution(
@@ -63,8 +78,17 @@ def plot_forecast_evolution(
                         break
             if not ts:
                 continue
+            linestyle, marker = next(_LINE_MARKER_CYCLE)  # pyright: ignore[reportUnknownVariableType]
             ax.fill_between(ts, ci_low, ci_high, alpha=0.2)
-            ax.plot(ts, means, marker="o", label=candidate_key.replace("_", " ").title())
+            ax.plot(
+                ts,
+                means,
+                linestyle=linestyle,
+                marker=marker,
+                markersize=4,
+                label=candidate_key.replace("_", " ").title(),
+                linewidth=2,
+            )
 
         # Actual results as horizontal dashed lines
         for c in results.candidates:
