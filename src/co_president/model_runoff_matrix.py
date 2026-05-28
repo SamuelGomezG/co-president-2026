@@ -192,17 +192,13 @@ def _get_transfer_fraction(
     return 0.5
 
 
-def _compute_transfer_outcome(
+def _compute_transfer_shares(
     election_day: np.ndarray,
     all_candidate_keys: list[str],
     first: str,
     second: str,
-) -> tuple[float, float]:
-    """Compute runoff outcome for a pairing using the transfer heuristic.
-
-    Iterates over all posterior draws, redistributes eliminated candidates'
-    vote shares to the two runoff finalists, and returns the probability that
-    the first-placed candidate wins and the expected margin.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute normalized runoff shares for each posterior draw.
 
     Args:
         election_day: NumPy array of shape ``(chain, draw, n_candidates)``
@@ -212,7 +208,8 @@ def _compute_transfer_outcome(
         second: Key of the second-placed runoff candidate.
 
     Returns:
-        Tuple of ``(prob_first_wins, mean_margin)``.
+        Tuple of arrays ``(shares_first, shares_second)`` with shape
+        ``(n_draws,)``.
 
     """
     key_to_idx = {k: i for i, k in enumerate(all_candidate_keys)}
@@ -223,8 +220,8 @@ def _compute_transfer_outcome(
 
     flat_shares = election_day.reshape(-1, len(all_candidate_keys))
     n_total = flat_shares.shape[0]
-    first_wins = 0
-    margins = np.empty(n_total, dtype=float)
+    shares_first = np.empty(n_total, dtype=float)
+    shares_second = np.empty(n_total, dtype=float)
 
     for draw_idx in range(n_total):
         share_first = float(flat_shares[draw_idx, first_idx])
@@ -250,12 +247,43 @@ def _compute_transfer_outcome(
         share_first /= total
         share_second /= total
 
-        if share_first > share_second:
-            first_wins += 1
-        margins[draw_idx] = share_first - share_second
+        shares_first[draw_idx] = share_first
+        shares_second[draw_idx] = share_second
 
-    prob_first_wins = first_wins / n_total
-    mean_margin = float(margins.mean())
+    return shares_first, shares_second
+
+
+def _compute_transfer_outcome(
+    election_day: np.ndarray,
+    all_candidate_keys: list[str],
+    first: str,
+    second: str,
+) -> tuple[float, float]:
+    """Compute runoff outcome for a pairing using the transfer heuristic.
+
+    Iterates over all posterior draws, redistributes eliminated candidates'
+    vote shares to the two runoff finalists, and returns the probability that
+    the first-placed candidate wins and the expected margin.
+
+    Args:
+        election_day: NumPy array of shape ``(chain, draw, n_candidates)``
+            with election-day vote shares (summing to 1 along axis=-1).
+        all_candidate_keys: Full candidate ordering matching the last axis.
+        first: Key of the first-placed runoff candidate.
+        second: Key of the second-placed runoff candidate.
+
+    Returns:
+        Tuple of ``(prob_first_wins, mean_margin)``.
+
+    """
+    shares_first, shares_second = _compute_transfer_shares(
+        election_day,
+        all_candidate_keys,
+        first,
+        second,
+    )
+    prob_first_wins = float((shares_first > shares_second).mean())
+    mean_margin = float((shares_first - shares_second).mean())
     return prob_first_wins, mean_margin
 
 

@@ -6,12 +6,13 @@ downstream modules import from this module rather than hardcoding values.
 Transfer-heuristic constants for the runoff vote flow
 -----------------------------------------------------
 Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
-  ~73% of eliminated-candidate votes flow to Hernández
+  ~73% of eliminated-candidate votes flow to Hernandez
   ~27% flow to Petro
 
 Per-candidate constants were calibrated to match this aggregate split.
 Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
-Petro and Hernández).
+Petro and Hernandez). The derivation is documented in
+``notebooks/derive_transfer_constants.py``.
 
 Ecological inference limitation: per-candidate transfer rates cannot be
 identified from aggregate data alone. The constants below are heuristics,
@@ -549,8 +550,13 @@ def get_candidate_column_map() -> dict[str, str]:
     return {key: key for key in FIRST_ROUND_CANDIDATES}
 
 
+# Transfer-heuristic constants were calibrated to match the aggregate split
+# across 8 pollsters (~27% to Petro, ~73% to Hernandez). See
+# ``notebooks/derive_transfer_constants.py`` for the derivation.
+# NOTE: These values invert and adjust the SPEC-02 placeholder values.
 TRANSFER_FAJARDO_PETRO: float = 0.40
 TRANSFER_FAJARDO_HERNANDEZ: float = 0.60
 TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.87
 TRANSFER_GUTIERREZ_PETRO: float = 0.13
+# Blank votes are kept at a 50/50 split pending calibration.
 TRANSFER_BLANCO_SPLIT: float = 0.50

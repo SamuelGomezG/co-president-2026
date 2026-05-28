@@ -603,6 +603,16 @@ class TestTransferConstants:
         assert math.isclose(flow_petro, 0.27, abs_tol=0.05)
         assert math.isclose(flow_hernandez, 0.73, abs_tol=0.05)
 
+    def test_directional_constraints(self) -> None:
+        """Verify directional constraints for transfer heuristics.
+
+        Gutierrez voters should flow more to Hernandez than Petro; Fajardo
+        voters should flow more to Hernandez than Petro per the empirical
+        calibration.
+        """
+        assert TRANSFER_GUTIERREZ_HERNANDEZ > TRANSFER_GUTIERREZ_PETRO
+        assert TRANSFER_FAJARDO_HERNANDEZ > TRANSFER_FAJARDO_PETRO
+
 
 class TestConsultationKeyMap:
     """Tests for the CONSULTATION_KEY_MAP constant."""
