@@ -816,6 +816,82 @@ def test_overall_win_probability() -> None:
     )
 
 
+def test_overall_win_probability_outright_winner() -> None:
+    """When one candidate wins outright (>50%), their overall win probability is 1.0.
+
+    Edge case where prob_win_outright is 1.0 for one candidate and 0.0 for all
+    others. With no runoff (empty pairings), the overall probability should
+    reflect the outright outcome exactly.
+    """
+    prob_win_outright = {
+        "candidate_a": 1.0,
+        "candidate_b": 0.0,
+        "candidate_c": 0.0,
+    }
+
+    matrix = RunoffMatrix(
+        pairings=(),
+        prob_runoff=0.0,
+        ordered_by_likelihood=(),
+    )
+
+    result = overall_win_probability(matrix, prob_win_outright)
+
+    assert result["candidate_a"] == 1.0
+    assert result["candidate_b"] == 0.0
+    assert result["candidate_c"] == 0.0
+    assert abs(sum(result.values()) - 1.0) < 1e-9
+
+
+def test_overall_win_probability_with_runoff() -> None:
+    """When no one wins outright, overall win probability includes runoff chances.
+
+    Constructs a runoff matrix with known pairing probabilities and verifies
+    that the arithmetic combination of outright win probabilities and runoff
+    contributions yields correct totals for each candidate.
+    """
+    pairings = (
+        PairingForecast("candidate_a", "candidate_b", 0.6, 0.55, 0.45, 0.02),
+        PairingForecast("candidate_a", "candidate_c", 0.3, 0.7, 0.3, 0.05),
+        PairingForecast("candidate_b", "candidate_c", 0.1, 0.6, 0.4, 0.01),
+    )
+    ordered = tuple((p.candidate_first, p.candidate_second) for p in pairings)
+    matrix = RunoffMatrix(
+        pairings=pairings,
+        prob_runoff=1.0,
+        ordered_by_likelihood=ordered,
+    )
+
+    prob_outright: dict[str, float] = {
+        "candidate_a": 0.0,
+        "candidate_b": 0.0,
+        "candidate_c": 0.0,
+    }
+    overall = overall_win_probability(matrix, prob_outright)
+
+    # A: 0.0 (outright) + 0.6*0.55 (wins vs B) + 0.3*0.7 (wins vs C) = 0.54
+    expected_a = 0.0 + 0.6 * 0.55 + 0.3 * 0.7
+    assert abs(overall["candidate_a"] - expected_a) < 1e-10, (
+        f"Candidate A overall win prob {overall['candidate_a']:.4f} != {expected_a:.4f}"
+    )
+
+    # B: 0.0 (outright) + 0.6*0.45 (wins vs A) + 0.1*0.6 (wins vs C) = 0.33
+    expected_b = 0.0 + 0.6 * 0.45 + 0.1 * 0.6
+    assert abs(overall["candidate_b"] - expected_b) < 1e-10, (
+        f"Candidate B overall win prob {overall['candidate_b']:.4f} != {expected_b:.4f}"
+    )
+
+    # C: 0.0 (outright) + 0.3*0.3 (wins vs A) + 0.1*0.4 (wins vs B) = 0.13
+    expected_c = 0.0 + 0.3 * 0.3 + 0.1 * 0.4
+    assert abs(overall["candidate_c"] - expected_c) < 1e-10, (
+        f"Candidate C overall win prob {overall['candidate_c']:.4f} != {expected_c:.4f}"
+    )
+
+    assert abs(sum(overall.values()) - 1.0) < 1e-9, (
+        f"Total probability {sum(overall.values()):.4f} != 1.0"
+    )
+
+
 def test_transfer_heuristic_pairing_probs_sum_to_one() -> None:
     """Test that transfer heuristic produces valid probabilities.
 
