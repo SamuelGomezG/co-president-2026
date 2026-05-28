@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -24,8 +25,10 @@ if TYPE_CHECKING:
     from co_president.config import ModelConfig
     from co_president.data_results import RoundResult
 
+logger = logging.getLogger(__name__)
 
-def build_round1_model(  # noqa: PLR0915
+
+def build_round1_model(  # noqa: C901, PLR0915
     polls: pd.DataFrame, results: RoundResult | None, config: ModelConfig
 ) -> pm.Model:
     """Build the PyMC model graph for the first round.
@@ -96,6 +99,28 @@ def build_round1_model(  # noqa: PLR0915
     observed_counts = np.round(
         polls[candidate_keys].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
     ).astype(int)
+
+    # Adjust discrepancy so each row sums to its sample size
+    # (DirichletMultinomial requires observed.sum(axis=1) == n).
+    # Discrepancy arises from (a) rounding after multiplying percentages by
+    # sample sizes, or (b) unmodeled candidate categories missing from the
+    # DataFrame columns.  In either case the largest per-row count absorbs
+    # the difference to preserve the trial-count semantics of SPEC-06 §9.1.
+    row_sums = observed_counts.sum(axis=1)
+    diff = sample_sizes - row_sums
+    if not np.all(diff == 0):
+        n_candidates = len(candidate_keys)
+        if np.any(np.abs(diff) > n_candidates):
+            logger.warning(
+                "Rounding mismatch >%d votes in %d row(s); "
+                "largest |diff| = %d. Some candidate categories may "
+                "be missing from the poll DataFrame.",
+                n_candidates,
+                int((np.abs(diff) > n_candidates).sum()),
+                int(np.abs(diff).max()),
+            )
+        max_idx = np.argmax(observed_counts, axis=1)
+        observed_counts[np.arange(len(observed_counts)), max_idx] += diff
 
     # Sample-size-dependent concentration multiplier:
     # Larger polls contribute more to the concentration parameter via log-based
