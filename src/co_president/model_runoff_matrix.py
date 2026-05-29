@@ -16,7 +16,6 @@ Public dataclasses
 :class:`RunoffMatrix` — collection of all plausible pairings.
 """
 
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportIndexIssue=false, reportOperatorIssue=false
 from __future__ import annotations
 
 from dataclasses import dataclass

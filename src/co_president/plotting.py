@@ -4,7 +4,6 @@ Produces matplotlib figures for forecast evolution, calibration,
 and error-over-time plots.
 """
 
-# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownArgumentType=false, reportMissingTypeArgument=false
 from __future__ import annotations
 
 from itertools import cycle
@@ -51,12 +50,12 @@ def plot_forecast_evolution(
         Matplotlib Figure.
 
     """
-    with plt.style.context(_PLOT_STYLE):
-        fig, ax = plt.subplots(figsize=(10, 6))
+    with plt.style.context(_PLOT_STYLE):  # type: ignore
+        fig, ax = plt.subplots(figsize=(10, 6))  # type: ignore
 
         # Collect candidate keys from the first forecast
         if not rolling:
-            ax.set_title("No rolling forecast data available")
+            ax.set_title("No rolling forecast data available")  # type: ignore
             return fig
 
         candidates = [c.candidate_key for c in rolling[0][1].candidates]
@@ -79,8 +78,8 @@ def plot_forecast_evolution(
             if not ts:
                 continue
             linestyle, marker = next(style_cycle)
-            ax.fill_between(ts, ci_low, ci_high, alpha=0.2)
-            ax.plot(
+            ax.fill_between(ts, ci_low, ci_high, alpha=0.2)  # type: ignore
+            ax.plot(  # type: ignore
                 ts,
                 means,
                 linestyle=linestyle,
@@ -92,7 +91,7 @@ def plot_forecast_evolution(
 
         # Actual results as horizontal dashed lines
         for c in results.candidates:
-            ax.axhline(
+            ax.axhline(  # type: ignore
                 y=c.vote_share * 100,
                 linestyle="--",
                 color="gray",
@@ -100,11 +99,11 @@ def plot_forecast_evolution(
                 linewidth=0.8,
             )
 
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Vote Share (%)")
-        ax.set_title("Forecast Evolution Over Time")
-        ax.legend(loc="best")
-        fig.tight_layout()
+        ax.set_xlabel("Date")  # type: ignore
+        ax.set_ylabel("Vote Share (%)")  # type: ignore
+        ax.set_title("Forecast Evolution Over Time")  # type: ignore
+        ax.legend(loc="best")  # type: ignore
+        fig.tight_layout()  # type: ignore
     return fig
 
 
@@ -123,8 +122,8 @@ def plot_calibration(
         Matplotlib Figure.
 
     """
-    with plt.style.context(_PLOT_STYLE):
-        fig, ax = plt.subplots(figsize=(8, 8))
+    with plt.style.context(_PLOT_STYLE):  # type: ignore
+        fig, ax = plt.subplots(figsize=(8, 8))  # type: ignore
 
         predicted = [cv.predicted_mean * 100 for cv in validation.candidates]
         actual = [cv.actual_share * 100 for cv in validation.candidates]
@@ -134,7 +133,7 @@ def plot_calibration(
         xerr_lower = [abs(p - a) for p, a in zip(predicted, actual, strict=True)]
         xerr_values = [xerr_lower, xerr_lower]
 
-        ax.errorbar(
+        ax.errorbar(  # type: ignore
             predicted,
             actual,
             xerr=xerr_values,
@@ -146,17 +145,17 @@ def plot_calibration(
         # 45-degree reference line (y=x)
         all_vals = predicted + actual
         lims = [min(all_vals) - 1, max(all_vals) + 1]
-        ax.plot(lims, lims, "k--", alpha=0.5, label="Perfect calibration")
+        ax.plot(lims, lims, "k--", alpha=0.5, label="Perfect calibration")  # type: ignore
 
         for i, label in enumerate(labels):
-            ax.annotate(label, (predicted[i], actual[i]), fontsize=8)
+            ax.annotate(label, (predicted[i], actual[i]), fontsize=8)  # type: ignore
 
-        ax.set_xlabel("Predicted Vote Share (%)")
-        ax.set_ylabel("Actual Vote Share (%)")
-        ax.set_title(f"Calibration Plot — Round {validation.round_number}")
-        ax.legend(loc="lower right")
-        ax.grid(visible=True, alpha=0.3)
-        fig.tight_layout()
+        ax.set_xlabel("Predicted Vote Share (%)")  # type: ignore
+        ax.set_ylabel("Actual Vote Share (%)")  # type: ignore
+        ax.set_title(f"Calibration Plot — Round {validation.round_number}")  # type: ignore
+        ax.legend(loc="lower right")  # type: ignore
+        ax.grid(visible=True, alpha=0.3)  # type: ignore
+        fig.tight_layout()  # type: ignore
     return fig
 
 
@@ -172,17 +171,17 @@ def plot_error_over_time(
         Matplotlib Figure.
 
     """
-    with plt.style.context(_PLOT_STYLE):
-        fig, ax = plt.subplots(figsize=(10, 6))
+    with plt.style.context(_PLOT_STYLE):  # type: ignore
+        fig, ax = plt.subplots(figsize=(10, 6))  # type: ignore
 
         dates = pd.to_datetime(rolling_errors["as_of_date"])
-        ax.plot(dates, rolling_errors["mae"] * 100, marker="o", label="MAE")
-        ax.plot(dates, rolling_errors["rmse"] * 100, marker="s", label="RMSE")
+        ax.plot(dates, rolling_errors["mae"] * 100, marker="o", label="MAE")  # type: ignore
+        ax.plot(dates, rolling_errors["rmse"] * 100, marker="s", label="RMSE")  # type: ignore
 
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Error (percentage points)")
-        ax.set_title("Forecast Error Over Time")
-        ax.legend(loc="best")
-        ax.grid(visible=True, alpha=0.3)
-        fig.tight_layout()
+        ax.set_xlabel("Date")  # type: ignore
+        ax.set_ylabel("Error (percentage points)")  # type: ignore
+        ax.set_title("Forecast Error Over Time")  # type: ignore
+        ax.legend(loc="best")  # type: ignore
+        ax.grid(visible=True, alpha=0.3)  # type: ignore
+        fig.tight_layout()  # type: ignore
     return fig

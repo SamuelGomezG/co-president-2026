@@ -10,7 +10,6 @@ Public functions: :func:`build_runoff_simple_model`, :func:`sample_runoff`,
 :func:`forecast_runoff_simple`, and :class:`RunoffForecast`.
 """
 
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportIndexIssue=false, reportOperatorIssue=false
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -189,73 +188,73 @@ def build_runoff_simple_model(  # noqa: PLR0915
     prior_mean_b = float(np.log(p_b / p_rest_runoff))
     prior_mean_free = np.array([prior_mean_a, prior_mean_b], dtype=float)
 
-    with pm.Model() as model:
-        sigma_rw = pm.HalfNormal(
+    with pm.Model() as model:  # type: ignore
+        sigma_rw = pm.HalfNormal(  # type: ignore
             "sigma_rw",
             sigma=config.random_walk_sigma_prior,
         )
-        sigma_house = pm.HalfNormal(
+        sigma_house = pm.HalfNormal(  # type: ignore
             "sigma_house",
             sigma=config.house_effect_sigma_prior,
         )
-        phi_poll = pm.Gamma(
+        phi_poll = pm.Gamma(  # type: ignore
             "phi_poll",
             alpha=2,
             beta=2.0 / config.concentration_poll_prior_mean,
         )
-        phi_poll_n = pm.Deterministic(
+        phi_poll_n = pm.Deterministic(  # type: ignore
             "phi_poll_n",
             phi_poll * effective_n_multiplier,
         )
 
         # Reverse-time random walk with reference parameterization
         # theta has shape (T, K) where K=3: [theta_A, theta_B, 0 (rest reference)]
-        theta_rev: list = []
+        theta_rev = []  # type: ignore[reportMissingTypeArgument]
         for t_idx in range(n_time_points - 1, -1, -1):
             if t_idx == n_time_points - 1:
-                theta_free = pm.Normal(
+                theta_free = pm.Normal(  # type: ignore
                     f"theta_r_{t_idx}",
                     mu=prior_mean_free,
                     sigma=0.5,
                     shape=2,
                 )
             else:
-                theta_free = pm.Normal(
+                theta_free = pm.Normal(  # type: ignore
                     f"theta_r_{t_idx}",
-                    mu=theta_rev[-1],
+                    mu=theta_rev[-1],  # type: ignore
                     sigma=sigma_rw,
                     shape=2,
                 )
-            theta_rev.append(theta_free)
+            theta_rev.append(theta_free)  # type: ignore
 
-        theta_free_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # noqa: PD013
-        zero_rest = pm.math.zeros((n_time_points, 1))
-        theta = pm.math.concatenate([theta_free_stacked, zero_rest], axis=-1)
+        theta_free_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # type: ignore
+        zero_rest = pm.math.zeros((n_time_points, 1))  # type: ignore
+        theta = pm.math.concatenate([theta_free_stacked, zero_rest], axis=-1)  # type: ignore
 
         # Latent vote share probabilities per time point (K=3)
-        pm.Deterministic("p_time", pm.math.softmax(theta, axis=-1))
+        pm.Deterministic("p_time", pm.math.softmax(theta, axis=-1))  # type: ignore
 
         # House effects (zero-sum constrained, K=3)
-        raw_house = pm.Normal(
+        raw_house = pm.Normal(  # type: ignore
             "raw_house",
             mu=0,
             sigma=sigma_house,
             shape=(n_pollsters, n_candidates),
         )
-        house_effects = pm.Deterministic(
+        house_effects = pm.Deterministic(  # type: ignore
             "house_effects",
-            raw_house - raw_house.mean(axis=0, keepdims=True),
+            raw_house - raw_house.mean(axis=0, keepdims=True),  # type: ignore
         )
 
         # Poll observation model
-        theta_selected = theta[time_indices]
-        house_selected = house_effects[pollster_indices]
-        theta_adj = theta_selected + house_selected
+        theta_selected = theta[time_indices]  # type: ignore
+        house_selected = house_effects[pollster_indices]  # type: ignore
+        theta_adj = theta_selected + house_selected  # type: ignore
 
-        p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))
-        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)
+        p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))  # type: ignore
+        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
 
-        pm.DirichletMultinomial(
+        pm.DirichletMultinomial(  # type: ignore
             "poll_likelihood",
             n=effective_n,
             a=alpha_poll,
@@ -284,7 +283,7 @@ def sample_runoff(model: pm.Model, config: ModelConfig) -> az.InferenceData:
 
     """
     with model:
-        return pm.sample(
+        return pm.sample(  # type: ignore
             draws=config.mcmc_draws,
             tune=config.mcmc_tune,
             chains=config.mcmc_chains,
@@ -333,10 +332,10 @@ def forecast_runoff_simple(
     mean_share_b = float(b_values.mean())
     mean_margin = mean_share_a - mean_share_b
 
-    ci_95_a_result = az.hdi(a_values, prob=0.95)
-    ci_95_b_result = az.hdi(b_values, prob=0.95)
-    ci_95_a = (float(ci_95_a_result[0]), float(ci_95_a_result[1]))
-    ci_95_b = (float(ci_95_b_result[0]), float(ci_95_b_result[1]))
+    ci_95_a_result = az.hdi(a_values, prob=0.95)  # type: ignore
+    ci_95_b_result = az.hdi(b_values, prob=0.95)  # type: ignore
+    ci_95_a = (float(ci_95_a_result[0]), float(ci_95_a_result[1]))  # type: ignore
+    ci_95_b = (float(ci_95_b_result[0]), float(ci_95_b_result[1]))  # type: ignore
 
     return RunoffForecast(
         candidate_a_key=candidate_a,

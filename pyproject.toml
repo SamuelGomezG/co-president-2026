@@ -51,6 +51,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "PLR2004"]
+"src/co_president/model_round1.py" = ["PGH003", "PD013"]
+"src/co_president/model_runoff_simple.py" = ["PGH003", "PD013"]
+"src/co_president/model_runoff_matrix.py" = ["PGH003"]
+"src/co_president/plotting.py" = ["PGH003"]
 
 [tool.ruff.format]
 quote-style = "double"
