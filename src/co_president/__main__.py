@@ -481,8 +481,8 @@ def _compute_runoff_matrix(  # noqa: PLR0913
         matrix_dict["pairings"] = list(matrix_dict["pairings"])
         matrix_path.write_text(json.dumps(matrix_dict, indent=2), encoding="utf-8")
         logger.info("Saved runoff matrix to %s", matrix_path)
-    except Exception:  # noqa: BLE001
-        logger.warning("Runoff matrix computation failed")
+    except Exception:
+        logger.exception("Runoff matrix computation failed")
         return None, None
     else:
         return runoff_matrix, overall_probs_val
@@ -522,7 +522,7 @@ def _run_pipeline_mcmc(
     try:
         r2_top_two = results_r1.top_two()
     except ValueError:
-        logger.exception("Not enough candidates for runoff analysis")
+        logger.warning("Not enough candidates for runoff analysis")
         return
     candidate_a = r2_top_two[0].candidate_key
     candidate_b = r2_top_two[1].candidate_key
