@@ -1064,3 +1064,131 @@ def test_build_round1_model_phi_poll_n_scaling() -> None:
     eps = 1e-8
     expected_ratio = np.log(2000 + 1 + eps) / np.log(500 + 1 + eps)
     np.testing.assert_allclose(ratio, expected_ratio, rtol=1e-6, atol=1e-8)
+
+
+@pytest.mark.slow
+def test_estimate_runoff_matrix_uses_head_to_head_polls() -> None:
+    """Test that 3+ head-to-head polls trigger the model path.
+
+    When ``round2_polls`` contains 3 rows for a specific candidate pairing,
+    ``estimate_runoff_matrix`` should dispatch to
+    ``build_runoff_simple_model`` instead of the transfer heuristic,
+    producing a different ``prob_first_wins`` for that pairing.
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={"candidate_dim_0": candidate_order},
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    results_round1 = _make_round1_result()
+    config = ModelConfig(mcmc_draws=500, mcmc_tune=500, mcmc_chains=2, mcmc_cores=2)
+
+    round2_polls = pd.DataFrame(
+        {
+            "fecha": ["2022-06-19", "2022-06-19", "2022-06-19"],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
+            "muestra": [1000, 1000, 1000],
+            "gustavo_petro": [52.0, 51.0, 50.0],
+            "rodolfo_hernandez": [48.0, 49.0, 50.0],
+            "blanco": [0.0, 0.0, 0.0],
+            "round_number": [2, 2, 2],
+        }
+    )
+
+    matrix_with_polls = estimate_runoff_matrix(
+        idata,
+        (results_round1, results_round1),
+        round2_polls,
+        config,
+    )
+    matrix_no_polls = estimate_runoff_matrix(
+        idata,
+        (results_round1, results_round1),
+        None,
+        config,
+    )
+
+    ph_polls = next(
+        p
+        for p in matrix_with_polls.pairings
+        if p.candidate_first == "gustavo_petro" and p.candidate_second == "rodolfo_hernandez"
+    )
+    ph_no_polls = next(
+        p
+        for p in matrix_no_polls.pairings
+        if p.candidate_first == "gustavo_petro" and p.candidate_second == "rodolfo_hernandez"
+    )
+
+    assert ph_polls.prob_first_wins != pytest.approx(ph_no_polls.prob_first_wins), (
+        "Model path produced the same prob_first_wins as the heuristic; "
+        "likely the model path was not taken"
+    )
+
+
+def test_estimate_runoff_matrix_falls_back_to_heuristic_when_few_polls() -> None:
+    """Test that fewer than 3 head-to-head polls falls back to the heuristic.
+
+    When ``round2_polls`` contains only 1 row for a candidate pairing, the
+    filter returns ``None`` and the transfer heuristic must be used instead,
+    producing results identical to the ``round2_polls=None`` case.
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={"candidate_dim_0": candidate_order},
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    results_round1 = _make_round1_result()
+    config = ModelConfig()
+
+    round2_polls = pd.DataFrame(
+        {
+            "fecha": ["2022-06-19"],
+            "encuestadora": ["PollsterA"],
+            "muestra": [1000],
+            "gustavo_petro": [52.0],
+            "rodolfo_hernandez": [48.0],
+            "blanco": [0.0],
+            "round_number": [2],
+        }
+    )
+
+    matrix_few_polls = estimate_runoff_matrix(
+        idata,
+        (results_round1, results_round1),
+        round2_polls,
+        config,
+    )
+    matrix_no_polls = estimate_runoff_matrix(
+        idata,
+        (results_round1, results_round1),
+        None,
+        config,
+    )
+
+    for pf_few, pf_none in zip(matrix_few_polls.pairings, matrix_no_polls.pairings, strict=True):
+        assert pf_few.prob_first_wins == pf_none.prob_first_wins, (
+            f"Pairing {pf_few.candidate_first} vs {pf_few.candidate_second}: "
+            "prob_first_wins differs despite both using the heuristic"
+        )
+        assert pf_few.mean_margin == pf_none.mean_margin, (
+            f"Pairing {pf_few.candidate_first} vs {pf_few.candidate_second}: "
+            "mean_margin differs despite both using the heuristic"
+        )
