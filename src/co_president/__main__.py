@@ -11,8 +11,6 @@ Commands:
     config      Print current configuration
 """
 
-# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownParameterType=false, reportMissingTypeArgument=false, reportUnknownArgumentType=false
-
 from __future__ import annotations
 
 import argparse
@@ -22,12 +20,12 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Any
 
-import arviz as az
+import arviz as az  # type: ignore[reportMissingTypeStubs]
 
 if TYPE_CHECKING:
     from datetime import date
 
-    import pandas as pd
+    import pandas as pd  # type: ignore[reportMissingTypeStubs]
 
 from co_president.config import (
     CONSULTATION_DATE,
@@ -190,12 +188,12 @@ def _validate_data(
     """
     warnings: list[str] = []
 
-    r1_pollsters = clean_polls.round1["encuestadora"].nunique()
+    r1_pollsters = clean_polls.round1["encuestadora"].nunique()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
     if r1_pollsters < _MIN_POLLSTERS_R1:
         warnings.append(
             f"Round 1 has {r1_pollsters} unique pollster(s); at least {_MIN_POLLSTERS_R1} required",
         )
-    r2_pollsters = clean_polls.round2["encuestadora"].nunique()
+    r2_pollsters = clean_polls.round2["encuestadora"].nunique()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
     if r2_pollsters < _MIN_POLLSTERS_R2:
         warnings.append(
             f"Round 2 has {r2_pollsters} unique pollster(s); at least {_MIN_POLLSTERS_R2} required",
@@ -205,14 +203,14 @@ def _validate_data(
         key = candidate.key
         if key not in clean_polls.round1.columns:
             continue
-        col = clean_polls.round1[key]
-        if (col < 0).any():
+        col = clean_polls.round1[key]  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+        if (col < 0).any():  # pyright: ignore[reportUnknownMemberType]
             warnings.append(
-                f"Negative vote share for '{key}' in round 1 polls (min={col.min():.2f})",
+                f"Negative vote share for '{key}' in round 1 polls (min={col.min():.2f})",  # pyright: ignore[reportUnknownMemberType]
             )
-        if (col > _MAX_SHARE_PCT).any():
+        if (col > _MAX_SHARE_PCT).any():  # pyright: ignore[reportUnknownMemberType]
             warnings.append(
-                f"Vote share > 100% for '{key}' in round 1 polls (max={col.max():.2f})",
+                f"Vote share > 100% for '{key}' in round 1 polls (max={col.max():.2f})",  # pyright: ignore[reportUnknownMemberType]
             )
 
     for label, rr in [("Round 1", results_r1), ("Round 2", results_r2)]:
@@ -393,19 +391,19 @@ def _load_and_validate() -> tuple[CleanPolls, RoundResult, RoundResult]:
 def _log_and_save_trace(idata: az.InferenceData, path: Path) -> None:
     """Log and save an InferenceData to a netCDF file."""
     logger.info("Saving trace to %s", path)
-    idata.to_netcdf(str(path))
+    idata.to_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
 
 
 def _check_convergence(idata: az.InferenceData, label: str) -> None:
     """Check R-hat convergence and log a warning if it exceeds threshold."""
     try:
-        summary = az.summary(idata)
-        max_rhat = summary["r_hat"].max()
+        summary = az.summary(idata)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+        max_rhat = summary["r_hat"].max()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
         if max_rhat > _RHAT_LIMIT:
             logger.warning(
                 "%s: max R-hat = %.3f (> %.2f); convergence may be suspect",
                 label,
-                max_rhat,
+                max_rhat,  # pyright: ignore[reportUnknownArgumentType]
                 _RHAT_LIMIT,
             )
     except Exception:  # noqa: BLE001
@@ -791,7 +789,7 @@ def _load_trace_or_exit(path: Path, label: str) -> az.InferenceData:
 
     """
     try:
-        return az.from_netcdf(str(path))
+        return az.from_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
     except Exception as e:  # noqa: BLE001
         print(f"Error loading {label} trace: {e}")
         sys.exit(1)
@@ -908,7 +906,7 @@ def _cmd_validate() -> None:
 
     if runoff_path.is_file():
         try:
-            idata_runoff = az.from_netcdf(str(runoff_path))
+            idata_runoff = az.from_netcdf(str(runoff_path))  # pyright: ignore[reportUnknownMemberType]
             r2_top_two = results_r1.top_two()
             if len(r2_top_two) < 2:  # noqa: PLR2004
                 logger.warning("Round 1 results have <2 candidates; runoff validation skipped")
@@ -987,7 +985,7 @@ def _plot_evolution(
 
     try:
         fig = plot_forecast_evolution(snapshots, results_r1)
-        fig.savefig(str(out / "forecast_evolution.png"), dpi=150, bbox_inches="tight")
+        fig.savefig(str(out / "forecast_evolution.png"), dpi=150, bbox_inches="tight")  # pyright: ignore[reportUnknownMemberType]
         plt.close(fig)
         logger.info("Saved forecast_evolution.png")
     except Exception as e:  # noqa: BLE001
@@ -1021,7 +1019,7 @@ def _plot_calibration(
                 forecast_round1,
             )
 
-            idata_r1 = az.from_netcdf(str(trace_path))
+            idata_r1 = az.from_netcdf(str(trace_path))  # pyright: ignore[reportUnknownMemberType]
             r1_forecast = forecast_round1(idata_r1, sorted(FIRST_ROUND_CANDIDATES))
             r1_validation = validate_round1(r1_forecast, results_r1)
         except Exception as e:  # noqa: BLE001
@@ -1029,7 +1027,7 @@ def _plot_calibration(
 
     if r1_validation is not None:
         fig = plot_calibration(r1_validation)
-        fig.savefig(str(out / "calibration.png"), dpi=150, bbox_inches="tight")
+        fig.savefig(str(out / "calibration.png"), dpi=150, bbox_inches="tight")  # pyright: ignore[reportUnknownMemberType]
         plt.close(fig)
         logger.info("Saved calibration.png")
     else:
@@ -1054,7 +1052,7 @@ def _plot_errors(
     try:
         rolling_errors = compute_rolling_errors(snapshots, results_r1)
         fig = plot_error_over_time(rolling_errors)
-        fig.savefig(str(out / "error_over_time.png"), dpi=150, bbox_inches="tight")
+        fig.savefig(str(out / "error_over_time.png"), dpi=150, bbox_inches="tight")  # pyright: ignore[reportUnknownMemberType]
         plt.close(fig)
         logger.info("Saved error_over_time.png")
     except Exception as e:  # noqa: BLE001
