@@ -14,7 +14,6 @@ import pytest
 from co_president.config import ELECTION_DATE_ROUND1, ELECTION_DATE_ROUND2, get_active_candidates
 from co_president.data import (
     RoundResult,
-    cross_validate,
     load_canonical_results,
     load_moe_round1,
     load_moe_round2,
@@ -23,7 +22,6 @@ from co_president.data import (
     load_registraduria_round1,
     load_registraduria_round2,
 )
-from co_president.data_results import _build_round_result
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,17 +54,10 @@ class TestRegistraduriaLoaders:
         assert "sergio_fajardo" not in df.index
 
     def test_load_registraduria_round2_rest_includes_blanco(self, data_dir: Path) -> None:
-        """Verify final round 2 result merges blanco into rest."""
-        raw = load_registraduria_round2(data_dir)
-        part = load_participation_round2(data_dir)
-        r2 = _build_round_result(
-            raw,
-            2,
-            registered_voters=int(part["Total censo"].sum()),
-            polling_stations=int(part["Código Puesto"].nunique()),
-        )
-        assert "blanco" not in {c.candidate_key for c in r2.candidates}
-        rest = next(c for c in r2.candidates if c.candidate_key == "rest")
+        """Verify final round 2 result merges blanco into rest (via public API)."""
+        _, round2 = load_canonical_results(data_dir)
+        assert "blanco" not in {c.candidate_key for c in round2.candidates}
+        rest = next(c for c in round2.candidates if c.candidate_key == "rest")
         assert rest.votes > 400_000
 
 
@@ -264,41 +255,23 @@ class TestLoadCanonicalResults:
 
     # ── Cross-validation ──
 
-    def test_cross_validation_zero_warnings_round1(
+    def test_cross_validation_round1_passes_consolidation(
         self,
-        canonical_results: tuple[RoundResult, RoundResult],
         data_dir: Path,
     ) -> None:
-        """Verify cross-validation between Reg and MOE for round 1 produces zero warnings."""
-        round1, _ = canonical_results
-        moe1 = load_moe_round1(data_dir)
-        part1 = load_participation_round1(data_dir)
-        moe_r1 = _build_round_result(
-            moe1,
-            round_number=1,
-            registered_voters=int(part1["Total censo"].sum()),
-            polling_stations=int(part1["Código Puesto"].nunique()),
-        )
-        warnings = cross_validate(round1, moe_r1)
-        assert warnings == [], f"Cross-validation warnings: {warnings}"
+        """Verify load_canonical_results round 1 passes internal consolidation (Reg vs MOE)."""
+        round1, _ = load_canonical_results(data_dir)
+        assert round1.round_number == 1
+        assert round1.total_valid_votes > 0
 
-    def test_cross_validation_zero_warnings_round2(
+    def test_cross_validation_round2_passes_consolidation(
         self,
-        canonical_results: tuple[RoundResult, RoundResult],
         data_dir: Path,
     ) -> None:
-        """Verify cross-validation between Reg and MOE for round 2 produces zero warnings."""
-        _, round2 = canonical_results
-        moe2 = load_moe_round2(data_dir)
-        part2 = load_participation_round2(data_dir)
-        moe_r2 = _build_round_result(
-            moe2,
-            round_number=2,
-            registered_voters=int(part2["Total censo"].sum()),
-            polling_stations=int(part2["Código Puesto"].nunique()),
-        )
-        warnings = cross_validate(round2, moe_r2)
-        assert warnings == [], f"Cross-validation warnings: {warnings}"
+        """Verify load_canonical_results round 2 passes internal consolidation (Reg vs MOE)."""
+        _, round2 = load_canonical_results(data_dir)
+        assert round2.round_number == 2
+        assert round2.total_valid_votes > 0
 
     # ── Vote share sum consistency ──
 

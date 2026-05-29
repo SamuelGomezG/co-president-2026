@@ -621,7 +621,7 @@ def validate_cross_pollster_consistency(polls: pd.DataFrame) -> pd.DataFrame:  #
         return _empty_validation_result()
 
     df = polls.copy()
-    df = df.assign(date_group=df["fecha"].dt.floor("D"))  # type: ignore[reportUnknownArgumentType]
+    df = df.assign(date_group=df["fecha"].dt.floor("D"))  # type: ignore[reportUnknownArgumentType]  # pyright cannot infer pandas .dt.floor return type; validated upstream
 
     excluded = _SHARE_COLS_EXCLUDED | {"blanco", "otros", "date_group", "forced_choice"}
     candidate_cols = [col for col in df.columns if col not in excluded]
