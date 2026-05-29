@@ -39,8 +39,7 @@ from co_president.config import (
 
 if TYPE_CHECKING:
     from co_president.config import Candidate
-    from co_president.data_polls import CleanPolls
-    from co_president.data_results import RoundResult
+    from co_president.data import CleanPolls, RoundResult
     from co_president.model_round1 import Round1Forecast
     from co_president.model_runoff_simple import RunoffForecast
     from co_president.validation import (
@@ -311,7 +310,7 @@ def _run_config() -> None:
 def _run_aggregate() -> None:
     """Run the baseline weighted average (SPEC-05) and print results."""
     from co_president.aggregation import weighted_average  # noqa: PLC0415
-    from co_president.data_polls import load_and_clean_all  # noqa: PLC0415
+    from co_president.data import load_and_clean_all  # noqa: PLC0415
 
     try:
         clean_polls = load_and_clean_all()
@@ -372,8 +371,7 @@ def _load_and_validate() -> tuple[CleanPolls, RoundResult, RoundResult]:
         Tuple of ``(clean_polls, results_r1, results_r2)``.
 
     """
-    from co_president.data_polls import load_and_clean_all  # noqa: PLC0415
-    from co_president.data_results import load_canonical_results  # noqa: PLC0415
+    from co_president.data import load_and_clean_all, load_canonical_results  # noqa: PLC0415
 
     logger.info("Loading canonical election results...")
     results_r1, results_r2 = load_canonical_results()
@@ -743,7 +741,7 @@ def _cmd_validate() -> None:
         format="%(levelname)s: %(message)s",
     )
 
-    from co_president.data_results import load_canonical_results  # noqa: PLC0415
+    from co_president.data import load_canonical_results  # noqa: PLC0415
     from co_president.model_round1 import (  # noqa: PLC0415
         forecast_round1,
     )
@@ -840,7 +838,7 @@ def _load_or_generate_snapshots(
         return snapshots
 
     logger.info("No saved snapshots found; generating rolling forecast...")
-    from co_president.data_polls import load_and_clean_all  # noqa: PLC0415
+    from co_president.data import load_and_clean_all  # noqa: PLC0415
     from co_president.validation import rolling_forecast, save_rolling_snapshot  # noqa: PLC0415
 
     try:
@@ -961,7 +959,7 @@ def _cmd_plot(output_dir: str) -> None:
 
     mpl.use("Agg")
 
-    from co_president.data_results import load_canonical_results  # noqa: PLC0415
+    from co_president.data import load_canonical_results  # noqa: PLC0415
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)

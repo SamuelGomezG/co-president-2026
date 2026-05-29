@@ -18,7 +18,7 @@ test:
 	uv run pytest tests/ -v --cov=src/co_president --cov-report=term-missing --cov-report=xml
 
 test-fast:
-	uv run pytest tests/ -v --ignore=tests/test_model.py
+	uv run pytest tests/ -v --ignore=tests/test_model.py --ignore=tests/integration
 
 test-model:
 	uv run pytest tests/test_model.py -v -m "not slow"

@@ -113,18 +113,18 @@ class ModelConfig:
     def computed_consultation_prior_strengths(self) -> dict[str, float]:
         """Lazily computed candidate-specific prior strengths.
 
-        Calls ``get_computed_consultation_prior_strengths`` from
-        ``data_polls`` on first access (not at module import time).
-        Merges with ``consultation_prior_strength_override``, which takes
-        precedence. Returns empty dict when ``consultas.csv`` is missing
-        or cannot be read.
+        Calls ``get_computed_consultation_prior_strengths`` from the
+        ``co_president.data`` facade on first access (not at module
+        import time).  Merges with ``consultation_prior_strength_override``,
+        which takes precedence.  Returns empty dict when ``consultas.csv``
+        is missing or cannot be read.
 
         Returns:
             Mapping of candidate key to prior standard deviation,
             or empty dict if unavailable.
 
         """
-        from co_president.data_polls import get_computed_consultation_prior_strengths  # noqa: PLC0415, I001
+        from co_president.data import get_computed_consultation_prior_strengths  # noqa: PLC0415, I001
 
         try:
             computed = get_computed_consultation_prior_strengths().copy()

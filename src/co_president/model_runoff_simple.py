@@ -28,7 +28,7 @@ from co_president.config import (
 
 if TYPE_CHECKING:
     from co_president.config import ModelConfig
-    from co_president.data_results import RoundResult
+    from co_president.data import RoundResult
 
 
 @dataclass(frozen=True)

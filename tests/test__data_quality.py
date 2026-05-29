@@ -1,4 +1,4 @@
-"""Tests for co_president.data_quality."""
+"""Tests for co_president._data_quality."""
 
 from __future__ import annotations
 
@@ -9,32 +9,36 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from co_president.config import POLLSTER_RATINGS, ModelConfig
-from co_president.data_quality import (
+from co_president._data_quality import (
     _MAE_CANDIDATES,
     _compute_mae,
     quantify_methodology_effect,
     validate_pollster_ratings,
     validate_time_decay,
 )
-from co_president.data_results import CandidateResult, RoundResult
+from co_president.config import POLLSTER_RATINGS, ModelConfig
+from co_president.data import CandidateResult, RoundResult
 
 
 @pytest.fixture
 def sample_r1_polls() -> pd.DataFrame:
-    """Minimal R1 poll DataFrame for unit testing."""
+    """Minimal R1 poll DataFrame for unit testing (3 rows per AGENTS.md)."""
     return pd.DataFrame(
         {
-            "encuestadora": ["Invamer", "YanHaas"],
-            "fecha": [pd.Timestamp("2022-05-20"), pd.Timestamp("2022-05-10")],
-            "gustavo_petro": [41.0, 44.0],
-            "rodolfo_hernandez": [27.0, 20.0],
-            "federico_gutierrez": [24.0, 21.0],
-            "sergio_fajardo": [4.5, 7.0],
-            "ingrid_betancourt": [0.3, 1.5],
-            "blanco": [2.0, 4.0],
-            "otros": [1.2, 2.5],
-            "ns_nr": [0, 0],
+            "encuestadora": ["Invamer", "YanHaas", "CNC"],
+            "fecha": [
+                pd.Timestamp("2022-05-20"),
+                pd.Timestamp("2022-05-10"),
+                pd.Timestamp("2022-05-15"),
+            ],
+            "gustavo_petro": [41.0, 44.0, 39.0],
+            "rodolfo_hernandez": [27.0, 20.0, 30.0],
+            "federico_gutierrez": [24.0, 21.0, 23.0],
+            "sergio_fajardo": [4.5, 7.0, 4.0],
+            "ingrid_betancourt": [0.3, 1.5, 0.5],
+            "blanco": [2.0, 4.0, 2.5],
+            "otros": [1.2, 2.5, 1.0],
+            "ns_nr": [0, 0, 0],
         },
     )
 

@@ -9,8 +9,12 @@ import pymc as pm  # type: ignore[reportMissingTypeStubs]
 import pytest
 
 from co_president.config import FIRST_ROUND_CANDIDATES, ModelConfig
-from co_president.data_polls import load_and_clean_all
-from co_president.data_results import CandidateResult, RoundResult, load_canonical_results
+from co_president.data import (
+    CandidateResult,
+    RoundResult,
+    load_and_clean_all,
+    load_canonical_results,
+)
 from co_president.model_round1 import (
     CandidateForecast,
     Round1Forecast,
