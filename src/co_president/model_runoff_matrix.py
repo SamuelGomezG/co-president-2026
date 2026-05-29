@@ -32,13 +32,18 @@ from co_president.config import (
     TRANSFER_GUTIERREZ_HERNANDEZ,
     TRANSFER_GUTIERREZ_PETRO,
 )
+from co_president.data import CandidateResult, RoundResult
+from co_president.model_runoff_simple import (
+    build_runoff_simple_model,
+    forecast_runoff_simple,
+    sample_runoff,
+)
 
 if TYPE_CHECKING:
     import arviz as az  # type: ignore[reportMissingTypeStubs]
     import pandas as pd
 
     from co_president.config import ModelConfig
-    from co_president.data import RoundResult
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,7 @@ class RunoffMatrix:
 
 
 _MIN_PAIRING_PROB: float = 0.01
+_MIN_PAIRED_POLLS: int = 3
 
 
 def _get_candidate_order() -> list[str]:
@@ -287,22 +293,108 @@ def _compute_transfer_outcome(
     return prob_first_wins, mean_margin
 
 
+def _filter_polls_for_pairing(
+    polls: pd.DataFrame,
+    first: str,
+    second: str,
+) -> pd.DataFrame | None:
+    """Filter ``round2_polls`` to rows relevant for a ``(first, second)`` pairing.
+
+    Returns ``None`` if fewer than 3 rows remain after removing rows with NaN
+    candidate shares, or if the required columns are missing.
+
+    Args:
+        polls: Clean Round 2 poll DataFrame.
+        first: Key of the first-placed runoff candidate.
+        second: Key of the second-placed runoff candidate.
+
+    Returns:
+        Filtered DataFrame with at least 3 rows, or ``None``.
+
+    """
+    required = {"fecha", "encuestadora", "muestra", first, second}
+    missing = required - set(polls.columns)
+    if missing:
+        return None
+
+    filtered = polls.dropna(subset=[first, second])
+    if len(filtered) < _MIN_PAIRED_POLLS:
+        return None
+
+    return filtered
+
+
+def _run_runoff_model_for_pairing(
+    polls: pd.DataFrame,
+    round1_result: RoundResult,
+    round1_idata: az.InferenceData,
+    config: ModelConfig,
+    pairing: tuple[str, str],
+) -> tuple[float, float]:
+    """Build, sample, and forecast a K=3 runoff model for a given pairing.
+
+    Constructs a synthetic :class:`RoundResult` that positions the pairing's
+    candidates as the top two so that
+    :func:`~co_president.model_runoff_simple.build_runoff_simple_model`
+    builds the model graph targeting this specific pairing.
+
+    Args:
+        polls: Filtered head-to-head poll DataFrame (``>=3`` rows).
+        round1_result: Round 1 election result (used for candidate shares).
+        round1_idata: Round 1 posterior for the informed prior.
+        config: Model hyperparameters.
+        pairing: Tuple of ``(first, second)`` candidate keys.
+
+    Returns:
+        Tuple of ``(prob_first_wins, mean_margin)``.
+
+    """
+    first, second = pairing
+
+    first_share = round1_result.get_share(first)
+    second_share = round1_result.get_share(second)
+
+    synthetic_candidates = (
+        CandidateResult(first, int(first_share * 100_000), first_share),
+        CandidateResult(second, int(second_share * 100_000), second_share),
+    )
+    synthetic_result = RoundResult(
+        round_number=1,
+        date=round1_result.date,
+        total_valid_votes=int((first_share + second_share) * 100_000),
+        total_votes_incl_blank=int((first_share + second_share) * 100_000),
+        registered_voters=round1_result.registered_voters,
+        polling_stations=round1_result.polling_stations,
+        candidates=synthetic_candidates,
+        blank_votes=0,
+        null_votes=0,
+        unmarked_votes=0,
+    )
+
+    model = build_runoff_simple_model(polls, synthetic_result, round1_idata, config)
+    idata = sample_runoff(model, config)
+    forecast = forecast_runoff_simple(idata, first, second)
+
+    return forecast.prob_a_wins, forecast.mean_margin
+
+
 def estimate_runoff_matrix(
     round1_idata: az.InferenceData,
-    results: tuple[RoundResult, RoundResult],  # noqa: ARG001
-    round2_polls: pd.DataFrame | None,  # noqa: ARG001
-    config: ModelConfig,  # noqa: ARG001
+    results: tuple[RoundResult, RoundResult],
+    round2_polls: pd.DataFrame | None,
+    config: ModelConfig,
 ) -> RunoffMatrix:
     """Compute a full probabilistic runoff matrix.
 
     Uses the Round 1 posterior to identify plausible pairings, then for each
-    pairing estimates the runoff outcome via a **transfer heuristic** that
-    redistributes eliminated candidates' votes based on coalition alignment.
+    pairing estimates the runoff outcome using one of two paths:
 
-    TODO(SPEC-08): When ``round2_polls`` contains head-to-head polls for the
-    pairing, use :func:`~co_president.model_runoff_simple.build_runoff_simple_model`
-    instead of the heuristic. The parameters ``results``, ``round2_polls``, and
-    ``config`` are accepted now to keep the API stable for that future path.
+    1. **Model path**: If ``round2_polls`` contains 3+ head-to-head polls for
+       the candidate pairing, runs the K=3
+       :func:`~co_president.model_runoff_simple.build_runoff_simple_model`
+       and extracts win probabilities from the posterior.
+    2. **Heuristic path**: Otherwise, uses the transfer heuristic that
+       redistributes eliminated candidates' votes based on coalition alignment.
 
     Args:
         round1_idata: Posterior from :func:`~co_president.model_round1.sample_round1`.
@@ -329,18 +421,35 @@ def estimate_runoff_matrix(
 
     all_candidate_keys = _get_candidate_order()
 
+    round1_result, _round2_result = results
+
     pairings: list[PairingForecast] = []
     for (first, second), prob in sorted(top_two_probs.items(), key=lambda x: x[1], reverse=True):
         if prob < _MIN_PAIRING_PROB:
             break
 
-        # Use the transfer heuristic when no head-to-head polls are available.
-        prob_first_wins, mean_margin = _compute_transfer_outcome(
-            election_day,
-            all_candidate_keys,
-            first,
-            second,
-        )
+        # If head-to-head polls are available for this pairing, use the
+        # K=3 runoff model instead of the transfer heuristic.
+        if round2_polls is not None:
+            pairing_polls = _filter_polls_for_pairing(round2_polls, first, second)
+        else:
+            pairing_polls = None
+
+        if pairing_polls is not None:
+            prob_first_wins, mean_margin = _run_runoff_model_for_pairing(
+                pairing_polls,
+                round1_result,
+                round1_idata,
+                config,
+                (first, second),
+            )
+        else:
+            prob_first_wins, mean_margin = _compute_transfer_outcome(
+                election_day,
+                all_candidate_keys,
+                first,
+                second,
+            )
 
         pairings.append(
             PairingForecast(
