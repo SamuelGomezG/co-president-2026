@@ -50,6 +50,7 @@ class TestRound1ModelIntegration:
         candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
         candidate_idx = {k: i for i, k in enumerate(candidate_keys)}
 
+        # Exclude deterministic transforms — R-hat only applies to sampled RVs.
         summary = az.summary(idata, var_names=["~p_adj", "~p_time", "~house_effects", "~raw_house"])
         r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
         assert (r_hat < 1.10).all(), (
