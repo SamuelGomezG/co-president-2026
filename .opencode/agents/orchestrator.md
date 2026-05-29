@@ -3,8 +3,8 @@ description: >
   Local orchestration agent that programmatically runs coderabbit-assessment
   and qa-auditor, consolidates their execution plans into a single master Todo
   list, and carries out the fixes directly on the files.
-color: green
-mode: agent
+color: "#2ecc71"
+mode: primary
 model: opencode-go/minimax-m2.7
 temperature: 0.1
 steps: 30
