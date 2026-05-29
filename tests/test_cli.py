@@ -105,6 +105,105 @@ def test_run_no_sample_exits_success() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Integration subprocess tests (plot + validate)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.integration
+def test_validate_command_prints_error_when_no_trace(tmp_path: Path) -> None:
+    """``co_president validate`` must print error when trace is missing."""
+    # Verify the module-level check path logic
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    round1_path = results_dir / "round1_trace.nc"
+    assert not round1_path.is_file(), "Precondition: no trace file should exist"
+
+    # Run validate via subprocess in the isolated tmp_path
+    result = subprocess.run(  # noqa: S603
+        [_PYTHON, "-m", "co_president", "validate"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1, (
+        f"validate expected exit code 1 without trace, got {result.returncode}, "
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "trace not found" in result.stdout.lower() or "trace not found" in result.stderr.lower()
+
+
+def _make_minimal_snapshot_json(path: Path, date_str: str) -> None:
+    """Create a valid snapshot JSON file for integration test.
+
+    Args:
+        path: Directory to create the snapshot file in.
+        date_str: ISO-format date string for the snapshot filename.
+
+    """
+    snapshot = {
+        "candidates": [
+            {
+                "candidate_key": "gustavo_petro",
+                "mean_share": 0.412,
+                "median_share": 0.410,
+                "ci_50": [0.38, 0.44],
+                "ci_95": [0.35, 0.47],
+                "prob_first": 0.95,
+                "prob_second": 0.04,
+                "prob_top_two": 0.99,
+                "prob_win_outright": 0.02,
+            },
+            {
+                "candidate_key": "rodolfo_hernandez",
+                "mean_share": 0.278,
+                "median_share": 0.275,
+                "ci_50": [0.24, 0.32],
+                "ci_95": [0.22, 0.34],
+                "prob_first": 0.04,
+                "prob_second": 0.85,
+                "prob_top_two": 0.89,
+                "prob_win_outright": 0.0,
+            },
+        ],
+        "prob_runoff": 0.98,
+        "round_number": 1,
+    }
+    snapshot_file = path / f"snapshot_{date_str}.json"
+    snapshot_file.write_text(json.dumps(snapshot), encoding="utf-8")
+
+
+@pytest.mark.integration
+def test_plot_command_generates_pngs(tmp_path: Path) -> None:
+    """``co_president plot`` must generate PNG files."""
+    out_dir = tmp_path / "plots"
+    out_dir.mkdir()
+
+    # Pre-create valid snapshot files so MCMC sampling is skipped
+    _make_minimal_snapshot_json(out_dir, "2022-05-01")
+    _make_minimal_snapshot_json(out_dir, "2022-05-15")
+
+    result = subprocess.run(  # noqa: S603
+        [_PYTHON, "-m", "co_president", "plot", "--output-dir", str(out_dir)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    # With valid snapshots pre-created, evolution and error plots must succeed.
+    # Calibration plot may fail gracefully if no MCMC trace exists (acceptable).
+    assert result.returncode == 0, (
+        f"plot command failed (code {result.returncode})\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    png_files = list(out_dir.glob("*.png"))
+    assert len(png_files) >= 1, (
+        f"No PNG files generated. stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Data validation tests (unit-level)
 # ═══════════════════════════════════════════════════════════════════════
 
