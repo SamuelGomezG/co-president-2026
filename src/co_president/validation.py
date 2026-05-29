@@ -7,7 +7,7 @@ multiple metrics.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 import logging
 import math
 import numbers
@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from co_president.data import CleanPolls, RoundResult
     from co_president.model_runoff_simple import RunoffForecast
 
+from co_president.config import (
+    CONSULTATION_DATE,
+    ELECTION_DATE_ROUND1,
+    FIRST_ROUND_CANDIDATES,
+)
 from co_president.model_round1 import (
     Round1Forecast,
     build_round1_model,
@@ -230,29 +235,70 @@ def brier_score_round1(
 
 def rolling_forecast(
     polls: CleanPolls,
-    results: tuple[RoundResult, RoundResult],
+    results: tuple[RoundResult, RoundResult],  # noqa: ARG001
     config: ModelConfig,
     n_snapshots: int = 10,
+    min_polls: int = 3,
 ) -> list[tuple[date, Round1Forecast]]:
     """Re-fit the Round 1 model using polls available up to each cutoff date.
 
-    .. note::
-        This function requires MCMC sampling and is intentionally a no-op
-        placeholder that returns an empty list. Full implementation requires
-        SPEC-10 integration.
+    Generates ``n_snapshots`` evenly spaced cutoff dates from 30 days after
+    the consultation date to 2 days before round 1. For each cutoff, polls
+    with ``fecha <= cutoff`` are used to build, sample, and forecast the
+    Round 1 Bayesian model.
+
+    Snapshots with fewer than ``min_polls`` polls after filtering are skipped.
+    MCMC failures are logged and skipped individually (one failing snapshot
+    does not abort the whole series).
 
     Args:
         polls: CleanPolls container.
-        results: Canonical election results.
+        results: Canonical election results (unused in forecast-only mode).
         config: ModelConfig with hyperparameters.
         n_snapshots: Number of evenly spaced cutoff dates.
+        min_polls: Minimum number of polls required to fit a snapshot.
 
     Returns:
-        List of (cutoff_date, forecast) tuples. Empty if not enough data.
+        List of ``(cutoff_date, forecast)`` tuples. Empty if not enough data.
 
     """
-    _ = polls, results, config, n_snapshots
-    return []
+    start_date = CONSULTATION_DATE + timedelta(days=30)
+    end_date = ELECTION_DATE_ROUND1 - timedelta(days=2)
+    cutoff_dates = pd.date_range(
+        start=start_date, end=end_date, periods=n_snapshots
+    ).to_pydatetime()
+
+    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.round1.columns))
+    if not candidate_keys:
+        logger.warning("rolling_forecast: no candidate columns found in round1 polls")
+        return []
+
+    snapshots: list[tuple[date, Round1Forecast]] = []
+    for cutoff in cutoff_dates:
+        cutoff_date = cutoff.date()
+        snapshot_df = polls.round1.loc[polls.round1["fecha"] <= pd.Timestamp(cutoff_date)].copy()
+
+        if len(snapshot_df) < min_polls:
+            logger.info(
+                "rolling_forecast: skipping %s — only %d polls available",
+                cutoff_date,
+                len(snapshot_df),
+            )
+            continue
+
+        try:
+            model = build_round1_model(snapshot_df, results=None, config=config)
+            idata = sample_round1(model, config)
+            forecast = forecast_round1(idata, candidate_keys)
+            snapshots.append((cutoff_date, forecast))
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "rolling_forecast: MCMC failed for snapshot %s, skipping",
+                cutoff_date,
+                exc_info=True,
+            )
+
+    return snapshots
 
 
 def compute_rolling_errors(
