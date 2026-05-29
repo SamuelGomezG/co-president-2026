@@ -174,3 +174,36 @@ The `.gitignore` ignores uncompressed `.csv` copies to prevent accidental re-com
 - **`.python-version` pins 3.12.13**. `uv` will use whatever 3.12 interpreter it finds; ensure 3.12.13 is available via pyenv or uv.
 - **Large CSV files** (`MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz`) are ~95 MB each. Unit tests must never load them.
 - **Package verification**: Always check the current API docs for a library before writing code. Do not trust memory. Key reference URLs are in `MVP_SPECS_GUIDE.md` §2.
+
+---
+
+## 12. Custom Agents & Skills
+
+This project has access to a rich ecosystem of custom sub-agents (via the `task` tool) and skills (via the `skill` tool). Use them proactively based on the task at hand.
+
+### Sub-agents (delegation via `task` tool)
+
+| Sub-agent | When to use |
+|---|---|
+| `explore` | Codebase discovery — understanding project layout, finding relevant specs, or searching for patterns before implementing a feature |
+| `git-smart-commit` | After CodeRabbit review is approved and changes are staged — generates granular semantic commits matching project conventions |
+| `github-issue-writer` | Drafting detailed bug reports, spec tickets, or feature requests with correct labels, milestones, and project board coordination |
+| `github-pr-writer` | Reviewing branch diffs and building professional PR bodies with architectural context and changelog entries |
+| `post-merge-cleanup` | After a `feat/*` branch merges into `dev` — purges stale local/remote branches, cleans git worktrees, advances project board status |
+| `coderabbit-assessment` | Processing CodeRabbit diagnostic output — audits findings for validity and compiles remediation paths or rebuttals (only after user runs the manual review) |
+
+### Skills (context-loading via `skill` tool)
+
+| Skill | When to load |
+|---|---|
+| `pandas-pro`, `Pandas Data Analysis` | Data manipulation, DataFrame cleaning, aggregation, merge operations on polling/MMV data |
+| `python-testing-patterns` | Writing or debugging pytest fixtures, mocks, parametrize, or following the TDD cycle |
+| `github-workflow-expert` | Creating issues, PRs, labels, milestones — broader project management that sub-agents don't cover |
+| `python-executor` | Running sandboxed Python scripts for data processing, web scraping, or prototyping |
+| `Machine Learning` | Working directly with PyMC models, scikit-learn, or PyTorch |
+| `code-review` | Only as a **reference** — the actual review is run manually by the user per §9 |
+| `autofix` | Safely applying CodeRabbit PR review-thread feedback from GitHub with per-change approval |
+
+### Invocation pattern
+
+When a task matches one of the above descriptions, load the skill or delegate to the sub-agent. Sub-agents run in their own context — provide them with a clear, self-contained prompt specifying what to return and how to verify their work.
