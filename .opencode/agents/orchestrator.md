@@ -1,9 +1,10 @@
 ---
 description: >
-  Local orchestration sub-agent that programmatically runs coderabbit-assessment
+  Local orchestration agent that programmatically runs coderabbit-assessment
   and qa-auditor, consolidates their execution plans into a single master Todo
   list, and carries out the fixes directly on the files.
-mode: subagent
+color: green
+mode: agent
 model: opencode-go/minimax-m2.7
 temperature: 0.1
 steps: 30
@@ -117,9 +118,10 @@ Once all file modifications have been written, execute in order:
 1. `uv run ruff format src/ tests/` — auto-format the modified files
 2. `uv run ruff check src/ tests/` — lint check (must exit 0)
 3. `uv run pyright src/` — type check (must exit 0)
-4. `uv run pytest tests/ -v` — run all tests (must exit 0)
+4. `uv run pytest tests/ -v --ignore=tests/test_model.py` — fast tests first
+5. `uv run pytest tests/ -v` — full suite (includes slow MCMC)
 
-Or use the single command: `make check`
+Or use the single command `make test-fast` for a rapid first pass, then `make check` as the final gate.
 
 If any gate fails, analyze the failure output, perform subsequent file
 editing passes to resolve the regressions, and re-verify until all gates
@@ -202,7 +204,8 @@ src/co_president/
 | fmt | `uv run ruff format src/ tests/` | Can modify files in place |
 | lint | `uv run ruff check src/ tests/` | Must |
 | typecheck | `uv run pyright src/` | Must |
-| test | `uv run pytest tests/ -v` | Must |
+| test (fast) | `uv run pytest tests/ -v --ignore=tests/test_model.py` | Must |
+| test (full) | `uv run pytest tests/ -v` | Must |
 | all | `make check` | Must |
 
 ### Severity Classification (for consolidation)
