@@ -137,7 +137,11 @@ def _make_sample_runoff_forecast() -> RunoffForecast:
         prob_b_wins=0.22,
         mean_share_a=0.518,
         mean_share_b=0.482,
+        median_share_a=0.517,
+        median_share_b=0.481,
         mean_margin=0.036,
+        ci_50_a=(0.500, 0.536),
+        ci_50_b=(0.464, 0.500),
         ci_95_a=(0.482, 0.554),
         ci_95_b=(0.446, 0.518),
     )
@@ -180,6 +184,8 @@ class TestCandidateValidation:
             predicted_median=0.4100,
             error=0.0086,
             abs_error=0.0086,
+            ci_95_lower=0.371,
+            ci_95_upper=0.453,
             within_95ci=True,
             within_50ci=False,
         )
@@ -194,6 +200,8 @@ class TestCandidateValidation:
             predicted_median=0.27,
             error=-0.02,
             abs_error=0.02,
+            ci_95_lower=0.24,
+            ci_95_upper=0.32,
             within_95ci=True,
             within_50ci=False,
         )
@@ -208,6 +216,8 @@ class TestCandidateValidation:
             predicted_median=0.27,
             error=-0.02,
             abs_error=0.02,
+            ci_95_lower=0.24,
+            ci_95_upper=0.32,
             within_95ci=True,
             within_50ci=False,
         )
@@ -222,10 +232,30 @@ class TestCandidateValidation:
             predicted_median=0.28,
             error=-0.01,
             abs_error=0.01,
+            ci_95_lower=0.25,
+            ci_95_upper=0.33,
             within_95ci=True,
             within_50ci=True,
         )
         assert cv.within_50ci is True
+
+    def test_candidate_validation_carries_ci_bounds(self) -> None:
+        """CI bounds satisfy ci_95_lower < predicted_mean < ci_95_upper."""
+        cv = CandidateValidation(
+            candidate_key="test",
+            actual_share=0.30,
+            predicted_mean=0.28,
+            predicted_median=0.27,
+            error=-0.02,
+            abs_error=0.02,
+            ci_95_lower=0.24,
+            ci_95_upper=0.32,
+            within_95ci=True,
+            within_50ci=True,
+        )
+        assert cv.ci_95_lower < cv.predicted_mean < cv.ci_95_upper
+        assert cv.ci_95_lower == pytest.approx(0.24)
+        assert cv.ci_95_upper == pytest.approx(0.32)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -248,6 +278,8 @@ class TestRoundValidation:
                     0.27,
                     -0.02,
                     0.02,
+                    0.22,
+                    0.34,
                     within_95ci=True,
                     within_50ci=False,
                 ),
@@ -258,6 +290,8 @@ class TestRoundValidation:
                     0.21,
                     0.02,
                     0.02,
+                    0.16,
+                    0.28,
                     within_95ci=True,
                     within_50ci=True,
                 ),
@@ -268,6 +302,8 @@ class TestRoundValidation:
                     0.11,
                     0.02,
                     0.02,
+                    0.06,
+                    0.18,
                     within_95ci=True,
                     within_50ci=True,
                 ),
@@ -293,6 +329,8 @@ class TestRoundValidation:
                     0.27,
                     -0.02,
                     0.02,
+                    0.22,
+                    0.34,
                     within_95ci=True,
                     within_50ci=False,
                 ),
@@ -303,6 +341,8 @@ class TestRoundValidation:
                     0.21,
                     0.02,
                     0.02,
+                    0.16,
+                    0.28,
                     within_95ci=True,
                     within_50ci=True,
                 ),
@@ -313,6 +353,8 @@ class TestRoundValidation:
                     0.11,
                     0.02,
                     0.02,
+                    0.06,
+                    0.18,
                     within_95ci=True,
                     within_50ci=True,
                 ),
@@ -336,6 +378,8 @@ class TestRoundValidation:
                     0.51,
                     0.02,
                     0.02,
+                    0.48,
+                    0.56,
                     within_95ci=True,
                     within_50ci=True,
                 ),
@@ -346,6 +390,8 @@ class TestRoundValidation:
                     0.49,
                     -0.02,
                     0.02,
+                    0.44,
+                    0.46,
                     within_95ci=False,
                     within_50ci=False,
                 ),
@@ -369,6 +415,8 @@ class TestRoundValidation:
                     0.51,
                     0.02,
                     0.02,
+                    0.48,
+                    0.56,
                     within_95ci=True,
                     within_50ci=True,
                 ),
@@ -379,6 +427,8 @@ class TestRoundValidation:
                     0.49,
                     -0.02,
                     0.02,
+                    0.44,
+                    0.52,
                     within_95ci=True,
                     within_50ci=False,
                 ),
@@ -502,6 +552,34 @@ class TestValidateRunoff:
         rv = validate_runoff(rvf, results)
         hernandez = next(c for c in rv.candidates if c.candidate_key == "rodolfo_hernandez")
         assert hernandez.abs_error >= 0
+
+    def test_uses_median_share(self) -> None:
+        """predicted_median matches forecast median."""
+        rvf = _make_sample_runoff_forecast()
+        results = _make_runoff_results()
+        rv = validate_runoff(rvf, results)
+        a = next(c for c in rv.candidates if c.candidate_key == "gustavo_petro")
+        b = next(c for c in rv.candidates if c.candidate_key == "rodolfo_hernandez")
+        assert a.predicted_median == pytest.approx(rvf.median_share_a)
+        assert b.predicted_median == pytest.approx(rvf.median_share_b)
+
+    def test_calibration_50_computed(self) -> None:
+        """calibration_50 is computed from real 50% CI for runoff."""
+        rvf = _make_sample_runoff_forecast()
+        results = _make_runoff_results()
+        rv = validate_runoff(rvf, results)
+        # Petro actual ~50.44%, 50% CI = (0.500, 0.536) -> within
+        # Hernandez actual ~47.26%, 50% CI = (0.464, 0.500) -> within
+        assert rv.calibration_50 == pytest.approx(1.0)
+        assert 0.0 <= rv.calibration_50 <= 1.0
+
+    def test_ci_95_bounds_carried(self) -> None:
+        """Runoff validation carries ci_95_lower/ci_95_upper in each CandidateValidation."""
+        rvf = _make_sample_runoff_forecast()
+        results = _make_runoff_results()
+        rv = validate_runoff(rvf, results)
+        for cv in rv.candidates:
+            assert cv.ci_95_lower < cv.predicted_mean < cv.ci_95_upper
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1456,6 +1534,8 @@ class TestPlotCalibration:
                     0.27,
                     -0.02,
                     0.02,
+                    0.22,
+                    0.34,
                     within_95ci=True,
                     within_50ci=False,
                 ),
@@ -1466,6 +1546,8 @@ class TestPlotCalibration:
                     0.21,
                     0.02,
                     0.02,
+                    0.16,
+                    0.28,
                     within_95ci=True,
                     within_50ci=True,
                 ),

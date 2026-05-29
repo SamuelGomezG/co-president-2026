@@ -41,7 +41,11 @@ class RunoffForecast:
         prob_b_wins: Probability candidate B receives more votes than A.
         mean_share_a: Posterior mean vote share for candidate A.
         mean_share_b: Posterior mean vote share for candidate B.
+        median_share_a: Posterior median vote share for candidate A.
+        median_share_b: Posterior median vote share for candidate B.
         mean_margin: Mean margin (mean_share_a - mean_share_b).
+        ci_50_a: 50% credible interval for candidate A's vote share.
+        ci_50_b: 50% credible interval for candidate B's vote share.
         ci_95_a: 95% credible interval for candidate A's vote share.
         ci_95_b: 95% credible interval for candidate B's vote share.
 
@@ -53,7 +57,11 @@ class RunoffForecast:
     prob_b_wins: float
     mean_share_a: float
     mean_share_b: float
+    median_share_a: float
+    median_share_b: float
     mean_margin: float
+    ci_50_a: tuple[float, float]
+    ci_50_b: tuple[float, float]
     ci_95_a: tuple[float, float]
     ci_95_b: tuple[float, float]
 
@@ -330,7 +338,14 @@ def forecast_runoff_simple(
 
     mean_share_a = float(a_values.mean())
     mean_share_b = float(b_values.mean())
+    median_share_a = float(np.median(a_values))
+    median_share_b = float(np.median(b_values))
     mean_margin = mean_share_a - mean_share_b
+
+    ci_50_a_result = az.hdi(a_values, prob=0.5)  # type: ignore
+    ci_50_b_result = az.hdi(b_values, prob=0.5)  # type: ignore
+    ci_50_a = (float(ci_50_a_result[0]), float(ci_50_a_result[1]))  # type: ignore
+    ci_50_b = (float(ci_50_b_result[0]), float(ci_50_b_result[1]))  # type: ignore
 
     ci_95_a_result = az.hdi(a_values, prob=0.95)  # type: ignore
     ci_95_b_result = az.hdi(b_values, prob=0.95)  # type: ignore
@@ -344,7 +359,11 @@ def forecast_runoff_simple(
         prob_b_wins=prob_b_wins,
         mean_share_a=mean_share_a,
         mean_share_b=mean_share_b,
+        median_share_a=median_share_a,
+        median_share_b=median_share_b,
         mean_margin=mean_margin,
+        ci_50_a=ci_50_a,
+        ci_50_b=ci_50_b,
         ci_95_a=ci_95_a,
         ci_95_b=ci_95_b,
     )
