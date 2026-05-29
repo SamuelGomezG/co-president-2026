@@ -124,13 +124,33 @@ Each SPEC has a corresponding GitHub issue with `spec:XX` label, assigned to a m
 
 ---
 
-## 9. CodeRabbit
+## 9. CodeRabbit (Manual User Review)
 
-**The CodeRabbit workflow MUST be executed BEFORE every commit — no exceptions. Never commit without running a CodeRabbit review first.**
+**The CodeRabbit workflow MUST be executed BEFORE every commit — no exceptions. Never commit without a successful CodeRabbit review first.**
 
-Use CodeRabbit skill with `/code-review --uncommitted`. The `--uncommitted` flag ensures all uncommitted changes are reviewed. Always run the code review with the longest timeout possible, in the background, and check on it frequently to ensure it does not time out — timeouts waste credits and force re-runs.
+The agent MUST NOT run CodeRabbit automatically. The **user** executes the review manually using the `cr` CLI.
 
-Evaluate the fixes and considerations. Fix major issues only, or fix any critical issues and ignore the nits. Once those changes are implemented, run a code review one more time to make sure we addressed all the critical issues and didn't introduce any additional bugs. Only run the loop twice. If on the second run you don't find any critical issues, ignore the nits and you're complete. Give me a summary of everything that was completed and why.
+Before committing, the agent is responsible for halting development and printing the exact command the user needs to run. The agent must infer the correct context (current branch, staged/unstaged changes, etc.) and produce a command tailored to the situation, for example:
+
+```bash
+# Review all uncommitted changes (default)
+cr
+
+# Review against a non-main base branch
+cr --base develop
+
+# Run with agent-mode JSON output for structured results
+cr --agent
+
+# Interactive terminal UI
+cr --interactive
+```
+
+The agent MUST then wait for the user to confirm:
+1. That the review was completed successfully, **AND**
+2. That any critical/major issues found have been addressed (the user decides what is critical).
+
+Only after the user gives explicit approval to proceed should the agent move to the commit phase. Do not skip, shorten, or automate this step.
 
 ---
 
