@@ -657,11 +657,21 @@ def test_forecast_runoff_simple() -> None:
     assert forecast.prob_a_wins > 0.5
     assert forecast.mean_share_a > forecast.mean_share_b
 
+    # Median shares should exist in [0, 1]
+    assert 0.0 <= forecast.median_share_a <= 1.0
+    assert 0.0 <= forecast.median_share_b <= 1.0
+
     # CI lengths should be positive
     a_ci_len = forecast.ci_95_a[1] - forecast.ci_95_a[0]
     b_ci_len = forecast.ci_95_b[1] - forecast.ci_95_b[0]
     assert a_ci_len > 0.0
     assert b_ci_len > 0.0
+
+    # 50% CI should be narrower than 95% CI
+    a_ci_50_len = forecast.ci_50_a[1] - forecast.ci_50_a[0]
+    b_ci_50_len = forecast.ci_50_b[1] - forecast.ci_50_b[0]
+    assert 0.0 < a_ci_50_len < a_ci_len
+    assert 0.0 < b_ci_50_len < b_ci_len
 
 
 def test_runoff_forecast_dataclass() -> None:
@@ -673,13 +683,21 @@ def test_runoff_forecast_dataclass() -> None:
         prob_b_wins=0.25,
         mean_share_a=0.52,
         mean_share_b=0.48,
+        median_share_a=0.51,
+        median_share_b=0.47,
         mean_margin=0.04,
+        ci_50_a=(0.50, 0.54),
+        ci_50_b=(0.46, 0.50),
         ci_95_a=(0.48, 0.56),
         ci_95_b=(0.44, 0.52),
     )
     assert rf.prob_a_wins + rf.prob_b_wins <= 1.0
     assert rf.mean_share_a > rf.mean_share_b
     assert abs(rf.mean_margin - (rf.mean_share_a - rf.mean_share_b)) < 1e-10
+    assert 0.0 <= rf.median_share_a <= 1.0
+    assert 0.0 <= rf.median_share_b <= 1.0
+    assert rf.ci_50_a[0] <= rf.ci_50_a[1]
+    assert rf.ci_50_b[0] <= rf.ci_50_b[1]
 
 
 # ---------------------------------------------------------------------------
