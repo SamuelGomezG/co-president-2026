@@ -1,6 +1,5 @@
 """SPEC-06: Dirichlet-Multinomial + reverse-time RW (1st round)."""
 
-# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportMissingTypeArgument=false, reportIndexIssue=false, reportOperatorIssue=false
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -151,71 +150,71 @@ def build_round1_model(  # noqa: C901, PLR0915
         dtype=float,
     )
 
-    with pm.Model() as model:
-        sigma_rw = pm.HalfNormal(
+    with pm.Model() as model:  # type: ignore
+        sigma_rw = pm.HalfNormal(  # type: ignore
             "sigma_rw",
             sigma=config.random_walk_sigma_prior,
         )
-        sigma_house = pm.HalfNormal(
+        sigma_house = pm.HalfNormal(  # type: ignore
             "sigma_house",
             sigma=config.house_effect_sigma_prior,
         )
-        phi_poll = pm.Gamma(
+        phi_poll = pm.Gamma(  # type: ignore
             "phi_poll",
             alpha=2,
             beta=2.0 / config.concentration_poll_prior_mean,
         )
-        phi_poll_n = pm.Deterministic(
+        phi_poll_n = pm.Deterministic(  # type: ignore
             "phi_poll_n",
             phi_poll * sample_size_multiplier,
         )
 
         # Reverse-time random walk
-        theta_rev: list = []
+        theta_rev: list = []  # type: ignore[reportMissingTypeArgument]
         for t_idx in range(n_time_points - 1, -1, -1):
             if t_idx == n_time_points - 1:
-                theta_t = pm.Normal(
+                theta_t = pm.Normal(  # type: ignore
                     f"theta_{t_idx}",
                     mu=prior_mean,
                     sigma=config.consultation_prior_strength,
                     shape=n_candidates,
                 )
             else:
-                theta_t = pm.Normal(
+                theta_t = pm.Normal(  # type: ignore
                     f"theta_{t_idx}",
-                    mu=theta_rev[-1],
+                    mu=theta_rev[-1],  # type: ignore
                     sigma=sigma_rw,
                     shape=n_candidates,
                 )
-            theta_rev.append(theta_t)
+            theta_rev.append(theta_t)  # type: ignore
 
-        theta_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # noqa: PD013
+        theta_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # type: ignore
 
         # Latent vote share probabilities per time point
         # (used for prior predictive validation and plotting)
-        pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))
+        pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))  # type: ignore
 
         # House effects (zero-sum constrained)
-        raw_house = pm.Normal(
+        raw_house = pm.Normal(  # type: ignore
             "raw_house",
             mu=0,
             sigma=sigma_house,
             shape=(n_pollsters, n_candidates),
         )
-        house_effects = pm.Deterministic(
+        house_effects = pm.Deterministic(  # type: ignore
             "house_effects",
-            raw_house - raw_house.mean(axis=0, keepdims=True),
+            raw_house - raw_house.mean(axis=0, keepdims=True),  # type: ignore
         )
 
         # Poll observation model
-        theta_selected = theta_stacked[time_indices]
-        house_selected = house_effects[pollster_indices]
-        theta_adj = theta_selected + house_selected
+        theta_selected = theta_stacked[time_indices]  # type: ignore
+        house_selected = house_effects[pollster_indices]  # type: ignore
+        theta_adj = theta_selected + house_selected  # type: ignore
 
-        p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))
-        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)
+        p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))  # type: ignore
+        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
 
-        pm.DirichletMultinomial(
+        pm.DirichletMultinomial(  # type: ignore
             "poll_likelihood",
             n=sample_sizes,
             a=alpha_poll,
@@ -224,16 +223,16 @@ def build_round1_model(  # noqa: C901, PLR0915
 
         # Election result likelihood (optional)
         if results is not None:
-            p_elec = pm.Deterministic(
+            p_elec = pm.Deterministic(  # type: ignore
                 "p_elec",
-                pm.math.softmax(theta_stacked[0], axis=-1),
+                pm.math.softmax(theta_stacked[0], axis=-1),  # type: ignore
             )
-            phi_elec = pm.Gamma(
+            phi_elec = pm.Gamma(  # type: ignore
                 "phi_elec",
                 alpha=5,
                 beta=5.0 / config.concentration_election_prior_mean,
             )
-            alpha_elec = p_elec * phi_elec
+            alpha_elec = p_elec * phi_elec  # type: ignore
 
             vote_dict = {c.candidate_key: c.votes for c in results.candidates}
             election_counts = np.array(
@@ -241,7 +240,7 @@ def build_round1_model(  # noqa: C901, PLR0915
                 dtype=int,
             )
 
-            pm.DirichletMultinomial(
+            pm.DirichletMultinomial(  # type: ignore
                 "election_likelihood",
                 n=election_counts.sum(),
                 a=alpha_elec,
@@ -276,7 +275,7 @@ def sample_round1(model: pm.Model, config: ModelConfig) -> az.InferenceData:
 
     """
     with model:
-        return pm.sample(
+        return pm.sample(  # type: ignore
             draws=config.mcmc_draws,
             tune=config.mcmc_tune,
             chains=config.mcmc_chains,
@@ -372,7 +371,7 @@ class Round1Forecast:
             for c in d["candidates"]:
                 ci_50: tuple[float, float] = tuple(c["ci_50"])
                 ci_95: tuple[float, float] = tuple(c["ci_95"])
-                candidates.append(
+                candidates.append(  # type: ignore
                     CandidateForecast(
                         candidate_key=str(c["candidate_key"]),
                         mean_share=float(c["mean_share"]),
@@ -386,7 +385,7 @@ class Round1Forecast:
                     )
                 )
             return Round1Forecast(
-                candidates=candidates,
+                candidates=candidates,  # type: ignore
                 prob_runoff=d["prob_runoff"],
                 round_number=d["round_number"],
             )
@@ -476,8 +475,8 @@ def forecast_round1(
     ranks = np.argsort(-shares, axis=1)
 
     # Highest Density Intervals for all candidates at once
-    ci_50_all = az.hdi(shares, prob=0.5, axis=0)
-    ci_95_all = az.hdi(shares, prob=0.95, axis=0)
+    ci_50_all = az.hdi(shares, prob=0.5, axis=0)  # type: ignore
+    ci_95_all = az.hdi(shares, prob=0.95, axis=0)  # type: ignore
 
     candidate_forecasts: list[CandidateForecast] = []
     for i, key in enumerate(candidates):
@@ -488,8 +487,8 @@ def forecast_round1(
                 candidate_key=key,
                 mean_share=float(vals.mean()),
                 median_share=float(np.median(vals)),
-                ci_50=(float(ci_50_all[i, 0]), float(ci_50_all[i, 1])),
-                ci_95=(float(ci_95_all[i, 0]), float(ci_95_all[i, 1])),
+                ci_50=(float(ci_50_all[i, 0]), float(ci_50_all[i, 1])),  # type: ignore
+                ci_95=(float(ci_95_all[i, 0]), float(ci_95_all[i, 1])),  # type: ignore
                 prob_first=float((ranks[:, 0] == i).mean()),
                 prob_second=float((ranks[:, 1] == i).mean()),
                 prob_top_two=float(np.any(ranks[:, :2] == i, axis=1).mean()),
