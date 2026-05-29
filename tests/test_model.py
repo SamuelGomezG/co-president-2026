@@ -1165,7 +1165,13 @@ def test_estimate_runoff_matrix_falls_back_to_heuristic_when_few_polls() -> None
         config,
     )
 
-    for pf_few, pf_none in zip(matrix_few_polls.pairings, matrix_no_polls.pairings, strict=True):
+    no_polls_lookup = {
+        (pf.candidate_first, pf.candidate_second): pf for pf in matrix_no_polls.pairings
+    }
+
+    for pf_few in matrix_few_polls.pairings:
+        key = (pf_few.candidate_first, pf_few.candidate_second)
+        pf_none = no_polls_lookup[key]
         assert pf_few.prob_first_wins == pf_none.prob_first_wins, (
             f"Pairing {pf_few.candidate_first} vs {pf_few.candidate_second}: "
             "prob_first_wins differs despite both using the heuristic"

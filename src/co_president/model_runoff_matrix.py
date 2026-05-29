@@ -421,6 +421,8 @@ def estimate_runoff_matrix(
 
     all_candidate_keys = _get_candidate_order()
 
+    round1_result, _round2_result = results
+
     pairings: list[PairingForecast] = []
     for (first, second), prob in sorted(top_two_probs.items(), key=lambda x: x[1], reverse=True):
         if prob < _MIN_PAIRING_PROB:
@@ -434,7 +436,6 @@ def estimate_runoff_matrix(
             pairing_polls = None
 
         if pairing_polls is not None:
-            round1_result, _round2_result = results
             prob_first_wins, mean_margin = _run_runoff_model_for_pairing(
                 pairing_polls,
                 round1_result,
