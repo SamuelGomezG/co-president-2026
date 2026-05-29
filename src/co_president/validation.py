@@ -289,7 +289,7 @@ def rolling_forecast(
         return []
 
     snapshots: list[tuple[date, Round1Forecast]] = []
-    for cutoff in cutoff_dates:
+    for cutoff in cutoff_dates:  # to_pydatetime() -> datetime.datetime
         cutoff_date = cutoff.date()
         snapshot_df = polls.round1.loc[polls.round1["fecha"] <= pd.Timestamp(cutoff_date)].copy()
 

@@ -642,6 +642,7 @@ def _make_known_forecast(
             ),
         ],
         prob_runoff=0.9,
+        round_number=1,
     )
 
 
