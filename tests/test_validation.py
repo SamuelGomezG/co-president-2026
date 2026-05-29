@@ -770,8 +770,8 @@ class TestComputeRollingErrors:
 class TestRollingForecastMCMC:
     """Tests for ``rolling_forecast`` with minimal MCMC sampling."""
 
-    def test_returns_non_empty_with_real_data(self) -> None:
-        """rolling_forecast returns non-empty list with sufficient poll data."""
+    def test_returns_non_empty_with_synthetic_data(self) -> None:
+        """rolling_forecast returns non-empty list with minimal synthetic polls."""
         pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
         pollsters_r2 = ["Invamer", "MassiveCaller"]
         poll_date = date(2022, 5, 1)

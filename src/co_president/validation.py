@@ -247,21 +247,36 @@ def rolling_forecast(
     with ``fecha <= cutoff`` are used to build, sample, and forecast the
     Round 1 Bayesian model.
 
-    Snapshots with fewer than ``min_polls`` polls after filtering are skipped.
-    MCMC failures are logged and skipped individually (one failing snapshot
-    does not abort the whole series).
+    Snapshots with fewer than ``min_polls`` usable polls (non-NaN candidate
+    shares and sample sizes) after filtering are skipped.  MCMC failures are
+    logged and skipped individually — one failing snapshot does not abort the
+    whole series.
 
     Args:
         polls: CleanPolls container.
         results: Canonical election results (unused in forecast-only mode).
         config: ModelConfig with hyperparameters.
         n_snapshots: Number of evenly spaced cutoff dates.
-        min_polls: Minimum number of polls required to fit a snapshot.
+        min_polls: Minimum number of polls (with non-NaN shares/size) required
+            to fit a snapshot.
 
     Returns:
         List of ``(cutoff_date, forecast)`` tuples. Empty if not enough data.
 
+    Examples:
+        Minimal usage (requires pre-loaded poll data)::
+
+            >>> from co_president.config import ModelConfig
+            >>> from co_president.data import load_and_clean_all
+            >>> polls = load_and_clean_all()  # doctest: +SKIP
+            >>> config = ModelConfig(mcmc_draws=500, mcmc_tune=500)
+            >>> snapshots = rolling_forecast(polls, ..., config)  # doctest: +SKIP
+
     """
+    # Start 30 days post-consultation so consultation results have settled and
+    # enough polls have accumulated for a stable baseline.  End 2 days before
+    # the election because most pollsters stop fielding work close to election
+    # day (logistical cutoff), and final pre-election volatility is excluded.
     start_date = CONSULTATION_DATE + timedelta(days=30)
     end_date = ELECTION_DATE_ROUND1 - timedelta(days=2)
     cutoff_dates = pd.date_range(
@@ -278,9 +293,16 @@ def rolling_forecast(
         cutoff_date = cutoff.date()
         snapshot_df = polls.round1.loc[polls.round1["fecha"] <= pd.Timestamp(cutoff_date)].copy()
 
+        # Drop rows with NaN in any candidate-share or sample-size column.
+        # This mirrors build_round1_model's internal nan_mask so that
+        # min_polls reflects the number of truly usable polls.
+        nan_mask = snapshot_df[[*candidate_keys, "muestra"]].isna().any(axis=1)
+        if nan_mask.any():
+            snapshot_df = snapshot_df.loc[~nan_mask].copy()
+
         if len(snapshot_df) < min_polls:
             logger.info(
-                "rolling_forecast: skipping %s — only %d polls available",
+                "rolling_forecast: skipping %s — only %d usable polls",
                 cutoff_date,
                 len(snapshot_df),
             )
