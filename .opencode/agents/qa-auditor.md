@@ -4,9 +4,8 @@ description: >
   project specifications, and pull request guidelines to generate an exhaustive
   remediation blueprint.
 mode: subagent
-model: github-copilot/gpt-5.2-codex
+model: opencode-go/qwen3.6-plus
 temperature: 0.1
-reasoningEffort: xHigh
 permission:
   edit: deny
   read: allow
@@ -25,8 +24,6 @@ permission:
     "git log --oneline -20": allow
     "gh issue view *": allow
     "gh issue list *": allow
-    "cat *": allow
-    "grep *": allow
     "uv run ruff check src/ tests/": allow
     "uv run pyright src/": allow
     "uv run pytest tests/ -v --ignore=tests/test_model.py": allow
@@ -181,7 +178,7 @@ Pre-commit hooks in `.pre-commit-config.yaml`:
 4. `pip-audit --skip-editable`
 5. Large file check (>1MB blocked, except data/2022-presidential-results/*)
 
-CodeRabbit review MUST execute before every commit (via `/code-review --uncommitted`).
+CodeRabbit review MUST execute before every commit (via the `cr` CLI — see AGENTS.md §9).
 
 ---
 
