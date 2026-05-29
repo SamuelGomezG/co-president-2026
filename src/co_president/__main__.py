@@ -315,7 +315,7 @@ def _run_aggregate() -> None:
 
     try:
         clean_polls = load_and_clean_all()
-    except Exception as e:  # noqa: BLE001
+    except (OSError, ValueError) as e:
         print(f"Error loading poll data: {e}")
         sys.exit(1)
 
@@ -406,7 +406,7 @@ def _check_convergence(idata: az.InferenceData, label: str) -> None:
                 max_rhat,  # pyright: ignore[reportUnknownArgumentType]
                 _RHAT_LIMIT,
             )
-    except Exception:  # noqa: BLE001
+    except (ValueError, TypeError, KeyError):
         logger.warning("Could not compute R-hat for %s trace", label)
 
 
@@ -479,7 +479,7 @@ def _compute_runoff_matrix(  # noqa: PLR0913
         matrix_dict["pairings"] = list(matrix_dict["pairings"])
         matrix_path.write_text(json.dumps(matrix_dict, indent=2), encoding="utf-8")
         logger.info("Saved runoff matrix to %s", matrix_path)
-    except Exception:
+    except (ValueError, RuntimeError, OSError, TypeError):
         logger.exception("Runoff matrix computation failed")
         return None, None
     else:
@@ -538,7 +538,7 @@ def _run_pipeline_mcmc(
         _log_and_save_trace(idata_runoff, results_dir / "runoff_trace.nc")
         runoff_forecast = mr.forecast_runoff_simple(idata_runoff, candidate_a, candidate_b)
         _check_convergence(idata_runoff, "Runoff")
-    except Exception:
+    except (ValueError, RuntimeError):
         logger.exception("Runoff MCMC sampling failed")
 
     # ── Validate ───────────────────────────────────────────────────────
@@ -551,7 +551,7 @@ def _run_pipeline_mcmc(
         logger.info("Validating runoff forecast...")
         try:
             r2_validation = v.validate_runoff(runoff_forecast, results_r2)
-        except Exception:  # noqa: BLE001
+        except (ValueError, KeyError):
             logger.warning("Runoff validation expected to be partial")
 
     # ── Runoff matrix & overall win probabilities ──────────────────────
@@ -588,7 +588,7 @@ def _run_pipeline_mcmc(
         )
         for snap_date, snap_forecast in rolling:
             v.save_rolling_snapshot((snap_date, snap_forecast), str(results_dir))
-    except Exception:  # noqa: BLE001
+    except (ValueError, RuntimeError, OSError):
         logger.warning("Rolling forecast failed")
 
 
@@ -754,7 +754,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
     # ── Load data ─────────────────────────────────────────────────────
     try:
         clean_polls, results_r1, results_r2 = _load_and_validate()
-    except Exception:
+    except (ValueError, OSError):
         logger.exception("Failed to load data")
         sys.exit(1)
 
@@ -790,7 +790,7 @@ def _load_trace_or_exit(path: Path, label: str) -> az.InferenceData:
     """
     try:
         return az.from_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
-    except Exception as e:  # noqa: BLE001
+    except (OSError, ValueError) as e:
         print(f"Error loading {label} trace: {e}")
         sys.exit(1)
 
@@ -882,7 +882,7 @@ def _cmd_validate() -> None:
     logger.info("Loading results and traces...")
     try:
         results_r1, results_r2 = load_canonical_results()
-    except Exception as e:  # noqa: BLE001
+    except (OSError, ValueError) as e:
         print(f"Error loading election results: {e}")
         sys.exit(1)
 
@@ -892,7 +892,7 @@ def _cmd_validate() -> None:
     logger.info("Computing round 1 forecast from trace...")
     try:
         round1_forecast = forecast_round1(idata_r1, r1_candidate_keys)
-    except Exception as e:  # noqa: BLE001
+    except (ValueError, KeyError) as e:
         print(f"Error computing round 1 forecast: {e}")
         sys.exit(1)
 
@@ -916,7 +916,7 @@ def _cmd_validate() -> None:
             runoff_forecast = forecast_runoff_simple(idata_runoff, candidate_a, candidate_b)
             r2_validation = validate_runoff(runoff_forecast, results_r2)
             _print_r2_validation(runoff_forecast, r2_validation, candidate_a, candidate_b)
-        except Exception as e:  # noqa: BLE001
+        except (ValueError, KeyError, OSError) as e:
             logger.warning("Runoff validation skipped: %s", e)
     else:
         print()
@@ -967,7 +967,7 @@ def _load_or_generate_snapshots(
         )
         for snap_date, snap_forecast in snapshots:
             save_rolling_snapshot((snap_date, snap_forecast), str(out))
-    except Exception:
+    except (ValueError, RuntimeError, OSError):
         logger.exception("Failed to generate rolling forecast")
         snapshots = []
     return snapshots
@@ -988,7 +988,7 @@ def _plot_evolution(
         fig.savefig(str(out / "forecast_evolution.png"), dpi=150, bbox_inches="tight")  # pyright: ignore[reportUnknownMemberType]
         plt.close(fig)
         logger.info("Saved forecast_evolution.png")
-    except Exception as e:  # noqa: BLE001
+    except (ValueError, RuntimeError, OSError) as e:
         logger.warning("Failed to generate forecast evolution plot: %s", e)
 
 
@@ -1022,7 +1022,7 @@ def _plot_calibration(
             idata_r1 = az.from_netcdf(str(trace_path))  # pyright: ignore[reportUnknownMemberType]
             r1_forecast = forecast_round1(idata_r1, sorted(FIRST_ROUND_CANDIDATES))
             r1_validation = validate_round1(r1_forecast, results_r1)
-        except Exception as e:  # noqa: BLE001
+        except (ValueError, KeyError, OSError) as e:
             logger.warning("Could not load trace for calibration: %s", e)
 
     if r1_validation is not None:
@@ -1055,7 +1055,7 @@ def _plot_errors(
         fig.savefig(str(out / "error_over_time.png"), dpi=150, bbox_inches="tight")  # pyright: ignore[reportUnknownMemberType]
         plt.close(fig)
         logger.info("Saved error_over_time.png")
-    except Exception as e:  # noqa: BLE001
+    except (ValueError, RuntimeError, OSError) as e:
         logger.warning("Failed to generate error over time plot: %s", e)
 
 
@@ -1083,7 +1083,7 @@ def _cmd_plot(output_dir: str) -> None:
 
     try:
         results_r1, results_r2 = load_canonical_results()
-    except Exception:
+    except (OSError, ValueError):
         logger.exception("Failed to load election results")
         sys.exit(1)
 
@@ -1109,19 +1109,23 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    if args.command == "config":
-        _run_config()
-    elif args.command == "aggregate":
-        _run_aggregate()
-    elif args.command == "run":
-        _cmd_run(args)
-    elif args.command == "validate":
-        _cmd_validate()
-    elif args.command == "plot":
-        _cmd_plot(args.output_dir)
-    else:
-        parser.print_help()
-        sys.exit(1)
+    try:
+        if args.command == "config":
+            _run_config()
+        elif args.command == "aggregate":
+            _run_aggregate()
+        elif args.command == "run":
+            _cmd_run(args)
+        elif args.command == "validate":
+            _cmd_validate()
+        elif args.command == "plot":
+            _cmd_plot(args.output_dir)
+        else:
+            parser.print_help()
+            sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInterrupted by user", file=sys.stderr)
+        sys.exit(130)
 
 
 if __name__ == "__main__":
