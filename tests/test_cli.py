@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
 from typing import TYPE_CHECKING
@@ -406,11 +405,6 @@ def test_print_summary_table_shows_runoff_matrix() -> None:
     from io import StringIO  # noqa: PLC0415
 
     from co_president.__main__ import _print_run_summary_table  # noqa: PLC0415
-    from co_president.data import CandidateResult, RoundResult  # noqa: PLC0415
-    from co_president.model_round1 import (  # noqa: PLC0415
-        CandidateForecast,
-        Round1Forecast,
-    )
     from co_president.model_runoff_matrix import (  # noqa: PLC0415
         PairingForecast,
         RunoffMatrix,
@@ -660,3 +654,52 @@ def test_compute_runoff_matrix_serializes_json(
     assert "pairings" in parsed, "JSON must contain 'pairings' key"
     assert "prob_runoff" in parsed, "JSON must contain 'prob_runoff' key"
     assert "ordered_by_likelihood" in parsed, "JSON must contain 'ordered_by_likelihood' key"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# _find_pairing helper tests
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_find_pairing_returns_pairing_when_found() -> None:
+    """``_find_pairing`` must return the matching ``PairingForecast``."""
+    from co_president.__main__ import _find_pairing  # noqa: PLC0415
+    from co_president.model_runoff_matrix import PairingForecast, RunoffMatrix  # noqa: PLC0415
+
+    pairing = PairingForecast(
+        candidate_first="gustavo_petro",
+        candidate_second="rodolfo_hernandez",
+        prob_pairing=0.92,
+        prob_first_wins=0.78,
+        prob_second_wins=0.22,
+        mean_margin=0.04,
+    )
+    matrix = RunoffMatrix(
+        pairings=(pairing,),
+        prob_runoff=0.98,
+        ordered_by_likelihood=(("gustavo_petro", "rodolfo_hernandez"),),
+    )
+    result = _find_pairing(matrix, ("gustavo_petro", "rodolfo_hernandez"))
+    assert result is pairing
+
+
+def test_find_pairing_returns_none_when_missing() -> None:
+    """``_find_pairing`` must return ``None`` for a non-existent pair."""
+    from co_president.__main__ import _find_pairing  # noqa: PLC0415
+    from co_president.model_runoff_matrix import PairingForecast, RunoffMatrix  # noqa: PLC0415
+
+    pairing = PairingForecast(
+        candidate_first="gustavo_petro",
+        candidate_second="rodolfo_hernandez",
+        prob_pairing=0.92,
+        prob_first_wins=0.78,
+        prob_second_wins=0.22,
+        mean_margin=0.04,
+    )
+    matrix = RunoffMatrix(
+        pairings=(pairing,),
+        prob_runoff=0.98,
+        ordered_by_likelihood=(("gustavo_petro", "rodolfo_hernandez"),),
+    )
+    result = _find_pairing(matrix, ("federico_gutierrez", "sergio_fajardo"))
+    assert result is None

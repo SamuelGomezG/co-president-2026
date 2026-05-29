@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from co_president.config import Candidate
     from co_president.data import CleanPolls, RoundResult
     from co_president.model_round1 import Round1Forecast
-    from co_president.model_runoff_matrix import RunoffMatrix
+    from co_president.model_runoff_matrix import PairingForecast, RunoffMatrix
     from co_president.model_runoff_simple import RunoffForecast
     from co_president.validation import (
         RoundValidation,
@@ -412,6 +412,14 @@ def _check_convergence(idata: az.InferenceData, label: str) -> None:
         logger.warning("Could not compute R-hat for %s trace", label)
 
 
+def _find_pairing(matrix: RunoffMatrix, pair: tuple[str, str]) -> PairingForecast | None:
+    """Return the ``PairingForecast`` for ``pair``, or ``None`` if not found."""
+    return next(
+        (p for p in matrix.pairings if (p.candidate_first, p.candidate_second) == pair),
+        None,
+    )
+
+
 def _compute_runoff_matrix(  # noqa: PLR0913
     idata_r1: az.InferenceData,
     round1_forecast: Round1Forecast,
@@ -457,14 +465,7 @@ def _compute_runoff_matrix(  # noqa: PLR0913
         top_pairings = runoff_matrix.ordered_by_likelihood[:3]
         logger.info("Top-3 most likely pairings:")
         for pair in top_pairings:
-            pairing_obj = next(
-                (
-                    p
-                    for p in runoff_matrix.pairings
-                    if (p.candidate_first, p.candidate_second) == pair
-                ),
-                None,
-            )
+            pairing_obj = _find_pairing(runoff_matrix, pair)
             if pairing_obj is None:
                 continue
             logger.info("  %s vs %s: %.1f%%", pair[0], pair[1], pairing_obj.prob_pairing * 100)
@@ -710,14 +711,7 @@ def _print_run_summary_table(  # noqa: PLR0913
         print()
         print("  RUNOFF MATRIX — Most likely pairings")
         for i, pair in enumerate(runoff_matrix.ordered_by_likelihood[:3]):
-            pairing_obj = next(
-                (
-                    p
-                    for p in runoff_matrix.pairings
-                    if (p.candidate_first, p.candidate_second) == pair
-                ),
-                None,
-            )
+            pairing_obj = _find_pairing(runoff_matrix, pair)
             if pairing_obj is None:
                 continue
             name_first = display_names.get(pair[0], pair[0])
