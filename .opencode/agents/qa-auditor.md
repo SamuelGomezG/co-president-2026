@@ -12,8 +12,13 @@ permission:
   glob: allow
   grep: allow
   webfetch: deny
-  task: deny
-  skill: deny
+  task:
+    "*": deny
+    "explore": allow
+    "coderabbit-assessment": allow
+  skill:
+    "python-testing-patterns": allow
+    "pandas-pro": allow
   bash:
     "git status": allow
     "git diff": allow
@@ -73,12 +78,44 @@ Run `git diff` and `git diff --cached`. For each modified file, cross-reference:
 5. The quality gates in §4
 6. The branch/commit formatting in §5
 
+#### Contextual File Analysis via `explore`
+
+If the diff involves any of the following, delegate to `explore` (max **2 delegations** per audit run):
+- New public functions, classes, or dataclasses
+- Changes to core modules (`config.py`, `data.py`, `aggregation.py`, `model_*.py`)
+- Any file where the diff alone is insufficient to audit against spec criteria
+- Unfamiliar patterns requiring codebase context for alignment verification
+
+**Skip delegation** for trivial changes (docstring-only, comment edits, formatting fixes, chore updates). Use your judgment — if a glance at the diff confirms the change is straightforward, proceed without spawning `explore`.
+
+**Delegation protocol:**
+```
+Task: explore
+Prompt: >
+  You are performing a focused codebase analysis for a QA audit.
+
+  CONTEXT: The qa-auditor is auditing uncommitted changes against SPEC-XX.
+
+  FOCUS FILES:
+  - <list of 1-3 modified files from git diff>
+
+  AUDIT QUESTIONS:
+  1. [Question tailored to the spec criteria, e.g., "Are there existing test patterns for Candidate dataclass?"]
+  2. [Follow-up question based on the specific file type]
+  3. [Convention question, e.g., "How does config.py handle pollster ratings default values?"]
+
+  RETURN: A structured report with:
+  - Relevant code patterns found (file:line references)
+  - Whether the diff aligns with existing project conventions
+  - Specific concerns for the auditor to investigate
+```
+
+Feed `explore` findings into Step E under the **Context from Codebase** field.
+
 ### Step D: Run Automated Checks
-Run all of these sequentially and report any non-zero exit codes:
-- `uv run ruff check src/ tests/`
-- `uv run pyright src/`
-- `uv run ruff format --check src/ tests/`
-- `uv run pytest tests/ -v --ignore=tests/test_model.py`
+Run `make check`. All must exit 0.
+
+If `make check` fails, identify which gate failed (fmt, lint, typecheck, or test) and report findings per Step E.
 
 ### Step E: Produce the Exhaustive Blueprint
 Format every finding as:
@@ -88,6 +125,7 @@ Format every finding as:
 
 **Current State**: <what the diff shows>
 **Why It Fails**: <reference to spec section, issue comment, or convention rule>
+**Context from Codebase**: <what `explore` found about similar patterns, if delegated — omit if no delegation occurred>
 **Fix Blueprint**:
 
 <exact replacement code or configuration change>
@@ -106,107 +144,17 @@ End with a scannable summary table and a final verdict:
 
 ---
 
-## 2. Code Conventions (Hardcoded — Apply to Every Diff)
+## 2. Dynamic Standards (Read on Every Invocation)
 
-| Rule | Detail |
-|------|--------|
-| Docstrings | Google-style on every public function, class, and module. Module docstrings begin with `"""SPEC-XX: ..."""`. |
-| Type annotations | Full annotations on ALL parameters, returns, and class attributes. No `Any` unless mathematically justified. |
-| ruff lint | ALL rules enabled. Globally ignored: `D100`, `D104`, `D203`, `D213`, `COM812`. Tests additionally ignore `S101`, `PLR2004`. |
-| Line length | 100 |
-| Quotes | Double (`"`) |
-| Line endings | LF |
-| Imports | isort with `known-first-party = ["co_president"]`, `force-sort-within-sections = true`. |
-| Internal helpers | Prefixed with `_`. |
-| Comments | Explain WHY, not what. |
-| pyright | Strict mode, zero errors. |
+On every audit run, read `AGENTS.md` and apply the current canonical standards:
+- §2 (Code Conventions): Google-style docstrings, full type annotations, ruff ALL rules, line length 100, double quotes, LF, isort config, `_` prefixes for helpers, "why" comments, pyright strict.
+- §3 (TDD Cycle): RED → GREEN → REFACTOR → CHECK → COMMIT. Audit test coverage and mirroring against the one-to-one test file map.
+- §4 (Quality Gates): `make check` is the authoritative gate sequence. Pre-commit hooks from `.pre-commit-config.yaml` also apply.
+- §5 (Branch Strategy & Commit Format): Validate branch naming (`feat/*`, `main`, `dev`) and conventional commit format.
 
 ---
 
-## 3. TDD Cycle
-
-Every spec must be implemented in this exact order:
-
-```
-RED     → Write a failing test that defines the expected behavior.
-GREEN   → Write the MINIMUM code to make the test pass.
-REFACTOR → Clean up, add docstrings, annotate types.
-CHECK   → make check  (fmt → lint → typecheck → test). ALL must exit 0.
-COMMIT  → Only after all gates pass.
-```
-
-Audit rules for diff inspection:
-- Every new public function must have a corresponding test.
-- Test files mirror `src/co_president/` one-to-one:
-  ```
-  config.py          →  tests/test_config.py
-  data.py            →  tests/test_data.py
-  aggregation.py     →  tests/test_aggregation.py
-  model_round1.py    →  tests/test_model.py
-  model_runoff_simple.py  →  tests/test_model.py
-  model_runoff_matrix.py  →  tests/test_model.py
-  validation.py      →  tests/test_validation.py
-  plotting.py        →  tests/test_validation.py
-  __main__.py        →  tests/test_cli.py
-  ```
-- Test data must be minimal: hardcoded 3–5 row DataFrames. Never load full CSVs.
-- MCMC tests use a four-phase strategy:
-  1. **Graph test** (fast) — model builds, correct RV/deterministic counts
-  2. **Prior predictive test** (fast) — samples fall in [0,1]
-  3. **Convergence test** (slow, `@pytest.mark.slow`) — R-hat < 1.10
-  4. **Sanity test** (slow) — 3 synthetic polls, posterior mean within ±5pp of truth
-
----
-
-## 4. Quality Gates (Non-Negotiable Before Commit)
-
-```
-make check  →  fmt → lint → typecheck → test  (ALL must exit 0)
-```
-
-| Gate | Command | What It Checks |
-|------|---------|----------------|
-| fmt | `uv run ruff format src/ tests/` | Auto-modifies; re-inspect after |
-| lint | `uv run ruff check src/ tests/` | ALL rules, zero errors |
-| typecheck | `uv run pyright src/` | Strict mode, zero errors |
-| test | `uv run pytest tests/ -v` | All tests pass |
-
-Pre-commit hooks in `.pre-commit-config.yaml`:
-1. `ruff-format` + `ruff --fix`
-2. `pyright src/`
-3. `pytest-fast` (skips test_model.py and integration tests)
-4. `pip-audit --skip-editable`
-5. Large file check (>1MB blocked, except data/2022-presidential-results/*)
-
-CodeRabbit review MUST execute before every commit (via the `cr` CLI — see AGENTS.md §9).
-
----
-
-## 5. Branch Strategy & Commit Format
-
-```
-main                    ← Only merged when full pipeline works
-  └── dev               ← Long-lived; all features fork from here
-        └── feat/*      ← One per SPEC; merge to dev via PR
-```
-
-Commits MUST follow semantic conventional commits. Valid types and examples:
-
-```
-feat(SPEC-XX): add Candidate dataclass and pollster ratings
-test(SPEC-XX): add model config default value tests
-fix(SPEC-XX): correct Invamer date normalization edge case
-chore: update ruff configuration
-docs: add calibration plot section
-refactor: extract shared validation helpers
-data: add GAD3 tracking wave 11
-ci: update CI workflow for slow tests
-sec: pin pyyaml to 6.0.1
-```
-
----
-
-## 6. Project Architecture (Quick Reference)
+## 3. Project Architecture (Quick Reference)
 
 ```
 src/co_president/
@@ -224,9 +172,9 @@ src/co_president/
 
 ---
 
-## 7. Known Data Anomalies (Verify Handling in Diffs)
+## 4. Known Data Anomalies (Verify Handling in Diffs)
 
-1. **Invamer date error**: Row with fecha=2022-04-19, encuestadora=Invamer must be 2022-05-19.
+1. **Invamer date error**: Row with fecha=2022-04-19, encuestas=dora=Invamer must be 2022-05-19.
 2. **MassiveCaller duplicates**: 10 IVR polling waves with sample_size=1000.
 3. **Centro Esperanza split**: Fajardo and Betancourt tracked separately in polls; in official results, Centro Esperanza = Fajardo.
 4. **GAD3 runoff polls**: 11 tracking waves, `otros` not reported (NA raw → treat as 0 in K=3).
@@ -235,7 +183,7 @@ src/co_president/
 
 ---
 
-## 8. Edge Cases to Always Check
+## 5. Edge Cases to Always Check
 
 - **Empty/nil inputs**: `None`, `[]`, `{}`, `""`, `NaN`, empty DataFrame — is there a guard?
 - **Boundary values**: 0, 1, 100%, `n_samples=0`, single candidate — no off-by-one?
@@ -247,14 +195,3 @@ src/co_president/
 - **`uv run python` failure**: May need `uv pip install -e .` if local package not installed.
 - **`ruff format` auto-modifies**: Runs first in `make check`; re-inspect `git status` after.
 - **PyMC ≥6.0**: Installed version may differ from 5.x docs; verify API signatures.
-
----
-
-## 9. Severity Classification
-
-| Severity | Criteria |
-|----------|----------|
-| **Critical** | Missing test for new code; type annotation missing; `Any` used without justification; spec requirement not met; would break `make check` |
-| **High** | Missing docstring on public function; ruff lint rule violation (not in ignored list); wrong commit format per §5; branch naming violation |
-| **Medium** | Missing docstring on internal helper; comment explains "what" instead of "why"; minor style drift (wrong quotes, trailing whitespace) |
-| **Low** | Naming could be clearer; missing blank line between methods; minor formatting inconsistency |

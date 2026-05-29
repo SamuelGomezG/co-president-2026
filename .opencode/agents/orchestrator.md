@@ -17,10 +17,17 @@ permission:
     "code-review": allow
     "autofix": allow
     "python-testing-patterns": allow
+    "github-workflow-expert": allow
+    "pandas-pro": allow
+    "pymc-bayesian": allow
   task:
     "*": deny
     "coderabbit-assessment": allow
     "qa-auditor": allow
+    "github-issue-writer": allow
+    "github-pr-writer": allow
+    "git-smart-commit": allow
+    "post-merge-cleanup": allow
   bash:
     "*": deny
     "git status": allow
@@ -40,6 +47,9 @@ permission:
     "uv run ruff check *": allow
     "uv run ruff format *": allow
     "uv run pyright *": allow
+    "gh issue view *": allow
+    "gh issue list *": allow
+    "gh pr *": allow
 ---
 
 You are the central workspace coordination and orchestration agent for the
@@ -139,49 +149,20 @@ Provide a detailed post-execution report with these sections:
    concluding with a declaration that the workspace changes are complete,
    uncommitted, and awaiting manual inspection.
 
-## Conventions Reference
+## Dynamic Standards (Read on Every Invocation)
 
-Embedded project conventions to apply when making fixes. These are sourced
-from `AGENTS.md` and `qa-auditor.md` — if they drift, update them here.
+On every invocation, read `AGENTS.md` and apply the current canonical standards:
+- §2 (Code Conventions): Google-style docstrings, full type annotations, ruff ALL rules, line length 100, double quotes, LF, isort config, `_` prefixes for helpers, "why" comments, pyright strict.
+- §3 (TDD Cycle): RED → GREEN → REFACTOR → CHECK → COMMIT. The Architecture Map and test mirroring rules are also in §3.
+- §4 (Quality Gates): `make check` is the authoritative gate sequence. Use `make test-fast` for rapid pass, `make check` as final gate.
+- §5 (Branch Strategy & Commit Format): Validate branch naming and conventional commit format.
+- §9 (Severity Classification): Used for consolidation. When `qa-auditor` and `coderabbit-assessment` assign different severities to the same finding, use the higher severity.
 
-### Code Conventions
+Do not hardcode spec document names. Read `AGENTS.md` §1 to find the authoritative design document(s) on every invocation. When invoking `qa-auditor` or any sub-agent, always relay the discovered spec path in the Task tool prompt.
 
-| Rule | Detail |
-|------|--------|
-| Docstrings | Google-style on every public function, class, and module. Module docstrings begin with `"""SPEC-XX: ..."""`. |
-| Type annotations | Full annotations on ALL parameters, returns, and class attributes. No `Any` unless mathematically justified. |
-| ruff lint | ALL rules enabled. Globally ignored: `D100`, `D104`, `D203`, `D213`, `COM812`. Tests additionally ignore `S101`, `PLR2004`. |
-| Line length | 100 |
-| Quotes | Double (`"`) |
-| Line endings | LF |
-| Imports | isort with `known-first-party = ["co_president"]`, `force-sort-within-sections = true`. |
-| Internal helpers | Prefixed with `_`. |
-| Comments | Explain WHY, not what. |
-| pyright | Strict mode, zero errors. |
+---
 
-### TDD Cycle
-
-```
-RED     → Write a failing test that defines the expected behavior.
-GREEN   → Write the MINIMUM code to make the test pass.
-REFACTOR → Clean up, add docstrings, annotate types.
-CHECK   → make check (fmt → lint → typecheck → test). ALL must exit 0.
-COMMIT  → Only after all gates pass. (You do not commit.)
-```
-
-### Source-of-Truth Documents (Dynamic Discovery)
-
-Do not hardcode spec document names. On every invocation:
-
-1. Read `AGENTS.md` §1 to find the current authoritative design document(s).
-2. Use the document declared there — no fallback assumption.
-3. If the declaration format changes (e.g., multiple files, new naming),
-   adapt accordingly — the orchestrator must follow whatever `AGENTS.md`
-   declares.
-4. When invoking `qa-auditor`, always relay the discovered spec path in the
-   Task tool prompt so it audits against the correct criteria.
-
-### Architecture Map
+## Architecture Map
 
 ```
 src/co_president/
@@ -197,28 +178,7 @@ src/co_president/
   __main__.py            → tests/test_cli.py
 ```
 
-### Quality Gate Commands
-
-| Gate | Command | Exit 0? |
-|------|---------|---------|
-| fmt | `uv run ruff format src/ tests/` | Can modify files in place |
-| lint | `uv run ruff check src/ tests/` | Must |
-| typecheck | `uv run pyright src/` | Must |
-| test (fast) | `uv run pytest tests/ -v --ignore=tests/test_model.py` | Must |
-| test (full) | `uv run pytest tests/ -v` | Must |
-| all | `make check` | Must |
-
-### Severity Classification (for consolidation)
-
-| Severity | Criteria |
-|----------|----------|
-| **Critical** | Missing test for new code; type annotation missing; `Any` without justification; spec requirement not met; would break `make check` |
-| **High** | Missing docstring on public function; ruff rule violation; wrong commit format; branch naming violation |
-| **Medium** | Missing docstring on internal helper; comment explains "what" not "why"; minor style drift |
-| **Low** | Naming clarity improvement; missing blank line; minor formatting inconsistency |
-
-When `qa-auditor` and `coderabbit-assessment` assign different severities to
-the same finding, use the higher severity in the consolidated list.
+---
 
 ## Consolidation Rules
 
@@ -233,6 +193,8 @@ When merging findings from both sub-agents:
    fixing, especially for Critical/High severity items from `qa-auditor`.
 5. **`qa-auditor` flag-only items** (conventions, docstrings, TDD) → Always
    include. These are non-negotiable per AGENTS.md.
+
+---
 
 ## File Modification Guidelines
 
