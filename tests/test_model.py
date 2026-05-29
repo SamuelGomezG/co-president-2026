@@ -1075,22 +1075,15 @@ def test_estimate_runoff_matrix_uses_head_to_head_polls() -> None:
     ``build_runoff_simple_model`` instead of the transfer heuristic,
     producing a different ``prob_first_wins`` for that pairing.
     """
-    rng = np.random.default_rng(42)
-    n_chains, n_draws = 2, 500
-    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
-
-    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
-    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
-    p_time = raw / raw.sum(axis=-1, keepdims=True)
-
-    idata = az.from_dict(
-        data={"posterior": {"p_time": p_time}},
-        coords={"candidate_dim_0": candidate_order},
-        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
-    )
-
+    idata = _make_synthetic_round1_idata()
     results_round1 = _make_round1_result()
-    config = ModelConfig(mcmc_draws=500, mcmc_tune=500, mcmc_chains=2, mcmc_cores=2)
+    config = ModelConfig(
+        mcmc_draws=500,
+        mcmc_tune=500,
+        mcmc_chains=2,
+        mcmc_cores=2,
+        seed=42,
+    )
 
     round2_polls = pd.DataFrame(
         {
@@ -1128,9 +1121,11 @@ def test_estimate_runoff_matrix_uses_head_to_head_polls() -> None:
         if p.candidate_first == "gustavo_petro" and p.candidate_second == "rodolfo_hernandez"
     )
 
-    assert ph_polls.prob_first_wins != pytest.approx(ph_no_polls.prob_first_wins), (
-        "Model path produced the same prob_first_wins as the heuristic; "
-        "likely the model path was not taken"
+    diff = abs(ph_polls.prob_first_wins - ph_no_polls.prob_first_wins)
+    assert diff > 0.01, (
+        f"Model path produced nearly identical prob_first_wins "
+        f"({ph_polls.prob_first_wins:.4f} vs {ph_no_polls.prob_first_wins:.4f}, "
+        f"diff={diff:.4f}); expected difference > 0.01"
     )
 
 
@@ -1141,22 +1136,9 @@ def test_estimate_runoff_matrix_falls_back_to_heuristic_when_few_polls() -> None
     filter returns ``None`` and the transfer heuristic must be used instead,
     producing results identical to the ``round2_polls=None`` case.
     """
-    rng = np.random.default_rng(42)
-    n_chains, n_draws = 2, 500
-    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
-
-    alphas = np.array([1, 10, 80, 1, 10, 40, 8], dtype=float) + 5.0
-    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
-    p_time = raw / raw.sum(axis=-1, keepdims=True)
-
-    idata = az.from_dict(
-        data={"posterior": {"p_time": p_time}},
-        coords={"candidate_dim_0": candidate_order},
-        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
-    )
-
+    idata = _make_synthetic_round1_idata()
     results_round1 = _make_round1_result()
-    config = ModelConfig()
+    config = ModelConfig(seed=42)
 
     round2_polls = pd.DataFrame(
         {

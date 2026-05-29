@@ -317,7 +317,7 @@ def _filter_polls_for_pairing(
     if missing:
         return None
 
-    filtered = polls.dropna(subset=[first, second]).copy()
+    filtered = polls.dropna(subset=[first, second])
     if len(filtered) < _MIN_PAIRED_POLLS:
         return None
 
