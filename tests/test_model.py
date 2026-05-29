@@ -17,6 +17,7 @@ from co_president.model_round1 import (
     build_round1_model,
     forecast_round1,
     sample_round1,
+    simulate_elections,
 )
 import co_president.model_runoff_matrix as runoff_matrix
 from co_president.model_runoff_matrix import (
@@ -106,6 +107,49 @@ def test_build_round1_model_house_effects() -> None:
     det_names = {d.name for d in model.deterministics}
     assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     # Observed RVs: poll_likelihood
+    assert len(model.observed_RVs) == 1
+
+
+def test_build_round1_model_phase_a() -> None:
+    """Test minimal model graph: 2 candidates, 1 pollster, T=1, no house effects."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterA"],
+            "muestra": [1000, 1000],
+            "gustavo_petro": [50.0, 51.0],
+            "rodolfo_hernandez": [50.0, 49.0],
+            "round_number": [1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, concentration_poll_prior_mean=100.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    assert len(model.free_RVs) == 2
+    assert {rv.name for rv in model.free_RVs} == {"sigma_rw", "theta_0"}
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_adj"}
+    assert len(model.observed_RVs) == 1
+
+
+def test_build_round1_model_phase_b() -> None:
+    """Test model graph with house effects: 2 candidates, 2 pollsters, T=1."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterB"],
+            "muestra": [1000, 1000],
+            "gustavo_petro": [50.0, 51.0],
+            "rodolfo_hernandez": [50.0, 49.0],
+            "round_number": [1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config)
+
+    assert len(model.free_RVs) == 5
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     assert len(model.observed_RVs) == 1
 
 
@@ -398,6 +442,72 @@ def test_forecast_round1() -> None:
     # Sum of prob_first across all candidates = 1
     total_prob_first = sum(c.prob_first for c in forecast.candidates)
     assert abs(total_prob_first - 1.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# simulate_elections tests (SPEC-06 §9.2.3)
+# ---------------------------------------------------------------------------
+
+
+def test_simulate_elections_returns_correct_shape() -> None:
+    """Test that simulate_elections returns expected DataFrame shape."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_candidates = len(candidate_order)
+    n_sim = 500
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+    expected_rows = n_sim * n_candidates
+    assert result.shape == (expected_rows, 6), f"Expected ({expected_rows}, 6), got {result.shape}"
+    assert list(result.columns) == [
+        "sim_id",
+        "candidate",
+        "share",
+        "rank",
+        "win_outright",
+        "goes_to_runoff",
+    ]
+
+
+def test_simulate_elections_shares_sum_to_100() -> None:
+    """Test that shares sum to 1.0 within each simulation."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 500
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+    grouped = result.groupby("sim_id")["share"].sum()
+    np.testing.assert_allclose(grouped.values, 1.0, atol=1e-10)
+
+
+def test_simulate_elections_rank_consistency() -> None:
+    """Test that rank-ordered shares are monotonically decreasing."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 500
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+    for sim_id, group in result.groupby("sim_id"):
+        ordered = group.sort_values("rank")
+        shares = ordered["share"].to_numpy()
+        for i in range(len(shares) - 1):
+            assert shares[i] >= shares[i + 1] - 1e-10, (
+                f"Sim {sim_id}: rank {i + 1} share {shares[i]:.4f} "
+                f"< rank {i + 2} share {shares[i + 1]:.4f}"
+            )
+
+
+def test_simulate_elections_outright_win() -> None:
+    """Test that outright win and runoff flags are consistent."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 1000
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+
+    for sim_id, group in result.groupby("sim_id"):
+        sim_goes_runoff = group["goes_to_runoff"].iloc[0]
+        any_outright = group["win_outright"].any()
+        if any_outright:
+            assert not sim_goes_runoff, f"Sim {sim_id}: has outright winner but goes_to_runoff=True"
+        else:
+            assert sim_goes_runoff, f"Sim {sim_id}: no outright winner but goes_to_runoff=False"
 
 
 # ---------------------------------------------------------------------------
