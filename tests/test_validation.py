@@ -585,7 +585,11 @@ class TestRollingForecast:
         )
         config = ModelConfig(mcmc_draws=10, mcmc_tune=5)
         result = rolling_forecast(
-            polls, (_make_sample_results(), _make_runoff_results()), config, n_snapshots=3
+            polls,
+            (_make_sample_results(), _make_runoff_results()),
+            config,
+            n_snapshots=3,
+            min_polls=100,
         )
         assert result == []
 
@@ -593,6 +597,53 @@ class TestRollingForecast:
 # ═══════════════════════════════════════════════════════════════════════
 # compute_rolling_errors
 # ═══════════════════════════════════════════════════════════════════════
+
+
+def _make_known_forecast(
+    petro_mean: float,
+    hernandez_mean: float,
+    gutierrez_mean: float,
+) -> Round1Forecast:
+    """Build a Round1Forecast with specified mean shares for 3 candidates."""
+    return Round1Forecast(
+        candidates=[
+            CandidateForecast(
+                candidate_key="gustavo_petro",
+                mean_share=petro_mean,
+                median_share=petro_mean,
+                ci_50=(petro_mean - 0.02, petro_mean + 0.02),
+                ci_95=(petro_mean - 0.04, petro_mean + 0.04),
+                prob_first=0.5,
+                prob_second=0.3,
+                prob_top_two=0.8,
+                prob_win_outright=0.1,
+            ),
+            CandidateForecast(
+                candidate_key="rodolfo_hernandez",
+                mean_share=hernandez_mean,
+                median_share=hernandez_mean,
+                ci_50=(hernandez_mean - 0.02, hernandez_mean + 0.02),
+                ci_95=(hernandez_mean - 0.04, hernandez_mean + 0.04),
+                prob_first=0.3,
+                prob_second=0.4,
+                prob_top_two=0.7,
+                prob_win_outright=0.05,
+            ),
+            CandidateForecast(
+                candidate_key="federico_gutierrez",
+                mean_share=gutierrez_mean,
+                median_share=gutierrez_mean,
+                ci_50=(gutierrez_mean - 0.02, gutierrez_mean + 0.02),
+                ci_95=(gutierrez_mean - 0.04, gutierrez_mean + 0.04),
+                prob_first=0.1,
+                prob_second=0.2,
+                prob_top_two=0.3,
+                prob_win_outright=0.0,
+            ),
+        ],
+        prob_runoff=0.9,
+        round_number=1,
+    )
 
 
 class TestComputeRollingErrors:
@@ -620,7 +671,6 @@ class TestComputeRollingErrors:
     def test_mae_decreases_over_time(self) -> None:
         """MAE should improve (decrease) as the forecast gets closer to election day."""
         forecast1 = _make_sample_forecast()
-        # Create a worse forecast further out
         worse = Round1Forecast(
             candidates=[
                 CandidateForecast(
@@ -644,6 +694,128 @@ class TestComputeRollingErrors:
         rolling = [(date(2022, 4, 1), worse), (date(2022, 5, 28), forecast1)]
         df = compute_rolling_errors(rolling, results)
         assert df["mae"].iloc[0] > df["mae"].iloc[1]
+
+    def test_basic_manual_calculation(self) -> None:
+        """MAE and RMSE match manual arithmetic with known mean_shares."""
+        results = _make_sample_results()
+        f1 = _make_known_forecast(0.4200, 0.2800, 0.2200)
+        f2 = _make_known_forecast(0.4100, 0.2800, 0.2300)
+        f3 = _make_known_forecast(0.4034, 0.2815, 0.2389)
+        rolling = [
+            (date(2022, 4, 15), f1),
+            (date(2022, 5, 1), f2),
+            (date(2022, 5, 15), f3),
+        ]
+        df = compute_rolling_errors(rolling, results)
+        assert len(df) == 3
+        errors_1 = np.array([0.0166, -0.0015, -0.0189])
+        assert df["mae"].iloc[0] == pytest.approx(np.abs(errors_1).mean(), abs=1e-6)
+        assert df["rmse"].iloc[0] == pytest.approx(np.sqrt(np.mean(errors_1**2)), abs=1e-6)
+        errors_2 = np.array([0.0066, -0.0015, -0.0089])
+        assert df["mae"].iloc[1] == pytest.approx(np.abs(errors_2).mean(), abs=1e-6)
+        assert df["rmse"].iloc[1] == pytest.approx(np.sqrt(np.mean(errors_2**2)), abs=1e-6)
+        assert df["mae"].iloc[2] == pytest.approx(0.0, abs=1e-10)
+        assert df["rmse"].iloc[2] == pytest.approx(0.0, abs=1e-10)
+
+    def test_single_snapshot(self) -> None:
+        """Single snapshot produces a single-row DataFrame."""
+        forecast = _make_sample_forecast()
+        results = _make_sample_results()
+        rolling = [(date(2022, 5, 15), forecast)]
+        df = compute_rolling_errors(rolling, results)
+        assert len(df) == 1
+        assert df["as_of_date"].iloc[0] == date(2022, 5, 15)
+
+    def test_perfect_forecast(self) -> None:
+        """When forecast mean equals actual share, MAE and RMSE are zero."""
+        results = _make_sample_results()
+        actual_shares = {r.candidate_key: r.vote_share for r in results.candidates}
+        perfect_candidates = [
+            CandidateForecast(
+                candidate_key=key,
+                mean_share=share,
+                median_share=share,
+                ci_50=(share - 0.02, share + 0.02),
+                ci_95=(share - 0.04, share + 0.04),
+                prob_first=0.5,
+                prob_second=0.3,
+                prob_top_two=0.8,
+                prob_win_outright=0.1,
+            )
+            for key, share in actual_shares.items()
+        ]
+        perfect = Round1Forecast(candidates=perfect_candidates, prob_runoff=0.9)
+        rolling = [(date(2022, 5, 15), perfect)]
+        df = compute_rolling_errors(rolling, results)
+        assert df["mae"].iloc[0] == pytest.approx(0.0, abs=1e-10)
+        assert df["rmse"].iloc[0] == pytest.approx(0.0, abs=1e-10)
+
+    def test_columns_and_dtypes(self) -> None:
+        """DataFrame has exactly the expected columns with correct dtypes."""
+        forecast = _make_sample_forecast()
+        results = _make_sample_results()
+        rolling = [(date(2022, 5, 1), forecast)]
+        df = compute_rolling_errors(rolling, results)
+        assert list(df.columns) == ["as_of_date", "mae", "rmse"]
+        assert df["as_of_date"].dtype == object  # date objects
+        assert np.issubdtype(df["mae"].dtype, np.floating)
+        assert np.issubdtype(df["rmse"].dtype, np.floating)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# rolling_forecast MCMC
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+class TestRollingForecastMCMC:
+    """Tests for ``rolling_forecast`` with minimal MCMC sampling."""
+
+    def test_returns_non_empty_with_synthetic_data(self) -> None:
+        """rolling_forecast returns non-empty list with minimal synthetic polls."""
+        pollsters_r1 = ["Invamer", "CNC", "Guarumo", "GAD3", "CELAG"]
+        pollsters_r2 = ["Invamer", "MassiveCaller"]
+        poll_date = date(2022, 5, 1)
+        rows_r1 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([poll_date] * 5),
+                "encuestadora": pollsters_r1,
+                "muestra": [1000] * 5,
+                "gustavo_petro": [40.0] * 5,
+                "federico_gutierrez": [24.0] * 5,
+                "rodolfo_hernandez": [28.0] * 5,
+                "blanco": [5.0] * 5,
+            }
+        )
+        rows_r2 = pd.DataFrame(
+            {
+                "fecha": pd.to_datetime([date(2022, 6, 10)] * 2),
+                "encuestadora": pollsters_r2,
+                "muestra": [1000] * 2,
+                "gustavo_petro": [50.0] * 2,
+                "rodolfo_hernandez": [50.0] * 2,
+            }
+        )
+        polls = CleanPolls(
+            round1=rows_r1,
+            round2=rows_r2,
+            consultation=[],
+            all_polls=pd.concat([rows_r1, rows_r2], ignore_index=True),
+        )
+        config = ModelConfig(mcmc_draws=10, mcmc_tune=5, seed=42)
+        result = rolling_forecast(
+            polls,
+            (_make_sample_results(), _make_runoff_results()),
+            config,
+            n_snapshots=5,
+            min_polls=3,
+        )
+        assert len(result) > 0
+        for cutoff_date, forecast in result:
+            assert isinstance(cutoff_date, date)
+            assert isinstance(forecast, Round1Forecast)
+            assert len(forecast.candidates) > 0
+            assert all(isinstance(c, CandidateForecast) for c in forecast.candidates)
 
 
 # ═══════════════════════════════════════════════════════════════════════
