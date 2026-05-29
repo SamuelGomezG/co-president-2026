@@ -27,6 +27,8 @@ import arviz as az
 if TYPE_CHECKING:
     from datetime import date
 
+    import pandas as pd
+
 from co_president.config import (
     CONSULTATION_DATE,
     ELECTION_DATE_ROUND1,
@@ -41,6 +43,7 @@ if TYPE_CHECKING:
     from co_president.config import Candidate
     from co_president.data import CleanPolls, RoundResult
     from co_president.model_round1 import Round1Forecast
+    from co_president.model_runoff_matrix import RunoffMatrix
     from co_president.model_runoff_simple import RunoffForecast
     from co_president.validation import (
         RoundValidation,
@@ -409,6 +412,81 @@ def _check_convergence(idata: az.InferenceData, label: str) -> None:
         logger.warning("Could not compute R-hat for %s trace", label)
 
 
+def _compute_runoff_matrix(  # noqa: PLR0913
+    idata_r1: az.InferenceData,
+    round1_forecast: Round1Forecast,
+    results_r1: RoundResult,
+    results_r2: RoundResult,
+    round2_polls: pd.DataFrame | None,
+    config: ModelConfig,
+    results_dir: Path,
+) -> tuple[RunoffMatrix | None, dict[str, float] | None]:
+    """Estimate the runoff matrix, log top pairings, and save as JSON.
+
+    Args:
+        idata_r1: Round 1 posterior ``InferenceData``.
+        round1_forecast: Round 1 forecast with ``prob_win_outright`` per candidate.
+        results_r1: Round 1 ``RoundResult``.
+        results_r2: Round 2 ``RoundResult``.
+        round2_polls: Clean Round 2 poll DataFrame (or ``None``).
+        config: Model hyperparameters.
+        results_dir: Directory to save the JSON matrix file.
+
+    Returns:
+        Tuple of ``(runoff_matrix, overall_probs)``. Either may be ``None`` on
+        failure.
+
+    """
+    from dataclasses import asdict  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    from co_president.model_runoff_matrix import (  # noqa: PLC0415
+        estimate_runoff_matrix,
+        overall_win_probability,
+    )
+
+    try:
+        prob_win_outright_dict = {
+            fc.candidate_key: fc.prob_win_outright for fc in round1_forecast.candidates
+        }
+        runoff_matrix = estimate_runoff_matrix(
+            idata_r1, (results_r1, results_r2), round2_polls, config
+        )
+        overall_probs_val = overall_win_probability(runoff_matrix, prob_win_outright_dict)
+
+        top_pairings = runoff_matrix.ordered_by_likelihood[:3]
+        logger.info("Top-3 most likely pairings:")
+        for pair in top_pairings:
+            pairing_obj = next(
+                (
+                    p
+                    for p in runoff_matrix.pairings
+                    if (p.candidate_first, p.candidate_second) == pair
+                ),
+                None,
+            )
+            if pairing_obj is None:
+                continue
+            logger.info("  %s vs %s: %.1f%%", pair[0], pair[1], pairing_obj.prob_pairing * 100)
+
+        for cand, prob in sorted(overall_probs_val.items(), key=lambda x: x[1], reverse=True):
+            logger.info("Overall presidency probability for %s: %.1f%%", cand, prob * 100)
+
+        matrix_path = results_dir / "runoff_matrix.json"
+        matrix_dict = asdict(runoff_matrix)
+        matrix_dict["ordered_by_likelihood"] = [
+            list(p) for p in matrix_dict["ordered_by_likelihood"]
+        ]
+        matrix_dict["pairings"] = list(matrix_dict["pairings"])
+        matrix_path.write_text(json.dumps(matrix_dict, indent=2), encoding="utf-8")
+        logger.info("Saved runoff matrix to %s", matrix_path)
+    except Exception:  # noqa: BLE001
+        logger.warning("Runoff matrix computation failed")
+        return None, None
+    else:
+        return runoff_matrix, overall_probs_val
+
+
 def _run_pipeline_mcmc(
     clean_polls: CleanPolls,
     results_r1: RoundResult,
@@ -477,6 +555,17 @@ def _run_pipeline_mcmc(
         except Exception:  # noqa: BLE001
             logger.warning("Runoff validation expected to be partial")
 
+    # ── Runoff matrix & overall win probabilities ──────────────────────
+    runoff_matrix, overall_probs = _compute_runoff_matrix(
+        idata_r1,
+        round1_forecast,
+        results_r1,
+        results_r2,
+        clean_polls.round2,
+        config,
+        results_dir,
+    )
+
     _print_run_summary_table(
         round1_forecast,
         results_r1,
@@ -485,6 +574,8 @@ def _run_pipeline_mcmc(
         runoff_forecast,
         results_r2,
         r2_validation,
+        runoff_matrix,
+        overall_probs,
     )
 
     # ── Rolling forecast (optional) ────────────────────────────────────
@@ -551,6 +642,8 @@ def _print_run_summary_table(  # noqa: PLR0913
     runoff_forecast: RunoffForecast | None,
     results_r2: RoundResult,
     r2_validation: RoundValidation | None,
+    runoff_matrix: RunoffMatrix | None = None,
+    overall_probs: dict[str, float] | None = None,
 ) -> None:
     """Print the formatted summary table after a full pipeline run."""
     display_names = {key: c.display_name for key, c in FIRST_ROUND_CANDIDATES.items()}
@@ -611,6 +704,37 @@ def _print_run_summary_table(  # noqa: PLR0913
             )
     else:
         print("  RUNOFF: No forecast available (sampling failed)")
+
+    # ── Runoff matrix & overall win probability section ────────────────
+    if runoff_matrix is not None and runoff_matrix.pairings:
+        print()
+        print("  RUNOFF MATRIX — Most likely pairings")
+        for i, pair in enumerate(runoff_matrix.ordered_by_likelihood[:3]):
+            pairing_obj = next(
+                (
+                    p
+                    for p in runoff_matrix.pairings
+                    if (p.candidate_first, p.candidate_second) == pair
+                ),
+                None,
+            )
+            if pairing_obj is None:
+                continue
+            name_first = display_names.get(pair[0], pair[0])
+            name_second = display_names.get(pair[1], pair[1])
+            print(
+                f"  {i + 1}. {name_first} vs {name_second}: "
+                f"{pairing_obj.prob_pairing * 100:.1f}%  "
+                f"({name_first}: {pairing_obj.prob_first_wins * 100:.1f}%)",
+            )
+
+        if overall_probs:
+            print()
+            print("  OVERALL PRESIDENCY PROBABILITY")
+            for cand, prob in sorted(overall_probs.items(), key=lambda x: x[1], reverse=True):
+                name = display_names.get(cand, cand)
+                print(f"  {name:20s}: {prob * 100:5.1f}%")
+
     _print_separator()
 
 
