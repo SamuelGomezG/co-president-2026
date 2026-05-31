@@ -210,6 +210,38 @@ class TestComputeDerivedFeatures:
         expected_share = expected_row["votes"] / expected_row["total_votes"]
         assert row["vote_share"] == pytest.approx(expected_share, abs=0.01)
 
+    def test_zero_total_votes_yields_zero_share(self) -> None:
+        """Rows with total_votes == 0 get vote_share == 0.0."""
+        df = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001"],
+                "year": [2022],
+                "round": [1],
+                "candidate": ["test_candidate"],
+                "votes": [0],
+                "total_votes": [0],
+                "registered_voters": [10000],
+            }
+        )
+        result = compute_derived_features(df)
+        assert result["vote_share"].iloc[0] == 0.0
+
+    def test_zero_registered_yields_full_abstention(self) -> None:
+        """Rows with registered_voters == 0 get abstention_rate == 1.0."""
+        df = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001"],
+                "year": [2022],
+                "round": [1],
+                "candidate": ["test_candidate"],
+                "votes": [500],
+                "total_votes": [1000],
+                "registered_voters": [0],
+            }
+        )
+        result = compute_derived_features(df)
+        assert result["abstention_rate"].iloc[0] == 1.0
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Build pipeline
