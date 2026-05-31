@@ -494,20 +494,112 @@ def test_simulate_elections_rank_consistency() -> None:
             )
 
 
+def _make_synthetic_outright_win_idata() -> az.InferenceData:
+    """Create synthetic InferenceData mimicking a Round 1 posterior with an outright winner.
+
+    Gustavo Petro is given overwhelming concentration to ensure his share > 50%
+    in all draws.
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    # Petro (index 2) gets a massive concentration to guarantee > 50%
+    alphas = np.array([1, 1, 500, 1, 1, 1, 1], dtype=float)
+
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    return az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={
+            "candidate_dim_0": candidate_order,
+        },
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+
 def test_simulate_elections_outright_win() -> None:
-    """Test that outright win and runoff flags are consistent."""
-    idata = _make_synthetic_round1_idata()
+    """Test that outright win and runoff flags are consistent when a candidate exceeds 50%."""
+    idata = _make_synthetic_outright_win_idata()
     candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
     n_sim = 1000
     result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
 
+    # Verify our synthetic data actually produced shares > 50% for Petro
+    petro_shares = result[result["candidate"] == "gustavo_petro"]["share"]
+    assert (petro_shares > 0.5).all(), "Synthetic data failed to produce >50% shares for Petro"
+
     for sim_id, group in result.groupby("sim_id"):
         sim_goes_runoff = group["goes_to_runoff"].iloc[0]
         any_outright = group["win_outright"].any()
-        if any_outright:
-            assert not sim_goes_runoff, f"Sim {sim_id}: has outright winner but goes_to_runoff=True"
-        else:
-            assert sim_goes_runoff, f"Sim {sim_id}: no outright winner but goes_to_runoff=False"
+
+        # In our outright win synthetic data, someone must always win outright
+        assert any_outright, f"Sim {sim_id}: Expected an outright winner but found none"
+        assert not sim_goes_runoff, f"Sim {sim_id}: has outright winner but goes_to_runoff=True"
+
+        # Verify Petro specifically is the outright winner
+        petro_winner = group[(group["candidate"] == "gustavo_petro") & group["win_outright"]]
+        assert len(petro_winner) == 1, f"Sim {sim_id}: Petro should be the sole outright winner"
+
+        # Verify exactly one candidate has the win_outright flag True
+        winner_rows = group[group["win_outright"]]
+        assert len(winner_rows) == 1, (
+            f"Sim {sim_id}: Expected 1 outright winner, got {len(winner_rows)}"
+        )
+        assert winner_rows["share"].iloc[0] > 0.5, f"Sim {sim_id}: Outright winner share <= 50%"
+
+        # Verify all non-winners have win_outright=False
+        non_winners = group[~group["win_outright"]]
+        assert len(non_winners) == len(candidate_order) - 1, (
+            f"Sim {sim_id}: Expected {len(candidate_order) - 1} non-winners, got {len(non_winners)}"
+        )
+
+
+def _make_synthetic_runoff_idata() -> az.InferenceData:
+    """Create synthetic InferenceData where no candidate exceeds 50% (runoff scenario)."""
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    # Equal-ish distribution: Petro ~40%, Hernandez ~28%, rest spread — no candidate > 50%
+    alphas = np.array([10, 30, 40, 5, 5, 35, 10], dtype=float)
+
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    return az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={
+            "candidate_dim_0": candidate_order,
+        },
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+
+def test_simulate_elections_runoff_scenario() -> None:
+    """Test that goes_to_runoff is True when no candidate exceeds 50%."""
+    idata = _make_synthetic_runoff_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 1000
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+
+    # Verify no Petro shares exceed 50% (runoff data should be well below threshold)
+    petro_shares = result[result["candidate"] == "gustavo_petro"]["share"]
+    assert (petro_shares <= 0.5).all(), "Synthetic runoff data should not produce Petro > 50%"
+
+    for sim_id, group in result.groupby("sim_id"):
+        sim_goes_runoff = group["goes_to_runoff"].iloc[0]
+        any_outright = group["win_outright"].any()
+
+        # No candidate should win outright in a runoff scenario
+        assert not any_outright, f"Sim {sim_id}: Unexpected outright winner in runoff data"
+        assert sim_goes_runoff, f"Sim {sim_id}: Expected goes_to_runoff=True but got False"
+
+        # All candidates should have win_outright=False
+        assert not group["win_outright"].any(), (
+            f"Sim {sim_id}: Expected all win_outright=False in runoff scenario"
+        )
 
 
 # ---------------------------------------------------------------------------
