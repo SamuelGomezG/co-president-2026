@@ -110,15 +110,15 @@ def map_historical_candidate(name: str) -> str:
             k.lower().replace("-", "_").replace(" ", "_"): v
             for k, v in _HISTORICAL_CANDIDATE_MAP.items()
         }
-    # Strip accents: NFKD decomposition + drop combining marks + lowercase + normalise separators
+    # Strip first so leading/trailing spaces don't become underscores
     clean = (
         unicodedata.normalize("NFKD", name)
         .encode("ascii", "ignore")
         .decode("ascii")
+        .strip()
         .lower()
         .replace("-", "_")
         .replace(" ", "_")
-        .strip()
     )
     if clean in _historical_candidate_lookup:
         return _historical_candidate_lookup[clean]
@@ -214,12 +214,24 @@ def compute_lagged_features(df: pd.DataFrame) -> pd.DataFrame:
 
     """
     mapped = df.copy()
-    mapped["candidate"] = mapped["candidate"].apply(map_historical_candidate)
+    # Attempt to canonicalize candidate names; skip unrecognized (minor/third-party)
+    # candidates — only the left/right picks per group need to match.
+    _canonicalized: list[str | None] = []
+    for raw in mapped["candidate"]:
+        try:
+            _canonicalized.append(map_historical_candidate(str(raw)))
+        except ValueError:
+            _canonicalized.append(None)
+    mapped["candidate"] = _canonicalized
 
     features_rows: list[dict[str, object]] = []
     for (municipio, year, round_num), group in mapped.groupby(
         ["codigo_municipio", "year", "round"]
     ):
+        # Filter out unrecognized candidates before lookup
+        recognized = group[group["candidate"].notna()]
+        if recognized.empty:
+            continue
         # year/round_num are Hashable from groupby; cast to int for lookup
         year_int: int = int(year)  # type: ignore[arg-type]
         round_int: int = int(round_num)  # type: ignore[arg-type]
@@ -228,7 +240,7 @@ def compute_lagged_features(df: pd.DataFrame) -> pd.DataFrame:
         right_cand: str | None = ideology.get("right")
 
         cand_shares: dict[str | None, float] = dict(
-            zip(group["candidate"], group["vote_share"], strict=True)
+            zip(recognized["candidate"], recognized["vote_share"], strict=False)
         )
         left_share = cand_shares.get(left_cand) if left_cand else None
         right_share = cand_shares.get(right_cand) if right_cand else None
@@ -311,6 +323,18 @@ def build_historical_matrix(data_dir: Path | None = None) -> None:
         )
         return
     features = compute_derived_features(combined)
+
+    # Canonicalize candidate names before writing to disk and before
+    # downstream consumers (validate_vote_shares, compute_lagged_features).
+    # Unrecognised names are left as-is (logged) rather than raising.
+    def _safe_canonicalize(name: str) -> str:
+        try:
+            return map_historical_candidate(name)
+        except ValueError:
+            logger.warning("Unrecognised historical candidate name preserved as-is: %r", name)
+            return name
+
+    features["candidate"] = features["candidate"].apply(_safe_canonicalize)
 
     # Validate vote shares
     validation_warnings = validate_vote_shares(features)
