@@ -174,6 +174,7 @@ The `.gitignore` ignores uncompressed `.csv` copies to prevent accidental re-com
 - **`.python-version` pins 3.12.13**. `uv` will use whatever 3.12 interpreter it finds; ensure 3.12.13 is available via pyenv or uv.
 - **Large CSV files** (`MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz`) are ~95 MB each. Unit tests must never load them.
 - **Package verification**: Always check the current API docs for a library before writing code. Do not trust memory. Key reference URLs are in `MVP_SPECS_GUIDE.md` §2.
+- **`pyright tests/` produces ~276 strict-mode errors** — these are *intentional* (e.g., tests import private helpers, use pytest fixtures with dynamic types, and call third-party libs like arviz/pymc with incomplete stubs). The only type gate in `make check` is `pyright src/`, which passes cleanly. `pandas-stubs` is installed and working. Do not suppress rules globally; these are legitimate strict-mode boundary issues, not stub cascades.
 
 ---
 
