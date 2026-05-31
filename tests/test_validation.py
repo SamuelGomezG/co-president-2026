@@ -6,7 +6,7 @@ from datetime import date
 import json
 from pathlib import Path
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from matplotlib.figure import Figure as MplFigure
 import numpy as np
@@ -1567,6 +1567,123 @@ class TestPlotCalibration:
         )
         fig = plot_calibration(rv)
         assert isinstance(fig, MplFigure)
+
+    def test_plot_calibration_uses_ci_bars(self) -> None:
+        """Error bar widths match CI range, not prediction error."""
+        rv = RoundValidation(
+            round_number=1,
+            candidates=[
+                CandidateValidation(
+                    "a",
+                    0.30,
+                    0.28,
+                    0.27,
+                    -0.02,
+                    0.02,
+                    0.22,
+                    0.34,
+                    within_95ci=True,
+                    within_50ci=False,
+                ),
+                CandidateValidation(
+                    "b",
+                    0.20,
+                    0.22,
+                    0.21,
+                    0.02,
+                    0.02,
+                    0.16,
+                    0.28,
+                    within_95ci=True,
+                    within_50ci=True,
+                ),
+            ],
+            mae=0.02,
+            rmse=0.02,
+            calibration_95=1.0,
+            calibration_50=0.5,
+        )
+        expected_xerr_lower = [
+            cv.predicted_mean * 100 - cv.ci_95_lower * 100 for cv in rv.candidates
+        ]
+        expected_xerr_upper = [
+            cv.ci_95_upper * 100 - cv.predicted_mean * 100 for cv in rv.candidates
+        ]
+        xerr_captured: list[list[list[float]]] = []
+
+        def _capture_xerr(
+            _ax: object,
+            *_args: object,
+            **kwargs: object,
+        ) -> MagicMock:
+            if "xerr" in kwargs:
+                xerr_captured.append(kwargs["xerr"])  # type: ignore[arg-type]
+            return MagicMock()
+
+        with patch("matplotlib.axes.Axes.errorbar", side_effect=_capture_xerr):
+            plot_calibration(rv)
+
+        assert len(xerr_captured) == 1, "errorbar was not called"
+        xerr = xerr_captured[0]
+        assert isinstance(xerr, list)
+        assert len(xerr) == 2
+        assert xerr[0] == pytest.approx(expected_xerr_lower, abs=0.01)
+        assert xerr[1] == pytest.approx(expected_xerr_upper, abs=0.01)
+        old_buggy_lower = [
+            abs(cv.predicted_mean * 100 - cv.actual_share * 100) for cv in rv.candidates
+        ]
+        assert xerr[0] != pytest.approx(old_buggy_lower, abs=0.01), (
+            "xerr lower equals abs(predicted-actual) — still using old buggy logic"
+        )
+
+    def test_plot_calibration_clamps_negative_error_bars(self) -> None:
+        """max(0.0, ...) guards prevent negative error-bar widths in xerr."""
+        # Candidate "a" has ci_95_lower (0.40) > predicted_mean (0.30),
+        # which would yield a negative lower offset (-10.0) without the
+        # max(0.0, ...) guard in plot_calibration (plotting.py L132-L137).
+        rv = RoundValidation(
+            round_number=1,
+            candidates=[
+                CandidateValidation(
+                    "a",
+                    0.30,  # actual_share
+                    0.30,  # predicted_mean
+                    0.30,  # predicted_median
+                    0.00,  # error
+                    0.00,  # abs_error
+                    0.40,  # ci_95_lower  (> predicted_mean -> negative offset)
+                    0.50,  # ci_95_upper
+                    within_95ci=False,
+                    within_50ci=False,
+                ),
+            ],
+            mae=0.00,
+            rmse=0.00,
+            calibration_95=0.0,
+            calibration_50=0.0,
+        )
+        xerr_captured: list[list[list[float]]] = []
+
+        def _capture_xerr(
+            _ax: object,
+            *_args: object,
+            **kwargs: object,
+        ) -> MagicMock:
+            if "xerr" in kwargs:
+                xerr_captured.append(kwargs["xerr"])  # type: ignore[arg-type]
+            return MagicMock()
+
+        with patch("matplotlib.axes.Axes.errorbar", side_effect=_capture_xerr):
+            plot_calibration(rv)
+
+        assert len(xerr_captured) == 1, "errorbar was not called"
+        xerr = xerr_captured[0]
+        assert isinstance(xerr, list)
+        assert len(xerr) == 2
+        # Lower offset: max(0.0, 30 - 40) = max(0.0, -10) -> clamped to 0.0
+        assert xerr[0][0] == 0.0, f"lower error bar not clamped to 0.0, got {xerr[0][0]}"
+        # Upper offset: max(0.0, 50 - 30) = max(0.0, 20) -> stays 20.0
+        assert xerr[1][0] == pytest.approx(20.0, abs=0.01)
 
 
 class TestPlotErrorOverTime:

@@ -130,10 +130,10 @@ def plot_calibration(
         labels = [cv.candidate_key.replace("_", " ").title() for cv in validation.candidates]
 
         xerr_lower = [
-            cv.predicted_mean * 100 - cv.ci_95_lower * 100 for cv in validation.candidates
+            max(0.0, cv.predicted_mean * 100 - cv.ci_95_lower * 100) for cv in validation.candidates
         ]
         xerr_upper = [
-            cv.ci_95_upper * 100 - cv.predicted_mean * 100 for cv in validation.candidates
+            max(0.0, cv.ci_95_upper * 100 - cv.predicted_mean * 100) for cv in validation.candidates
         ]
         xerr_values = [xerr_lower, xerr_upper]
 
