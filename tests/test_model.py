@@ -128,7 +128,7 @@ def test_build_round1_model_phase_a() -> None:
     assert len(model.free_RVs) == 2
     assert {rv.name for rv in model.free_RVs} == {"sigma_rw", "theta_0"}
     det_names = {d.name for d in model.deterministics}
-    assert det_names == {"p_adj"}
+    assert det_names == {"p_adj", "p_time"}
     assert len(model.observed_RVs) == 1
 
 

@@ -1399,7 +1399,7 @@ The `run` command prints a summary table:
 
 1. **`validate_pollster_ratings(polls: DataFrame, results: RoundResult) -> DataFrame`**:
    - Compare empirical pollster accuracy (MAE) against La Silla Vacía ratings.
-   - Normalise empirical MAE to a 0-10 scale.
+   - Normalize empirical MAE to a 0-10 scale.
    - Flag pollsters with a deviation > 2.0 (empirical vs. rating).
 
 2. **`validate_time_decay(polls: DataFrame, results: RoundResult) -> TimeDecayResult`**:
@@ -1422,7 +1422,7 @@ The `run` command prints a summary table:
 
 ### 14.3 TDD Steps
 
-1. **Red**: Write `tests/test_data_quality.py` with tests for:
+1. **Red**: Write `tests/test__data_quality.py` with tests for:
    - `validate_pollster_ratings` on a synthetic poll dataset with known errors.
    - `validate_time_decay` on a synthetic dataset; verify regression convergence.
    - `quantify_methodology_effect` on a synthetic dataset; check methodology-specific MAE.

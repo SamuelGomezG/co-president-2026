@@ -87,18 +87,6 @@ _SHARE_COLS_EXCLUDED = frozenset(
 and excluded from share normalization."""
 
 
-def _get_float_or_none(value: object) -> float | None:
-    """Return a float value or ``None`` when missing/invalid."""
-    if isinstance(value, (int, float)) and not pd.isna(value):
-        return float(value)
-    return None
-
-
-def _set_float(df: pd.DataFrame, idx: object, col: str, value: float) -> None:
-    """Set a float value in ``df`` at a scalar location."""
-    df.at[idx, col] = float(value)  # noqa: PD008
-
-
 def _col_has_value(row: pd.Series, col: str) -> bool:
     """Return True when ``row[col]`` exists and is not NA."""
     if col not in row.index:
@@ -705,16 +693,32 @@ def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
         return result
 
     share_cols = ["gustavo_petro", "rodolfo_hernandez", "blanco"]
-    # Filter rows with valid ns_nr that are not 100
-    valid_mask = mask & result["ns_nr"].notna() & (result["ns_nr"] < _NS_NR_HUNDRED)
+    # Filter rows with valid ns_nr in (0, 100)
+    valid_mask = (
+        mask & result["ns_nr"].notna() & (result["ns_nr"] > 0) & (result["ns_nr"] < _NS_NR_HUNDRED)
+    )
+
+    # Log skipped rows with out-of-range ns_nr
+    candidate_mask = mask & result["ns_nr"].notna()
+    out_of_range = candidate_mask & ~valid_mask
+    if out_of_range.any():
+        for idx in result.index[out_of_range]:
+            logger.warning(
+                "Skipping out-of-range ns_nr=%.1f for row %s "
+                "(expected 0 < ns_nr < %.0f, redistribution not applied)",
+                result.loc[idx, "ns_nr"],
+                idx,
+                _NS_NR_HUNDRED,
+            )
 
     if valid_mask.any():
         ns_nr = result.loc[valid_mask, "ns_nr"]
         scale = 100.0 / (100.0 - ns_nr)
 
         # Proportional redistribution
-        for col in share_cols:
-            result.loc[valid_mask, col] = result.loc[valid_mask, col] * scale
+        result.loc[valid_mask, share_cols] = result.loc[valid_mask, share_cols].multiply(
+            scale, axis=0
+        )
 
         result.loc[valid_mask, "ns_nr"] = 0.0
         logger.info(
@@ -757,13 +761,18 @@ def _normalize_share_rows(
 
     if normalize_mask.any():
         scale = 100.0 / (100.0 - ns_nr[normalize_mask])
-        for col in share_cols:
-            df.loc[normalize_mask, col] = df.loc[normalize_mask, col] * scale
+        df.loc[normalize_mask, share_cols] = df.loc[normalize_mask, share_cols].multiply(
+            scale, axis=0
+        )
 
     df.loc[~skipped_100_mask, "ns_nr"] = 0.0
 
-    for idx in df.index[skipped_100_mask]:
-        logger.warning("Row %s: ns_nr = 100, all shares unchanged", str(idx))
+    skipped_count = int(skipped_100_mask.sum())
+    if skipped_count:
+        logger.warning(
+            "%d row(s): ns_nr = 100, all shares unchanged",
+            skipped_count,
+        )
 
     return (
         {int(idx) for idx in df.index[normalize_mask]},
@@ -776,7 +785,7 @@ def _renormalize_rows(
     share_cols: list[str],
     indices: set[int],
 ) -> None:
-    """Renormalise rows so share columns sum to 100, handling rounding drift.
+    """Renormalize rows so share columns sum to 100, handling rounding drift.
 
     **Warning:** Mutates ``df`` in-place. Caller must pass a copy.
 
@@ -791,16 +800,18 @@ def _renormalize_rows(
         None.
 
     """
-    for idx in indices:
-        vals = {col: _get_float_or_none(df.loc[idx, col]) for col in share_cols}
-        row_sum = sum(val for val in vals.values() if val is not None)
-        if row_sum <= 0:
-            continue
-        if abs(row_sum - 100.0) > _RENORMALIZE_THRESHOLD:
-            fix_scale = 100.0 / row_sum
-            for col, val in vals.items():
-                if val is not None:
-                    _set_float(df, idx, col, val * fix_scale)
+    if not indices:
+        return
+    mask = df.index.isin(indices)
+    chunk: pd.DataFrame = df.loc[mask, share_cols]
+    row_sums = chunk.sum(axis=1, skipna=True)
+    valid_mask = row_sums > 0
+    abs_diff = (row_sums - 100.0).abs()
+    needs_fix = valid_mask & (abs_diff > _RENORMALIZE_THRESHOLD)
+    if needs_fix.any():
+        rows_to_fix = chunk.index[needs_fix]
+        scales = 100.0 / row_sums.loc[rows_to_fix]
+        df.loc[rows_to_fix, share_cols] = chunk.loc[rows_to_fix].multiply(scales, axis=0)
 
 
 def _validate_normalized_rows(
@@ -809,18 +820,23 @@ def _validate_normalized_rows(
     indices: set[int],
     tolerance_pct: float = _NORMALIZATION_TOLERANCE_PCT,
 ) -> None:
-    """Assert that every normalised row sums to 100 +/- tolerance."""
-    for idx in indices:
-        vals = {col: _get_float_or_none(df.loc[idx, col]) for col in share_cols}
-        row_sum = sum(val for val in vals.values() if val is not None)
-        if row_sum <= 0:
-            continue
-        if abs(row_sum - 100.0) > tolerance_pct:
-            msg = (
-                f"Row {idx}: normalized share sum = {row_sum:.2f}%, expected 100.0 +/- "
-                f"{tolerance_pct:.1f}"
-            )
-            raise ValueError(msg)
+    """Assert that every normalized row sums to 100 +/- tolerance."""
+    if not indices:
+        return
+    mask = df.index.isin(indices)
+    chunk: pd.DataFrame = df.loc[mask, share_cols]
+    row_sums = chunk.sum(axis=1, skipna=True)
+    valid_mask = row_sums > 0
+    abs_diff = (row_sums - 100.0).abs()
+    bad = valid_mask & (abs_diff > tolerance_pct)
+    if bad.any():
+        bad_idx = bad[bad].index[0]
+        bad_sum = row_sums[bad].iloc[0]
+        msg = (
+            f"Row {bad_idx}: normalized share sum = {bad_sum:.2f}%, expected 100.0 +/- "
+            f"{tolerance_pct:.1f}"
+        )
+        raise ValueError(msg)
 
 
 def normalize_undecided(df: pd.DataFrame) -> pd.DataFrame:
