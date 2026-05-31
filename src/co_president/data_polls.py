@@ -693,8 +693,23 @@ def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
         return result
 
     share_cols = ["gustavo_petro", "rodolfo_hernandez", "blanco"]
-    # Filter rows with valid ns_nr that are not 100
-    valid_mask = mask & result["ns_nr"].notna() & (result["ns_nr"] < _NS_NR_HUNDRED)
+    # Filter rows with valid ns_nr in (0, 100)
+    valid_mask = (
+        mask & result["ns_nr"].notna() & (result["ns_nr"] > 0) & (result["ns_nr"] < _NS_NR_HUNDRED)
+    )
+
+    # Log skipped rows with out-of-range ns_nr
+    candidate_mask = mask & result["ns_nr"].notna()
+    out_of_range = candidate_mask & ~valid_mask
+    if out_of_range.any():
+        for idx in result.index[out_of_range]:
+            logger.warning(
+                "Skipping out-of-range ns_nr=%.1f for row %s "
+                "(expected 0 < ns_nr < %.0f, redistribution not applied)",
+                result.loc[idx, "ns_nr"],
+                idx,
+                _NS_NR_HUNDRED,
+            )
 
     if valid_mask.any():
         ns_nr = result.loc[valid_mask, "ns_nr"]

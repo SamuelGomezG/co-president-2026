@@ -579,6 +579,14 @@ class TestValidateRunoff:
         results = _make_runoff_results()
         rv = validate_runoff(rvf, results)
         for cv in rv.candidates:
+            # Verify bounds match the forecast values for the correct candidate
+            if cv.candidate_key == rvf.candidate_a_key:
+                assert cv.ci_95_lower == rvf.ci_95_a[0]
+                assert cv.ci_95_upper == rvf.ci_95_a[1]
+            elif cv.candidate_key == rvf.candidate_b_key:
+                assert cv.ci_95_lower == rvf.ci_95_b[0]
+                assert cv.ci_95_upper == rvf.ci_95_b[1]
+            # Verify containment (existing assertion)
             assert cv.ci_95_lower < cv.predicted_mean < cv.ci_95_upper
 
 

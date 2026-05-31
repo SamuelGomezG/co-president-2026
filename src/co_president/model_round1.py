@@ -233,6 +233,8 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
             alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
         else:
             # Simplified model without house effects or phi_poll
+            # Latent vote share probabilities per time point
+            pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))  # type: ignore
             theta_selected = theta_stacked[time_indices]  # type: ignore
             p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_selected, axis=-1))  # type: ignore
             phi_poll_fixed = float(config.concentration_poll_prior_mean)
