@@ -1,5 +1,6 @@
 """SPEC-01: Unit tests for paths.py data directory resolution."""
 
+import builtins
 from pathlib import Path
 import sys
 from unittest.mock import MagicMock, patch
@@ -67,3 +68,33 @@ def test_resolve_data_dir_none_missing(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.raises(FileNotFoundError, match="data/ directory not found at"),
     ):
         resolve_data_dir(None)
+
+
+def test_resolve_data_dir_import_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Test fallback when import co_president raises ImportError."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    paths_file = tmp_path / "src" / "co_president" / "paths.py"
+    paths_file.parent.mkdir(parents=True)
+
+    # Patch __file__ so the fallback resolves to our test location
+    monkeypatch.setattr(sys.modules["co_president.paths"], "__file__", str(paths_file))
+
+    # Remove co_president from sys.modules so import actually triggers
+    monkeypatch.delitem(sys.modules, "co_president", raising=False)
+
+    # Capture the original __import__ BEFORE monkeypatching it.
+    # This prevents infinite recursion: after setattr replaces builtins.__import__
+    # with mock_import, the else-branch must delegate to the saved original, not
+    # to builtins.__import__ (which would now be mock_import itself).
+    original_import = builtins.__import__
+
+    def mock_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "co_president":
+            msg = f"No module named {name}"
+            raise ImportError(msg)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", mock_import)
+
+    assert resolve_data_dir(None) == data_dir
