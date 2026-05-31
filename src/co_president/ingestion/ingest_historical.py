@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _ELECTION_YEARS = [2002, 2006, 2010, 2014, 2018, 2022]
 _CEDAE_BASE_URL = "https://cedae.datasketch.co/api/results"
+_fallback_results_cache: pd.DataFrame | None = None
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -137,6 +138,22 @@ def build_historical_matrix(data_dir: Path | None = None) -> None:
 # ═══════════════════════════════════════════════════════════════════
 
 
+def _get_fallback_results() -> pd.DataFrame:
+    """Fetch and cache the full datos.gov.co Socrata dataset (lazy, one-time).
+
+    Caching avoids re-downloading the ~100k-row dataset on every fallback
+    call across the 12 (year, round) iterations.
+
+    Returns:
+        DataFrame with election result data from datos.gov.co.
+
+    """
+    global _fallback_results_cache  # noqa: PLW0603
+    if _fallback_results_cache is None:
+        _fallback_results_cache = fetch_datos_gov_results()
+    return _fallback_results_cache.copy()
+
+
 def _fetch_all_years() -> pd.DataFrame:
     """Fetch data for every combination of election year and round."""
     all_frames: list[pd.DataFrame] = []
@@ -155,7 +172,7 @@ def _fetch_all_years() -> pd.DataFrame:
                     exc,
                 )
                 try:
-                    frame = fetch_datos_gov_results()
+                    frame = _get_fallback_results()
                     # Coerce to numeric to handle string-typed API responses
                     frame["year"] = pd.to_numeric(frame["year"], errors="coerce")
                     frame["round"] = pd.to_numeric(frame["round"], errors="coerce")
