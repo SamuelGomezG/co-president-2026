@@ -33,7 +33,7 @@ _SOCRATA_DATASET = "mv2e-prx5"
 _GITHUB_GIST_ID = "b5848316671422b19e19bfca7f8aadcb"
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
 def fetch_divipola_socrata() -> pd.DataFrame:
     """Fetch DIVIPOLA codes from ``datos.gov.co`` via the Socrata API.
 
@@ -43,6 +43,7 @@ def fetch_divipola_socrata() -> pd.DataFrame:
 
     Raises:
         ConnectionError: If the API is unreachable after three retries.
+        ValueError: If the response cannot be parsed as JSON.
 
     """
     with Socrata("www.datos.gov.co", None) as client:
@@ -165,6 +166,10 @@ def _rename_socrata_columns(df: pd.DataFrame) -> None:
     rename_map: dict[str, str] = {
         "codigo": "codigo_municipio",
         "municipio": "nombre_municipio",
+        "depart": "departamento",
+        "department": "departamento",
+        "dpto": "departamento",
+        "nombre_departamento": "departamento",
         "lat": "latitud",
         "lon": "longitud",
         "lng": "longitud",
