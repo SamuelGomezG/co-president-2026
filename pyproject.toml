@@ -16,6 +16,11 @@ dependencies = [
     "arviz>=0.18",
     "matplotlib>=3.8",
     "pyarrow>=15.0",
+    "sodapy>=2.2",
+    "tenacity>=8.2",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
