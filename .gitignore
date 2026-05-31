@@ -26,6 +26,9 @@ dist/
 # Large CSV files stored as .gz; decompress before use
 data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*v.csv
 
+# Raw API downloads — not tracked in git
+data/raw/
+
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
