@@ -11,8 +11,11 @@ import pytest
 from co_president.ingestion.ingest_historical import (
     build_historical_matrix,
     compute_derived_features,
+    compute_lagged_features,
     fetch_cedae_results,
     fetch_datos_gov_results,
+    map_historical_candidate,
+    validate_vote_shares,
 )
 
 if TYPE_CHECKING:
@@ -25,7 +28,10 @@ __all__: list[str] = []
 def _make_historical_input() -> pd.DataFrame:
     """Synthetic 3-municipality historical data for 4 election years.
 
-    Columns match the expected CEDAE API output format.
+    Columns match the expected CEDAE API output format. Note that vote
+    shares do NOT sum to 1.0 per (municipio, year, round) — this
+    helper is designed for testing derived feature computations, not
+    vote share validation.
     """
     data = {
         "codigo_municipio": [
@@ -244,6 +250,234 @@ class TestComputeDerivedFeatures:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Candidate name mapping
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestMapHistoricalCandidate:
+    """``map_historical_candidate`` normalises CEDAE names to canonical keys."""
+
+    def test_known_name_passes_through(self) -> None:
+        """An exact match returns the canonical key."""
+        assert map_historical_candidate("gustavo_petro") == "gustavo_petro"
+
+    def test_case_insensitive_match(self) -> None:
+        """Case-insensitive name is resolved."""
+        assert map_historical_candidate("Gustavo_Petro") == "gustavo_petro"
+
+    def test_name_with_spaces(self) -> None:
+        """Name with spaces is normalised to underscores."""
+        assert map_historical_candidate("Gustavo Petro") == "gustavo_petro"
+
+    def test_name_with_accents(self) -> None:
+        """Accented names are stripped to ASCII before lookup."""
+        assert map_historical_candidate("Álvaro Uribe") == "alvaro_uribe"
+
+    def test_unknown_name_raises(self) -> None:
+        """An unrecognised name raises ``ValueError``."""
+        with pytest.raises(ValueError, match="Unrecognised historical candidate"):
+            map_historical_candidate("nonexistent_candidate")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Lagged feature computation
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _make_multi_year_input() -> pd.DataFrame:
+    """Synthetic 2-municipality data spanning 3 election years.
+
+    Years and candidates are chosen so that for 2018 and 2022 the
+    ``_CANDIDATE_IDEOLOGY`` lookup finds matches, enabling delta
+    calculation.
+    """
+    data = {
+        "codigo_municipio": [
+            "05001",
+            "05001",
+            "05001",
+            "05001",
+            "05001",
+            "05001",
+            "05002",
+            "05002",
+            "05002",
+            "05002",
+        ],
+        "year": [
+            2014,
+            2014,
+            2018,
+            2018,
+            2022,
+            2022,
+            2014,
+            2014,
+            2018,
+            2018,
+        ],
+        "round": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        "candidate": [
+            "clara_lopez",
+            "oscar_ivan_zuluaga",
+            "gustavo_petro",
+            "ivan_duque",
+            "gustavo_petro",
+            "rodolfo_hernandez",
+            "clara_lopez",
+            "oscar_ivan_zuluaga",
+            "gustavo_petro",
+            "ivan_duque",
+        ],
+        "votes": [
+            6000,
+            4000,
+            5500,
+            4500,
+            7000,
+            5000,
+            3000,
+            2000,
+            3500,
+            2500,
+        ],
+        "total_votes": [10000, 10000, 10000, 10000, 12000, 12000, 5000, 5000, 6000, 6000],
+        "registered_voters": [15000, 15000, 15000, 15000, 18000, 18000, 8000, 8000, 9000, 9000],
+    }
+    return pd.DataFrame(data)
+
+
+class TestComputeLaggedFeatures:
+    """``compute_lagged_features`` produces per-municipality features."""
+
+    def test_has_expected_columns(self) -> None:
+        """Output contains all expected lagged feature columns."""
+        raw = _make_multi_year_input()
+        derived = compute_derived_features(raw)
+        result = compute_lagged_features(derived)
+        expected = {
+            "codigo_municipio",
+            "year",
+            "round",
+            "left_share",
+            "right_share",
+            "abstention_rate",
+            "delta_left",
+            "delta_right",
+            "delta_abstention",
+        }
+        assert set(result.columns) == expected
+
+    def test_one_row_per_municipality_year_round(self) -> None:
+        """Result has one row per (municipio, year, round) pair."""
+        raw = _make_multi_year_input()
+        derived = compute_derived_features(raw)
+        result = compute_lagged_features(derived)
+        unique_pairs = raw[["codigo_municipio", "year", "round"]].drop_duplicates()
+        assert len(result) == len(unique_pairs)
+
+    def test_left_share_correct(self) -> None:
+        """``left_share`` matches the left candidate's vote share for 2018."""
+        raw = _make_multi_year_input()
+        derived = compute_derived_features(raw)
+        result = compute_lagged_features(derived)
+        petro_2018 = derived.loc[
+            (derived["candidate"] == "gustavo_petro") & (derived["year"] == 2018)
+        ]
+        for _, row in petro_2018.iterrows():
+            match = result.loc[
+                (result["codigo_municipio"] == row["codigo_municipio"]) & (result["year"] == 2018)
+            ]
+            assert len(match) == 1
+            assert match["left_share"].iloc[0] == pytest.approx(row["vote_share"], abs=0.01)
+
+    def test_right_share_correct(self) -> None:
+        """``right_share`` matches the right candidate's vote share for 2018."""
+        raw = _make_multi_year_input()
+        derived = compute_derived_features(raw)
+        result = compute_lagged_features(derived)
+        duque_2018 = derived.loc[(derived["candidate"] == "ivan_duque") & (derived["year"] == 2018)]
+        for _, row in duque_2018.iterrows():
+            match = result.loc[
+                (result["codigo_municipio"] == row["codigo_municipio"]) & (result["year"] == 2018)
+            ]
+            assert len(match) == 1
+            assert match["right_share"].iloc[0] == pytest.approx(row["vote_share"], abs=0.01)
+
+    def test_delta_from_previous_election(self) -> None:
+        """``delta_left`` is the change from the previous election."""
+        raw = _make_multi_year_input()
+        derived = compute_derived_features(raw)
+        result = compute_lagged_features(derived)
+
+        # 2014 left_share for 05001: clara_lopez vote_share = 6000/10000 = 0.60
+        # 2018 left_share for 05001: petro vote_share = 5500/10000 = 0.55
+        # delta_left for 2018 = 0.55 - 0.60 = -0.05
+        row_2018 = result.loc[(result["codigo_municipio"] == "05001") & (result["year"] == 2018)]
+        assert len(row_2018) == 1
+        assert row_2018["delta_left"].iloc[0] == pytest.approx(-0.05, abs=0.01)
+
+    def test_empty_dataframe_returns_empty(self) -> None:
+        """An empty input returns an empty DataFrame."""
+        empty = pd.DataFrame(
+            columns=[
+                "codigo_municipio",
+                "year",
+                "round",
+                "candidate",
+                "vote_share",
+                "abstention_rate",
+            ]
+        )
+        result = compute_lagged_features(empty)
+        assert result.empty
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Vote share validation
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestValidateVoteShares:
+    """``validate_vote_shares`` checks per-round sums."""
+
+    def test_no_warnings_for_good_data(self) -> None:
+        """Data where vote shares sum to 1.0 produces zero warnings."""
+        df = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001", "05001", "05001"],
+                "year": [2022, 2022, 2022],
+                "round": [1, 1, 1],
+                "candidate": [
+                    "gustavo_petro",
+                    "rodolfo_hernandez",
+                    "rest",
+                ],
+                "vote_share": [0.40, 0.28, 0.32],
+                "abstention_rate": [0.45, 0.45, 0.45],
+            }
+        )
+        warnings = validate_vote_shares(df)
+        assert len(warnings) == 0
+
+    def test_warning_for_bad_sums(self) -> None:
+        """Data exceeding the 2 % tolerance produces a warning."""
+        df = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001", "05001"],
+                "year": [2022, 2022],
+                "round": [1, 1],
+                "candidate": ["gustavo_petro", "rodolfo_hernandez"],
+                "vote_share": [0.70, 0.40],  # sum = 1.10 > 2 % tolerance
+                "abstention_rate": [0.45, 0.45],
+            }
+        )
+        warnings = validate_vote_shares(df)
+        assert len(warnings) >= 1
+        assert "vote shares sum to" in warnings[0]
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Build pipeline
 # ═══════════════════════════════════════════════════════════════════
 
@@ -280,3 +514,44 @@ class TestBuildHistoricalMatrix:
         assert "abstention_rate" in saved.columns, "abstention_rate column missing"
         assert saved["vote_share"].notna().all(), "vote_share should have no nulls"
         assert saved["abstention_rate"].notna().all(), "abstention_rate should have no nulls"
+
+    def test_creates_lagged_features_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pipeline also writes ``historical_lagged_features.csv``."""
+        df = _make_historical_input()
+
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_historical._fetch_all_years",
+            lambda: df,
+        )
+
+        build_historical_matrix(data_dir=tmp_path)
+        target = tmp_path / "fundamentals" / "historical_lagged_features.csv"
+        assert target.is_file(), f"Expected {target} to exist"
+
+    def test_lagged_features_has_expected_columns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lagged features CSV contains the required columns."""
+        df = _make_historical_input()
+
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_historical._fetch_all_years",
+            lambda: df,
+        )
+
+        build_historical_matrix(data_dir=tmp_path)
+        saved = pd.read_csv(tmp_path / "fundamentals" / "historical_lagged_features.csv")
+        expected = {
+            "codigo_municipio",
+            "year",
+            "round",
+            "left_share",
+            "right_share",
+            "abstention_rate",
+            "delta_left",
+            "delta_right",
+            "delta_abstention",
+        }
+        assert set(saved.columns) == expected
