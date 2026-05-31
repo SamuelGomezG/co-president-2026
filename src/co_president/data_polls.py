@@ -87,14 +87,6 @@ _SHARE_COLS_EXCLUDED = frozenset(
 and excluded from share normalization."""
 
 
-def _get_float_or_zero(df: pd.DataFrame, idx: object, col: str) -> float:
-    """Return a float value from ``df`` or 0.0 when missing/invalid."""
-    value = df.at[idx, col]  # noqa: PD008
-    if isinstance(value, (int, float)) and not pd.isna(value):
-        return float(value)
-    return 0.0
-
-
 def _get_float_or_none(value: object) -> float | None:
     """Return a float value or ``None`` when missing/invalid."""
     if isinstance(value, (int, float)) and not pd.isna(value):
@@ -713,25 +705,21 @@ def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
         return result
 
     share_cols = ["gustavo_petro", "rodolfo_hernandez", "blanco"]
-    for idx in result.index[mask]:
-        ns_nr = result.loc[idx, "ns_nr"]
-        if not isinstance(ns_nr, (int, float)) or pd.isna(ns_nr):
-            continue
-        if ns_nr >= _NS_NR_HUNDRED:
-            continue
+    # Filter rows with valid ns_nr that are not 100
+    valid_mask = mask & result["ns_nr"].notna() & (result["ns_nr"] < _NS_NR_HUNDRED)
+
+    if valid_mask.any():
+        ns_nr = result.loc[valid_mask, "ns_nr"]
+        scale = 100.0 / (100.0 - ns_nr)
 
         # Proportional redistribution
-        scale = 100.0 / (100.0 - ns_nr)
         for col in share_cols:
-            raw = result.loc[idx, col]
-            if isinstance(raw, (int, float)) and not pd.isna(raw):
-                result.loc[idx, col] = raw * scale
+            result.loc[valid_mask, col] = result.loc[valid_mask, col] * scale
 
-        result.loc[idx, "ns_nr"] = 0.0
+        result.loc[valid_mask, "ns_nr"] = 0.0
         logger.info(
-            "_fix_yanhaas_20220611: redistributed %.1fpp ns_nr for row %s",
-            ns_nr,
-            idx,
+            "_fix_yanhaas_20220611: redistributed %d rows ns_nr",
+            valid_mask.sum(),
         )
 
     # Renormalize if total > 100% ± 0.01%
@@ -763,24 +751,24 @@ def _normalize_share_rows(
         rows were normalized and which were skipped due to ``ns_nr == 100``.
 
     """
-    normalized: set[int] = set()
-    skipped_100: set[int] = set()
-    for idx in df.index:
-        ns_nr = _get_float_or_zero(df, idx, "ns_nr")
+    ns_nr = df["ns_nr"].fillna(0.0)
+    skipped_100_mask = ns_nr == _NS_NR_HUNDRED
+    normalize_mask = (ns_nr > 0) & (~skipped_100_mask)
 
-        if ns_nr == _NS_NR_HUNDRED:
-            logger.warning("Row %s: ns_nr = 100, all shares unchanged", str(idx))
-            skipped_100.add(int(idx))
-            continue
-        if ns_nr > 0:
-            scale = 100.0 / (100.0 - ns_nr)
-            for col in share_cols:
-                raw = _get_float_or_none(df.at[idx, col])  # noqa: PD008
-                if raw is not None:
-                    _set_float(df, idx, col, raw * scale)
-            normalized.add(int(idx))
-        _set_float(df, idx, "ns_nr", 0.0)
-    return normalized, skipped_100
+    if normalize_mask.any():
+        scale = 100.0 / (100.0 - ns_nr[normalize_mask])
+        for col in share_cols:
+            df.loc[normalize_mask, col] = df.loc[normalize_mask, col] * scale
+
+    df.loc[~skipped_100_mask, "ns_nr"] = 0.0
+
+    for idx in df.index[skipped_100_mask]:
+        logger.warning("Row %s: ns_nr = 100, all shares unchanged", str(idx))
+
+    return (
+        {int(idx) for idx in df.index[normalize_mask]},
+        {int(idx) for idx in df.index[skipped_100_mask]},
+    )
 
 
 def _renormalize_rows(

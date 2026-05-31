@@ -1389,7 +1389,49 @@ The `run` command prints a summary table:
 
 ---
 
-## 14. Implementation Order & Dependency Graph
+## 14. SPEC-11: Data Quality Diagnostics
+
+**Goal**: Implement and maintain diagnostic utilities to monitor poll data quality, pollster performance, and methodological biases. This module is an officially supported component for monitoring the integrity of the input data pipeline.
+
+### 14.1 Requirements
+
+#### 14.1.1 Diagnostic Functions
+
+1. **`validate_pollster_ratings(polls: DataFrame, results: RoundResult) -> DataFrame`**:
+   - Compare empirical pollster accuracy (MAE) against La Silla Vacía ratings.
+   - Normalise empirical MAE to a 0-10 scale.
+   - Flag pollsters with a deviation > 2.0 (empirical vs. rating).
+
+2. **`validate_time_decay(polls: DataFrame, results: RoundResult) -> TimeDecayResult`**:
+   - Fit a log-linear regression of MAE vs. days before election.
+   - Derive an optimal half-life for time decay.
+   - Log a warning if the optimal half-life differs from `ModelConfig` by > 15 days.
+
+3. **`quantify_methodology_effect(polls: DataFrame, results: RoundResult) -> MethodologyEffectResult`**:
+   - Group post-consultation polls by survey methodology (`tipo`).
+   - Compute mean candidate MAE per methodology.
+   - Flag candidates with max methodology difference > 3.0 percentage points.
+
+### 14.2 Acceptance Criteria
+
+- All diagnostic functions execute successfully on the 2022 dataset.
+- `validate_pollster_ratings` flags pollsters with large deviations.
+- `validate_time_decay` provides actionable recommendations for `ModelConfig`.
+- `quantify_methodology_effect` correctly identifies and flags candidates impacted by survey methodology.
+- All functions fully typed; `pyright` passes.
+
+### 14.3 TDD Steps
+
+1. **Red**: Write `tests/test_data_quality.py` with tests for:
+   - `validate_pollster_ratings` on a synthetic poll dataset with known errors.
+   - `validate_time_decay` on a synthetic dataset; verify regression convergence.
+   - `quantify_methodology_effect` on a synthetic dataset; check methodology-specific MAE.
+2. **Green**: Ensure `src/co_president/_data_quality.py` implementation passes tests.
+3. **Type-check + Lint + Commit**.
+
+---
+
+## 15. Implementation Order & Dependency Graph
 
 ```
   SPEC-01 (Scaffolding)

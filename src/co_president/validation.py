@@ -51,6 +51,8 @@ class CandidateValidation:
         predicted_median: Posterior median vote share.
         error: ``predicted_mean - actual_share``.
         abs_error: ``|error|``.
+        ci_95_lower: Lower bound of 95% credible interval.
+        ci_95_upper: Upper bound of 95% credible interval.
         within_95ci: Whether actual_share falls inside 95% credible interval.
         within_50ci: Whether actual_share falls inside 50% credible interval.
 
@@ -62,6 +64,8 @@ class CandidateValidation:
     predicted_median: float
     error: float
     abs_error: float
+    ci_95_lower: float
+    ci_95_upper: float
     within_95ci: bool
     within_50ci: bool
 
@@ -117,6 +121,8 @@ def validate_round1(
                 predicted_median=fc.median_share,
                 error=error,
                 abs_error=abs_error,
+                ci_95_lower=fc.ci_95[0],
+                ci_95_upper=fc.ci_95[1],
                 within_95ci=within_95ci,
                 within_50ci=within_50ci,
             )
@@ -171,25 +177,29 @@ def validate_runoff(
     """
     candidate_keys = [forecast.candidate_a_key, forecast.candidate_b_key]
     mean_shares = [forecast.mean_share_a, forecast.mean_share_b]
+    median_shares = [forecast.median_share_a, forecast.median_share_b]
     ci_95_intervals = [forecast.ci_95_a, forecast.ci_95_b]
+    ci_50_intervals = [forecast.ci_50_a, forecast.ci_50_b]
     candidates: list[CandidateValidation] = []
-    for key, mean_share, ci_95 in zip(candidate_keys, mean_shares, ci_95_intervals, strict=True):
+    for key, mean_share, median_share, ci_95, ci_50 in zip(
+        candidate_keys, mean_shares, median_shares, ci_95_intervals, ci_50_intervals, strict=True
+    ):
         actual_share = results.get_share(key)
         within_95ci = ci_95[0] <= actual_share <= ci_95[1]
+        within_50ci = ci_50[0] <= actual_share <= ci_50[1]
         error = mean_share - actual_share
-        # RunoffForecast does not carry median or 50% CI fields,
-        # so we approximate median with the mean and conservatively
-        # mark within_50ci as False.
         candidates.append(
             CandidateValidation(
                 candidate_key=key,
                 actual_share=actual_share,
                 predicted_mean=mean_share,
-                predicted_median=mean_share,
+                predicted_median=median_share,
                 error=error,
                 abs_error=abs(error),
+                ci_95_lower=ci_95[0],
+                ci_95_upper=ci_95[1],
                 within_95ci=within_95ci,
-                within_50ci=False,
+                within_50ci=within_50ci,
             )
         )
 

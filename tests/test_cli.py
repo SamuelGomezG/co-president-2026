@@ -583,6 +583,8 @@ def test_print_summary_table_shows_runoff_matrix() -> None:
                 predicted_median=0.410,
                 error=0.0086,
                 abs_error=0.0086,
+                ci_95_lower=0.371,
+                ci_95_upper=0.453,
                 within_95ci=True,
                 within_50ci=True,
             ),

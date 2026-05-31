@@ -17,6 +17,7 @@ from co_president.model_round1 import (
     build_round1_model,
     forecast_round1,
     sample_round1,
+    simulate_elections,
 )
 import co_president.model_runoff_matrix as runoff_matrix
 from co_president.model_runoff_matrix import (
@@ -106,6 +107,49 @@ def test_build_round1_model_house_effects() -> None:
     det_names = {d.name for d in model.deterministics}
     assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     # Observed RVs: poll_likelihood
+    assert len(model.observed_RVs) == 1
+
+
+def test_build_round1_model_phase_a() -> None:
+    """Test minimal model graph: 2 candidates, 1 pollster, T=1, no house effects."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterA"],
+            "muestra": [1000, 1000],
+            "gustavo_petro": [50.0, 51.0],
+            "rodolfo_hernandez": [50.0, 49.0],
+            "round_number": [1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, concentration_poll_prior_mean=100.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    assert len(model.free_RVs) == 2
+    assert {rv.name for rv in model.free_RVs} == {"sigma_rw", "theta_0"}
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_adj"}
+    assert len(model.observed_RVs) == 1
+
+
+def test_build_round1_model_phase_b() -> None:
+    """Test model graph with house effects: 2 candidates, 2 pollsters, T=1."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterB"],
+            "muestra": [1000, 1000],
+            "gustavo_petro": [50.0, 51.0],
+            "rodolfo_hernandez": [50.0, 49.0],
+            "round_number": [1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config)
+
+    assert len(model.free_RVs) == 5
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     assert len(model.observed_RVs) == 1
 
 
@@ -401,6 +445,164 @@ def test_forecast_round1() -> None:
 
 
 # ---------------------------------------------------------------------------
+# simulate_elections tests (SPEC-06 §9.2.3)
+# ---------------------------------------------------------------------------
+
+
+def test_simulate_elections_returns_correct_shape() -> None:
+    """Test that simulate_elections returns expected DataFrame shape."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_candidates = len(candidate_order)
+    n_sim = 500
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+    expected_rows = n_sim * n_candidates
+    assert result.shape == (expected_rows, 6), f"Expected ({expected_rows}, 6), got {result.shape}"
+    assert list(result.columns) == [
+        "sim_id",
+        "candidate",
+        "share",
+        "rank",
+        "win_outright",
+        "goes_to_runoff",
+    ]
+
+
+def test_simulate_elections_shares_sum_to_100() -> None:
+    """Test that shares sum to 1.0 within each simulation."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 500
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+    grouped = result.groupby("sim_id")["share"].sum()
+    np.testing.assert_allclose(grouped.values, 1.0, atol=1e-10)
+
+
+def test_simulate_elections_rank_consistency() -> None:
+    """Test that rank-ordered shares are monotonically decreasing."""
+    idata = _make_synthetic_round1_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 500
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+    for sim_id, group in result.groupby("sim_id"):
+        ordered = group.sort_values("rank")
+        shares = ordered["share"].to_numpy()
+        for i in range(len(shares) - 1):
+            assert shares[i] >= shares[i + 1] - 1e-10, (
+                f"Sim {sim_id}: rank {i + 1} share {shares[i]:.4f} "
+                f"< rank {i + 2} share {shares[i + 1]:.4f}"
+            )
+
+
+def _make_synthetic_outright_win_idata() -> az.InferenceData:
+    """Create synthetic InferenceData mimicking a Round 1 posterior with an outright winner.
+
+    Gustavo Petro is given overwhelming concentration to ensure his share > 50%
+    in all draws.
+    """
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    # Petro (index 2) gets a massive concentration to guarantee > 50%
+    alphas = np.array([1, 1, 500, 1, 1, 1, 1], dtype=float)
+
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    return az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={
+            "candidate_dim_0": candidate_order,
+        },
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+
+def test_simulate_elections_outright_win() -> None:
+    """Test that outright win and runoff flags are consistent when a candidate exceeds 50%."""
+    idata = _make_synthetic_outright_win_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 1000
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+
+    # Verify our synthetic data actually produced shares > 50% for Petro
+    petro_shares = result[result["candidate"] == "gustavo_petro"]["share"]
+    assert (petro_shares > 0.5).all(), "Synthetic data failed to produce >50% shares for Petro"
+
+    for sim_id, group in result.groupby("sim_id"):
+        sim_goes_runoff = group["goes_to_runoff"].iloc[0]
+        any_outright = group["win_outright"].any()
+
+        # In our outright win synthetic data, someone must always win outright
+        assert any_outright, f"Sim {sim_id}: Expected an outright winner but found none"
+        assert not sim_goes_runoff, f"Sim {sim_id}: has outright winner but goes_to_runoff=True"
+
+        # Verify Petro specifically is the outright winner
+        petro_winner = group[(group["candidate"] == "gustavo_petro") & group["win_outright"]]
+        assert len(petro_winner) == 1, f"Sim {sim_id}: Petro should be the sole outright winner"
+
+        # Verify exactly one candidate has the win_outright flag True
+        winner_rows = group[group["win_outright"]]
+        assert len(winner_rows) == 1, (
+            f"Sim {sim_id}: Expected 1 outright winner, got {len(winner_rows)}"
+        )
+        assert winner_rows["share"].iloc[0] > 0.5, f"Sim {sim_id}: Outright winner share <= 50%"
+
+        # Verify all non-winners have win_outright=False
+        non_winners = group[~group["win_outright"]]
+        assert len(non_winners) == len(candidate_order) - 1, (
+            f"Sim {sim_id}: Expected {len(candidate_order) - 1} non-winners, got {len(non_winners)}"
+        )
+
+
+def _make_synthetic_runoff_idata() -> az.InferenceData:
+    """Create synthetic InferenceData where no candidate exceeds 50% (runoff scenario)."""
+    rng = np.random.default_rng(42)
+    n_chains, n_draws = 2, 500
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+
+    # Equal-ish distribution: Petro ~40%, Hernandez ~28%, rest spread — no candidate > 50%
+    alphas = np.array([10, 30, 40, 5, 5, 35, 10], dtype=float)
+
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 1, len(candidate_order)))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    return az.from_dict(
+        data={"posterior": {"p_time": p_time}},
+        coords={
+            "candidate_dim_0": candidate_order,
+        },
+        dims={"p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+
+def test_simulate_elections_runoff_scenario() -> None:
+    """Test that goes_to_runoff is True when no candidate exceeds 50%."""
+    idata = _make_synthetic_runoff_idata()
+    candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+    n_sim = 1000
+    result = simulate_elections(idata, candidate_order, n_simulations=n_sim)
+
+    # Verify no Petro shares exceed 50% (runoff data should be well below threshold)
+    petro_shares = result[result["candidate"] == "gustavo_petro"]["share"]
+    assert (petro_shares <= 0.5).all(), "Synthetic runoff data should not produce Petro > 50%"
+
+    for sim_id, group in result.groupby("sim_id"):
+        sim_goes_runoff = group["goes_to_runoff"].iloc[0]
+        any_outright = group["win_outright"].any()
+
+        # No candidate should win outright in a runoff scenario
+        assert not any_outright, f"Sim {sim_id}: Unexpected outright winner in runoff data"
+        assert sim_goes_runoff, f"Sim {sim_id}: Expected goes_to_runoff=True but got False"
+
+        # All candidates should have win_outright=False
+        assert not group["win_outright"].any(), (
+            f"Sim {sim_id}: Expected all win_outright=False in runoff scenario"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Runoff Simple Model Tests (SPEC-07)
 # ---------------------------------------------------------------------------
 
@@ -547,11 +749,21 @@ def test_forecast_runoff_simple() -> None:
     assert forecast.prob_a_wins > 0.5
     assert forecast.mean_share_a > forecast.mean_share_b
 
+    # Median shares should exist in [0, 1]
+    assert 0.0 <= forecast.median_share_a <= 1.0
+    assert 0.0 <= forecast.median_share_b <= 1.0
+
     # CI lengths should be positive
     a_ci_len = forecast.ci_95_a[1] - forecast.ci_95_a[0]
     b_ci_len = forecast.ci_95_b[1] - forecast.ci_95_b[0]
     assert a_ci_len > 0.0
     assert b_ci_len > 0.0
+
+    # 50% CI should be narrower than 95% CI
+    a_ci_50_len = forecast.ci_50_a[1] - forecast.ci_50_a[0]
+    b_ci_50_len = forecast.ci_50_b[1] - forecast.ci_50_b[0]
+    assert 0.0 < a_ci_50_len < a_ci_len
+    assert 0.0 < b_ci_50_len < b_ci_len
 
 
 def test_runoff_forecast_dataclass() -> None:
@@ -563,13 +775,21 @@ def test_runoff_forecast_dataclass() -> None:
         prob_b_wins=0.25,
         mean_share_a=0.52,
         mean_share_b=0.48,
+        median_share_a=0.51,
+        median_share_b=0.47,
         mean_margin=0.04,
+        ci_50_a=(0.50, 0.54),
+        ci_50_b=(0.46, 0.50),
         ci_95_a=(0.48, 0.56),
         ci_95_b=(0.44, 0.52),
     )
     assert rf.prob_a_wins + rf.prob_b_wins <= 1.0
     assert rf.mean_share_a > rf.mean_share_b
     assert abs(rf.mean_margin - (rf.mean_share_a - rf.mean_share_b)) < 1e-10
+    assert 0.0 <= rf.median_share_a <= 1.0
+    assert 0.0 <= rf.median_share_b <= 1.0
+    assert rf.ci_50_a[0] <= rf.ci_50_a[1]
+    assert rf.ci_50_b[0] <= rf.ci_50_b[1]
 
 
 # ---------------------------------------------------------------------------

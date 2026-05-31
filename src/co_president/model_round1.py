@@ -25,9 +25,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "CandidateForecast",
+    "Round1Forecast",
+    "build_round1_model",
+    "forecast_round1",
+    "sample_round1",
+    "simulate_elections",
+]
 
-def build_round1_model(  # noqa: C901, PLR0915
-    polls: pd.DataFrame, results: RoundResult | None, config: ModelConfig
+
+def build_round1_model(  # noqa: C901, PLR0912, PLR0915
+    polls: pd.DataFrame,
+    results: RoundResult | None,
+    config: ModelConfig,
+    *,
+    no_house_effects: bool = False,
 ) -> pm.Model:
     """Build the PyMC model graph for the first round.
 
@@ -41,6 +54,9 @@ def build_round1_model(  # noqa: C901, PLR0915
         results: Canonical election results for validation, if available.
             When provided, an election-day likelihood term is included.
         config: Model hyperparameters.
+        no_house_effects: If True, build a simplified model without house
+            effects and with a fixed concentration parameter. Defaults to
+            False.
 
     Returns:
         pm.Model: Constructed PyMC model.
@@ -155,19 +171,6 @@ def build_round1_model(  # noqa: C901, PLR0915
             "sigma_rw",
             sigma=config.random_walk_sigma_prior,
         )
-        sigma_house = pm.HalfNormal(  # type: ignore
-            "sigma_house",
-            sigma=config.house_effect_sigma_prior,
-        )
-        phi_poll = pm.Gamma(  # type: ignore
-            "phi_poll",
-            alpha=2,
-            beta=2.0 / config.concentration_poll_prior_mean,
-        )
-        phi_poll_n = pm.Deterministic(  # type: ignore
-            "phi_poll_n",
-            phi_poll * sample_size_multiplier,
-        )
 
         # Reverse-time random walk
         theta_rev: list = []  # type: ignore[reportMissingTypeArgument]
@@ -190,29 +193,53 @@ def build_round1_model(  # noqa: C901, PLR0915
 
         theta_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # type: ignore
 
-        # Latent vote share probabilities per time point
-        # (used for prior predictive validation and plotting)
-        pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))  # type: ignore
+        if not no_house_effects:
+            sigma_house = pm.HalfNormal(  # type: ignore
+                "sigma_house",
+                sigma=config.house_effect_sigma_prior,
+            )
+            phi_poll = pm.Gamma(  # type: ignore
+                "phi_poll",
+                alpha=2,
+                beta=2.0 / config.concentration_poll_prior_mean,
+            )
+            phi_poll_n = pm.Deterministic(  # type: ignore
+                "phi_poll_n",
+                phi_poll * sample_size_multiplier,
+            )
 
-        # House effects (zero-sum constrained)
-        raw_house = pm.Normal(  # type: ignore
-            "raw_house",
-            mu=0,
-            sigma=sigma_house,
-            shape=(n_pollsters, n_candidates),
-        )
-        house_effects = pm.Deterministic(  # type: ignore
-            "house_effects",
-            raw_house - raw_house.mean(axis=0, keepdims=True),  # type: ignore
-        )
+            # Latent vote share probabilities per time point
+            # (used for prior predictive validation and plotting)
+            pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))  # type: ignore
 
-        # Poll observation model
-        theta_selected = theta_stacked[time_indices]  # type: ignore
-        house_selected = house_effects[pollster_indices]  # type: ignore
-        theta_adj = theta_selected + house_selected  # type: ignore
+            # House effects (zero-sum constrained)
+            raw_house = pm.Normal(  # type: ignore
+                "raw_house",
+                mu=0,
+                sigma=sigma_house,
+                shape=(n_pollsters, n_candidates),
+            )
+            house_effects = pm.Deterministic(  # type: ignore
+                "house_effects",
+                raw_house - raw_house.mean(axis=0, keepdims=True),  # type: ignore
+            )
 
-        p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))  # type: ignore
-        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
+            # Poll observation model with house effects
+            theta_selected = theta_stacked[time_indices]  # type: ignore
+            house_selected = house_effects[pollster_indices]  # type: ignore
+            theta_adj = theta_selected + house_selected  # type: ignore
+
+            p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))  # type: ignore
+            alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
+        else:
+            # Simplified model without house effects or phi_poll
+            theta_selected = theta_stacked[time_indices]  # type: ignore
+            p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_selected, axis=-1))  # type: ignore
+            phi_poll_fixed = float(config.concentration_poll_prior_mean)
+            alpha_poll = pm.math.maximum(  # type: ignore
+                p_adj * phi_poll_fixed * sample_size_multiplier,  # type: ignore
+                eps,
+            )
 
         pm.DirichletMultinomial(  # type: ignore
             "poll_likelihood",
@@ -504,3 +531,90 @@ def forecast_round1(
         prob_runoff=prob_runoff,
         round_number=1,
     )
+
+
+def simulate_elections(
+    idata: az.InferenceData,
+    candidates: list[str],
+    n_simulations: int = 10000,
+) -> pd.DataFrame:
+    """Simulate election outcomes from posterior draws.
+
+    Extracts election-day (time=0) vote share posterior samples and draws
+    ``n_simulations`` simulations with replacement. For each simulation,
+    computes per-candidate shares, ranks candidates, and determines whether
+    an outright winner exists (>50%) or a runoff is needed.
+
+    Args:
+        idata: Posterior samples, must contain ``p_time`` with shape
+            ``(chain, draw, time, candidate)``.
+        candidates: Ordered list of candidate keys matching the model's
+            candidate column order.
+        n_simulations: Number of simulations to draw. Defaults to 10,000.
+
+    Returns:
+        pd.DataFrame: Long-format DataFrame with columns:
+            - ``sim_id`` (int): Simulation index (0 to ``n_simulations - 1``).
+            - ``candidate`` (str): Candidate key.
+            - ``share`` (float): Vote share for this simulation.
+            - ``rank`` (int): Rank in this simulation (1 = highest share).
+            - ``win_outright`` (bool): Whether this candidate won outright
+              (>50%) in this simulation.
+            - ``goes_to_runoff`` (bool): Whether no candidate won outright
+              in this simulation (same value for all candidates in a sim).
+
+    Raises:
+        ValueError: If ``p_time`` does not have 4 dimensions or the
+            candidate dimension does not match ``len(candidates)``.
+
+    Examples:
+        >>> from co_president.config import FIRST_ROUND_CANDIDATES
+        >>> candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
+        >>> sims = simulate_elections(idata, candidate_keys, n_simulations=1000)
+        >>> sims.shape
+        (n_simulations * len(candidate_keys), 6)
+
+    """
+    p_time = idata.posterior["p_time"]  # (chain, draw, time, candidate)
+    ndim = p_time.ndim
+    if ndim != 4:  # noqa: PLR2004
+        msg = f"p_time must have 4 dimensions (chain, draw, time, candidate), got {ndim}"
+        raise ValueError(msg)
+    last_dim = p_time.shape[-1]
+    if last_dim != len(candidates):
+        msg = (
+            f"p_time candidate dimension ({last_dim}) does not match "
+            f"candidates list length ({len(candidates)})"
+        )
+        raise ValueError(msg)
+
+    election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
+    n_total = election_day.shape[0] * election_day.shape[1]
+    n_candidates = len(candidates)
+    shares = election_day.to_numpy().reshape(n_total, n_candidates)
+
+    rng = np.random.default_rng()
+    indices = rng.integers(0, n_total, size=n_simulations)
+    selected = shares[indices]  # (n_simulations, n_candidates)
+
+    rows: list[dict[str, int | str | float | bool]] = []
+    for sim_idx in range(n_simulations):
+        sim_shares = selected[sim_idx]
+        sorted_indices = np.argsort(-sim_shares)
+        ranks: np.ndarray = np.empty(len(sim_shares), dtype=int)
+        ranks[sorted_indices] = np.arange(1, len(sim_shares) + 1)
+        win_outright = sim_shares > 0.5  # noqa: PLR2004
+        goes_to_runoff = not bool(win_outright.any())
+        for cand_idx, key in enumerate(candidates):
+            rows.append(
+                {
+                    "sim_id": sim_idx,
+                    "candidate": key,
+                    "share": float(sim_shares[cand_idx]),
+                    "rank": int(ranks[cand_idx]),
+                    "win_outright": bool(win_outright[cand_idx]),
+                    "goes_to_runoff": goes_to_runoff,
+                }
+            )
+
+    return pd.DataFrame(rows)

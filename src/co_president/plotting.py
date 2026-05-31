@@ -110,10 +110,10 @@ def plot_forecast_evolution(
 def plot_calibration(
     validation: RoundValidation,
 ) -> Figure:
-    """Plot predicted vs actual vote share with error bars and 45-degree line.
+    """Plot predicted vs actual vote share with 95% CI error bars and 45-degree line.
 
-    Error bars show the absolute prediction error magnitude (not credible
-    intervals) since RoundValidation does not carry per-candidate CI data.
+    Error bars show the 95% credible interval for each candidate's predicted
+    vote share, centered on the posterior mean.
 
     Args:
         validation: Validated results for one round.
@@ -129,9 +129,13 @@ def plot_calibration(
         actual = [cv.actual_share * 100 for cv in validation.candidates]
         labels = [cv.candidate_key.replace("_", " ").title() for cv in validation.candidates]
 
-        # Compute xerr from the difference between predicted and actual
-        xerr_lower = [abs(p - a) for p, a in zip(predicted, actual, strict=True)]
-        xerr_values = [xerr_lower, xerr_lower]
+        xerr_lower = [
+            cv.predicted_mean * 100 - cv.ci_95_lower * 100 for cv in validation.candidates
+        ]
+        xerr_upper = [
+            cv.ci_95_upper * 100 - cv.predicted_mean * 100 for cv in validation.candidates
+        ]
+        xerr_values = [xerr_lower, xerr_upper]
 
         ax.errorbar(  # type: ignore
             predicted,
