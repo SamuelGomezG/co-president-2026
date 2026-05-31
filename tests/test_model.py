@@ -111,7 +111,15 @@ def test_build_round1_model_house_effects() -> None:
 
 
 def test_build_round1_model_phase_a() -> None:
-    """Test minimal model graph: 2 candidates, 1 pollster, T=1, no house effects."""
+    """Test minimal model graph: 2 candidates, 1 pollster, T=1, no house effects.
+
+    Note: Issue #144's literal TDD step specifies 1 deterministic. The
+    implementation produces 2 deterministics (``p_adj``, ``p_time``) because
+    ``p_time`` is required by ``forecast_round1`` and ``simulate_elections``
+    for latent share extraction. This is a legitimate structural divergence
+    — the deterministic count from the issue is outdated relative to the
+    final mathematical specification.
+    """
     polls = pd.DataFrame(
         {
             "fecha": ["2022-05-29", "2022-05-29"],
@@ -133,7 +141,23 @@ def test_build_round1_model_phase_a() -> None:
 
 
 def test_build_round1_model_phase_b() -> None:
-    """Test model graph with house effects: 2 candidates, 2 pollsters, T=1."""
+    """Test model graph with house effects: 2 candidates, 2 pollsters, T=1.
+
+    Note: Issue #144's literal TDD step specifies 4 free RVs and 2
+    deterministics. The implementation produces 5 free RVs and 4
+    deterministics because:
+
+    - ``phi_poll`` (Gamma prior, free RV) is required by the mathematical
+      spec (SPEC-06 §9.1) as the nominal poll concentration parameter.
+    - ``phi_poll_n`` (deterministic) applies log-sample-size scaling to
+      ``phi_poll`` per the model formula.
+    - ``p_time`` (deterministic) captures latent vote shares per time point
+      for forecast extraction.
+
+    These are legitimate structural divergences — the literal counts from
+    the issue are outdated relative to the final mathematical
+    specification.
+    """
     polls = pd.DataFrame(
         {
             "fecha": ["2022-05-29", "2022-05-29"],
@@ -148,6 +172,13 @@ def test_build_round1_model_phase_b() -> None:
     model = build_round1_model(polls, None, config)
 
     assert len(model.free_RVs) == 5
+    assert {rv.name for rv in model.free_RVs} == {
+        "sigma_rw",
+        "sigma_house",
+        "phi_poll",
+        "theta_0",
+        "raw_house",
+    }
     det_names = {d.name for d in model.deterministics}
     assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     assert len(model.observed_RVs) == 1
