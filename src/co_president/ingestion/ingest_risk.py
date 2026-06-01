@@ -588,9 +588,9 @@ def _pdet_hardcoded_fallback() -> pd.DataFrame:
         "97001",
         "91001",
     ]
-    assert len(pdet_codes) == _EXPECTED_PDET_COUNT, (  # noqa: S101
-        f"PDET fallback has {len(pdet_codes)} codes, expected {_EXPECTED_PDET_COUNT}"
-    )
+    if len(pdet_codes) != _EXPECTED_PDET_COUNT:
+        msg = f"PDET fallback has {len(pdet_codes)} codes, expected {_EXPECTED_PDET_COUNT}"
+        raise ValueError(msg)
     records = [{"codigo_municipio": code, "is_pdet": 1} for code in pdet_codes]
     return pd.DataFrame(records)
 
