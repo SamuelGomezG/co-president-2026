@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from co_president.ingestion.ingest_risk import (
+    _pdet_hardcoded_fallback,
     build_risk_matrix,
     calculate_risk_features,
     fetch_moe_risk_maps,
@@ -21,6 +22,47 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+
+
+# All 33 DANE department codes for Colombia (32 departments + Bogotá D.C.)
+# Source: DANE Divipola coding standard.
+_KNOWN_DANE_DEPT_CODES: frozenset[str] = frozenset(
+    {
+        "05",  # Antioquia
+        "08",  # Atlántico
+        "11",  # Bogotá D.C.
+        "13",  # Bolívar
+        "15",  # Boyacá
+        "17",  # Caldas
+        "18",  # Caquetá
+        "19",  # Cauca
+        "20",  # Cesar
+        "23",  # Córdoba
+        "25",  # Cundinamarca
+        "27",  # Chocó
+        "41",  # Huila
+        "44",  # La Guajira
+        "47",  # Magdalena
+        "50",  # Meta
+        "52",  # Nariño
+        "54",  # Norte de Santander
+        "63",  # Quindío
+        "66",  # Risaralda
+        "68",  # Santander
+        "70",  # Sucre
+        "73",  # Tolima
+        "76",  # Valle del Cauca
+        "81",  # Arauca
+        "85",  # Casanare
+        "86",  # Putumayo
+        "88",  # San Andrés y Providencia
+        "91",  # Amazonas
+        "94",  # Guainía
+        "95",  # Guaviare
+        "97",  # Vaupés
+        "99",  # Vichada
+    }
+)
 
 __all__: list[str] = []
 
@@ -232,6 +274,33 @@ class TestCalculateRiskFeatures:
 # ═══════════════════════════════════════════════════════════════════
 # Build pipeline
 # ═══════════════════════════════════════════════════════════════════
+
+
+class TestPdetHardcodedFallback:
+    """Direct tests for the PDET fallback list."""
+
+    def test_returns_170_municipalities(self) -> None:
+        """Fallback returns exactly 170 PDET municipalities."""
+        df = _pdet_hardcoded_fallback()
+        assert len(df) == 170
+        assert set(df.columns) == {"codigo_municipio", "is_pdet"}
+        assert (df["is_pdet"] == 1).all()
+
+    def test_no_duplicate_codes(self) -> None:
+        """All municipality codes are unique."""
+        df = _pdet_hardcoded_fallback()
+        assert df["codigo_municipio"].is_unique
+
+    def test_all_codes_are_valid_dane(self) -> None:
+        """All codes are 5-digit numeric strings with valid DANE department prefixes."""
+        df = _pdet_hardcoded_fallback()
+        for code in df["codigo_municipio"]:
+            assert len(code) == 5, f"Code {code!r} is not 5 digits"
+            assert code.isdigit(), f"Code {code!r} is not numeric"
+            prefix = code[:2]
+            assert prefix in _KNOWN_DANE_DEPT_CODES, (
+                f"Invalid DANE department prefix {prefix!r} in codigo_municipio {code!r}"
+            )
 
 
 class TestBuildRiskMatrix:
