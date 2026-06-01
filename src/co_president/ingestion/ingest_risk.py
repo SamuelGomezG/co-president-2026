@@ -8,6 +8,7 @@ sources are unavailable.
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
 from pathlib import Path
 import tempfile
@@ -573,6 +574,15 @@ def _pdet_hardcoded_fallback() -> pd.DataFrame:
     ]
     if len(pdet_codes) != _EXPECTED_PDET_COUNT:
         msg = f"PDET fallback has {len(pdet_codes)} codes, expected {_EXPECTED_PDET_COUNT}"
+        raise ValueError(msg)
+    unique_codes = set(pdet_codes)
+    if len(unique_codes) != _EXPECTED_PDET_COUNT:
+        counts = Counter(pdet_codes)
+        dup_list = sorted(code for code, cnt in counts.items() if cnt > 1)
+        msg = (
+            f"PDET fallback contains duplicate codes: {dup_list}, "
+            f"expected {_EXPECTED_PDET_COUNT} unique codes"
+        )
         raise ValueError(msg)
     records = [{"codigo_municipio": code, "is_pdet": 1} for code in pdet_codes]
     return pd.DataFrame(records)
