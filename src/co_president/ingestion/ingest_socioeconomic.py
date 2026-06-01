@@ -226,7 +226,15 @@ def calculate_features(
     if not projections_df.empty:
         result = result.merge(projections_df, on="codigo_municipio", how="left")
         if "proyeccion_2022" in result.columns:
-            result["population_2022"] = result["proyeccion_2022"]
+            raw_pop = pd.to_numeric(result["proyeccion_2022"], errors="coerce")
+            coerced_count = int(raw_pop.isna().sum() - result["proyeccion_2022"].isna().sum())
+            if coerced_count > 0:
+                logger.warning(
+                    "%d %s coerced to NaN in proyeccion_2022",
+                    coerced_count,
+                    "value was" if coerced_count == 1 else "values were",
+                )
+            result["population_2022"] = raw_pop
     else:
         result["population_2022"] = pd.NA
     result["pct_afro_colombian"] = result["pct_afro_colombian"].clip(0.0, 1.0)
