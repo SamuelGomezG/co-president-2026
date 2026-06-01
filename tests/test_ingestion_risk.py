@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from co_president.ingestion.ingest_risk import (
+    _pdet_hardcoded_fallback,
     build_risk_matrix,
     calculate_risk_features,
     fetch_moe_risk_maps,
@@ -232,6 +233,29 @@ class TestCalculateRiskFeatures:
 # ═══════════════════════════════════════════════════════════════════
 # Build pipeline
 # ═══════════════════════════════════════════════════════════════════
+
+
+class TestPdetHardcodedFallback:
+    """Direct tests for the PDET fallback list."""
+
+    def test_returns_170_municipalities(self) -> None:
+        """Fallback returns exactly 170 PDET municipalities."""
+        df = _pdet_hardcoded_fallback()
+        assert len(df) == 170
+        assert set(df.columns) == {"codigo_municipio", "is_pdet"}
+        assert (df["is_pdet"] == 1).all()
+
+    def test_no_duplicate_codes(self) -> None:
+        """All municipality codes are unique."""
+        df = _pdet_hardcoded_fallback()
+        assert df["codigo_municipio"].is_unique
+
+    def test_all_codes_are_valid_dane(self) -> None:
+        """All codes are 5-digit numeric strings."""
+        df = _pdet_hardcoded_fallback()
+        for code in df["codigo_municipio"]:
+            assert len(code) == 5, f"Code {code!r} is not 5 digits"
+            assert code.isdigit(), f"Code {code!r} is not numeric"
 
 
 class TestBuildRiskMatrix:
