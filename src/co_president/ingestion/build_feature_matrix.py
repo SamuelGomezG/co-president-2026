@@ -50,6 +50,13 @@ def load_all_components(data_dir: Path) -> dict[str, pd.DataFrame]:
         Dict mapping component names to DataFrames.  Keys match
         ``_COMPONENT_FILES``.
 
+    Examples:
+        >>> components = load_all_components(Path("data"))
+        >>> isinstance(components, dict)
+        True
+        >>> "divipola" in components
+        True
+
     """
     fundamentals_dir = data_dir / "fundamentals"
     components: dict[str, pd.DataFrame] = {}
@@ -60,7 +67,9 @@ def load_all_components(data_dir: Path) -> dict[str, pd.DataFrame]:
             components[name] = pd.DataFrame()
             continue
         try:
-            df = pd.read_csv(path)
+            df = pd.read_csv(path, dtype={"codigo_municipio": str})
+            if "codigo_municipio" in df.columns:
+                df["codigo_municipio"] = df["codigo_municipio"].astype(str)
             components[name] = df
             logger.info(
                 "Loaded %s: %d rows, %d columns",
@@ -89,6 +98,11 @@ def validate_component_health(components: dict[str, pd.DataFrame]) -> list[str]:
     Returns:
         List of warning messages.  An empty list signals a clean bill of
         health.
+
+    Examples:
+        >>> components = {"divipola": pd.DataFrame({"codigo_municipio": ["05001"]})}
+        >>> validate_component_health(components)
+        []
 
     """
     warnings: list[str] = []
@@ -142,6 +156,13 @@ def pivot_historical_wide(historical: pd.DataFrame) -> pd.DataFrame:
     Raises:
         ValueError: If required columns are missing.
 
+    Examples:
+        >>> df = pd.DataFrame({"codigo_municipio": ["05001"], "year": [2022],
+        ...                    "round": [1], "candidate": ["A"], "vote_share": [0.5]})
+        >>> wide = pivot_historical_wide(df)
+        >>> "vote_share_2022_r1_A" in wide.columns
+        True
+
     """
     required = {"codigo_municipio", "year", "round", "candidate", "vote_share"}
     missing = required - set(historical.columns)
@@ -184,6 +205,11 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     Raises:
         FileNotFoundError: If the data directory cannot be resolved.
 
+    Examples:
+        >>> matrix = build_feature_matrix(Path("data"))
+        >>> matrix.shape[1] > 0
+        True
+
     """
     if data_dir is None:
         data_dir = resolve_data_dir(None)
@@ -206,11 +232,11 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
 
     matrix = divipola.copy()
     if not historical_wide.empty:
-        matrix = matrix.merge(historical_wide, on="codigo_municipio", how="left")
+        matrix = matrix.merge(historical_wide, on="codigo_municipio", how="left", validate="m:1")
     if not socioeconomic.empty:
-        matrix = matrix.merge(socioeconomic, on="codigo_municipio", how="left")
+        matrix = matrix.merge(socioeconomic, on="codigo_municipio", how="left", validate="m:1")
     if not risk.empty:
-        matrix = matrix.merge(risk, on="codigo_municipio", how="left")
+        matrix = matrix.merge(risk, on="codigo_municipio", how="left", validate="m:1")
 
     _log_matrix_stats(matrix)
     return matrix
@@ -225,6 +251,13 @@ def generate_data_dictionary(matrix: pd.DataFrame, output_path: str) -> None:
     Args:
         matrix: The municipal feature matrix.
         output_path: File path for the generated Markdown file.
+
+    Returns:
+        ``None`` — writes output to disk as a side effect.
+
+    Examples:
+        >>> matrix = pd.DataFrame({"x": [1, 2, 3]})
+        >>> generate_data_dictionary(matrix, "/tmp/dictionary.md")
 
     """
     lines: list[str] = [
@@ -268,8 +301,16 @@ def save_feature_matrix(matrix: pd.DataFrame, data_dir: Path | None = None) -> N
         data_dir: Root data directory.  If ``None``, resolves via
             ``resolve_data_dir``.
 
+    Returns:
+        ``None`` — writes CSV, Parquet, data dictionary, and summary
+        JSON as side effects.
+
     Raises:
         ValueError: If ``matrix`` is empty.
+
+    Examples:
+        >>> matrix = pd.DataFrame({"x": [1, 2]})
+        >>> save_feature_matrix(matrix, Path("/tmp"))
 
     """
     if data_dir is None:
