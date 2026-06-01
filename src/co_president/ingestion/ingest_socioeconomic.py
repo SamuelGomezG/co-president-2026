@@ -67,9 +67,10 @@ def fetch_dane_csv(dane_url: str) -> pd.DataFrame | None:
         DataFrame parsed from the response, or ``None`` if no downloadable
         file was found.
 
-    Raises:
-        requests.RequestException: When the HTTP request fails and retries
-            are exhausted.
+    Note:
+        This function never raises.  All network errors are caught and
+        logged internally; the caller should check for ``None`` to
+        detect failure rather than expecting an exception.
 
     """
     try:
@@ -106,13 +107,13 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
                 with page.expect_download(timeout=30000) as download_info:
                     page.click("text=CSV", timeout=10000)
                 download = download_info.value
-                tmp_dir = Path(tempfile.mkdtemp())
-                csv_path = tmp_dir / "cnpv_2018_download.csv"
-                download.save_as(str(csv_path))
-                browser.close()
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    csv_path = Path(tmp_dir) / "cnpv_2018_download.csv"
+                    download.save_as(str(csv_path))
+                    browser.close()
 
-                if csv_path.stat().st_size > 0:
-                    return pd.read_csv(str(csv_path), encoding="latin-1")
+                    if csv_path.stat().st_size > 0:
+                        return pd.read_csv(str(csv_path), encoding="latin-1")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Playwright census download failed: %s", exc)
                 browser.close()
@@ -137,7 +138,7 @@ def fetch_poverty_indicators() -> pd.DataFrame:
     if df is not None and _is_valid_poverty_df(df):
         return df
     try:
-        response = requests.get(_DANE_IPM_URL, timeout=30)
+        response = _fetch_dane_raw(_DANE_IPM_URL)
         soup = BeautifulSoup(response.text, "html.parser")
         excel_links = [str(a.get("href", "")) for a in soup.select("a[href$='.xlsx']")]
         for link in excel_links:

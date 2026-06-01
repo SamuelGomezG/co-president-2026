@@ -30,7 +30,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1122
 _EXPECTED_PDET_COUNT = 170
 _MIN_PDF_TABLE_COLUMNS = 2
 
@@ -167,6 +166,7 @@ def fetch_pdet_list() -> pd.DataFrame:
     """
     try:
         response = requests.get(_PDET_URL, timeout=30)
+        response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         municipalities: list[str] = []
         for item in soup.select(".pdet-municipio, .municipio-item"):
@@ -205,14 +205,14 @@ def fetch_unodc_coca() -> pd.DataFrame:
     try:
         response = requests.get(unodc_url, timeout=60)
         response.raise_for_status()
-        tmp_dir = Path(tempfile.mkdtemp())
-        pdf_path = tmp_dir / "unodc_coca_2022.pdf"
-        pdf_path.write_bytes(response.content)
-        df = _try_extract_pdf(str(pdf_path))
-        if df is not None and not df.empty:
-            df = df.rename(columns={"municipio": "codigo_municipio", "value": "coca_hectares"})
-            df["coca_hectares"] = pd.to_numeric(df["coca_hectares"], errors="coerce").fillna(0)
-            return df
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pdf_path = Path(tmp_dir) / "unodc_coca_2022.pdf"
+            pdf_path.write_bytes(response.content)
+            df = _try_extract_pdf(str(pdf_path))
+            if df is not None and not df.empty:
+                df = df.rename(columns={"municipio": "codigo_municipio", "value": "coca_hectares"})
+                df["coca_hectares"] = pd.to_numeric(df["coca_hectares"], errors="coerce").fillna(0)
+                return df
     except Exception as exc:  # noqa: BLE001
         logger.warning("UNODC PDF fetch failed: %s", exc)
     logger.warning("All UNODC coca fetch attempts failed; using hardcoded fallback")
@@ -348,10 +348,10 @@ def _try_download_indepaz_pdf() -> pd.DataFrame | None:
     try:
         response = requests.get(_INDEPAZ_PDF_URL, timeout=60)
         response.raise_for_status()
-        tmp_dir = Path(tempfile.mkdtemp())
-        pdf_path = tmp_dir / "indepaz_2022.pdf"
-        pdf_path.write_bytes(response.content)
-        return _try_extract_pdf(str(pdf_path))
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pdf_path = Path(tmp_dir) / "indepaz_2022.pdf"
+            pdf_path.write_bytes(response.content)
+            return _try_extract_pdf(str(pdf_path))
     except Exception as exc:  # noqa: BLE001
         logger.warning("INDEPAZ PDF download failed: %s", exc)
     return None

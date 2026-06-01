@@ -81,8 +81,14 @@ class TestFetchDaneCsv:
 
     def test_return_annotation_is_optional_dataframe(self) -> None:
         """Return type annotation is ``pd.DataFrame | None``."""
-        sig = inspect.signature(fetch_dane_csv)
-        assert "pd.DataFrame | None" in sig.return_annotation
+        hints = typing.get_type_hints(fetch_dane_csv)
+        return_type = hints["return"]
+        # In Python 3.10+, pd.DataFrame | None is a types.UnionType
+        origin = typing.get_origin(return_type)
+        args = typing.get_args(return_type)
+        assert origin is not None  # it's a union
+        assert pd.DataFrame in args
+        assert type(None) in args
 
 
 class TestScrapeDanePortalPlaywright:
