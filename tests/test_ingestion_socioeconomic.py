@@ -1,4 +1,4 @@
-"""SPEC-13.1: Tests for socioeconomic data ingestion."""
+"""SPEC-13a: Tests for socioeconomic data ingestion."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from co_president.ingestion.ingest_socioeconomic import (
     fetch_dane_csv,
     fetch_poverty_indicators,
     scrape_dane_portal_playwright,
+    validate_socioeconomic,
 )
 
 if TYPE_CHECKING:
@@ -217,6 +218,120 @@ class TestCalculateFeatures:
         empty_projections = pd.DataFrame()
         result = calculate_features(census, poverty, empty_projections)
         assert result["population_2022"].isna().all()
+
+
+class TestValidateSocioeconomic:
+    """``validate_socioeconomic`` checks output against acceptance criteria."""
+
+    def _make_valid_features(self, n: int = 3) -> pd.DataFrame:
+        """Build a valid socioeconomic feature DataFrame with ``n`` municipalities."""
+        return pd.DataFrame(
+            {
+                "codigo_municipio": [f"{i:05d}" for i in range(1, n + 1)],
+                "pct_afro_colombian": [0.1] * n,
+                "pct_indigenous": [0.02] * n,
+                "pct_rural_disperso": [0.3] * n,
+                "years_schooling": [8.0] * n,
+                "internet_access_rate": [0.5] * n,
+                "ipm_score": [0.15] * n,
+                "nbi_rate": [0.10] * n,
+                "population_2022": [100_000] * n,
+            }
+        )
+
+    def test_valid_data_returns_empty_warnings(self) -> None:
+        """Valid data with 1,122 municipalities yields no warnings."""
+        df = self._make_valid_features(n=1122)
+        result = validate_socioeconomic(df)
+        assert result == []
+
+    def test_missing_codigo_municipio_warns(self) -> None:
+        """Missing codigo_municipio column triggers a warning."""
+        df = self._make_valid_features().drop(columns=["codigo_municipio"])
+        result = validate_socioeconomic(df)
+        assert len(result) >= 1
+        assert any("codigo_municipio" in w for w in result)
+
+    def test_null_in_ipm_score_warns(self) -> None:
+        """Null values in ipm_score trigger a warning."""
+        df = self._make_valid_features()
+        df.loc[0, "ipm_score"] = pd.NA
+        result = validate_socioeconomic(df)
+        assert any("ipm_score" in w for w in result)
+
+    def test_null_in_internet_access_rate_warns(self) -> None:
+        """Null values in internet_access_rate trigger a warning."""
+        df = self._make_valid_features()
+        df.loc[0, "internet_access_rate"] = pd.NA
+        result = validate_socioeconomic(df)
+        assert any("internet_access_rate" in w for w in result)
+
+    def test_null_in_population_2022_warns(self) -> None:
+        """Null values in population_2022 trigger a warning."""
+        df = self._make_valid_features()
+        df.loc[0, "population_2022"] = pd.NA
+        result = validate_socioeconomic(df)
+        assert any("population_2022" in w for w in result)
+
+    def test_ipm_score_out_of_range_warns(self) -> None:
+        """IPM score above 1.0 triggers a warning."""
+        df = self._make_valid_features()
+        df.loc[0, "ipm_score"] = 1.5
+        result = validate_socioeconomic(df)
+        assert any("ipm_score" in w and "range" in w for w in result)
+
+    def test_negative_population_warns(self) -> None:
+        """Negative population projection triggers a warning."""
+        df = self._make_valid_features()
+        df.loc[0, "population_2022"] = -100
+        result = validate_socioeconomic(df)
+        assert any("population_2022" in w for w in result)
+
+    def test_zero_population_warns(self) -> None:
+        """Zero population projection triggers a warning (positive required)."""
+        df = self._make_valid_features()
+        df.loc[0, "population_2022"] = 0
+        result = validate_socioeconomic(df)
+        assert any("population_2022" in w for w in result)
+
+    def test_nbi_rate_out_of_range_warns(self) -> None:
+        """NBI rate outside [0, 1] triggers a warning."""
+        df = self._make_valid_features()
+        df.loc[0, "nbi_rate"] = 1.5
+        result = validate_socioeconomic(df)
+        assert any("nbi_rate" in w and "range" in w for w in result)
+
+    def test_range_warnings_fire_on_raw_unclipped_values(self) -> None:
+        """validate_socioeconomic catches out-of-range values from calculate_features output.
+
+        Before the fix, calculate_features clipped ipm_score and internet_access_rate
+        to [0,1], making the range checks dead code in the pipeline.  After the fix,
+        the raw (unclipped) features reach validate_socioeconomic and the checks fire.
+        """
+        census = _make_census_input()
+        # Cause internet_access_rate > 1.0: hogares_con_internet > hogares_totales
+        census.loc[census["codigo_municipio"] == "11001", "hogares_con_internet"] = 3_000_000
+
+        poverty = _make_poverty_input()
+        poverty.loc[poverty["codigo_municipio"] == "11001", "ipm_score"] = 1.5
+
+        projections = _make_projections_input()
+
+        features = calculate_features(census, poverty, projections)
+        warnings = validate_socioeconomic(features)
+
+        assert any("ipm_score" in w and "range" in w for w in warnings), (
+            "Expected ipm_score out-of-range warning for raw value 1.5"
+        )
+        assert any("internet_access_rate" in w and "range" in w for w in warnings), (
+            "Expected internet_access_rate out-of-range warning for ratio > 1.0"
+        )
+
+    def test_fewer_than_expected_municipalities_warns(self) -> None:
+        """Fewer than 1,122 municipalities triggers a warning."""
+        df = self._make_valid_features(n=100)
+        result = validate_socioeconomic(df)
+        assert any("1122" in w or "municipalities" in w.lower() for w in result)
 
 
 # ═══════════════════════════════════════════════════════════════════

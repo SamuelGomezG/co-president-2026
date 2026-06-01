@@ -1,4 +1,4 @@
-"""SPEC-13.1: Socioeconomic and demographic data ingestion.
+"""SPEC-13a: DANE socioeconomic and demographic data ingestion.
 
 Fetches DANE 2018 Census variables (ethnicity, education, internet),
 Multidimensional Poverty Index (IPM), Unsatisfied Basic Needs (NBI),
@@ -25,6 +25,7 @@ __all__ = [
     "fetch_dane_csv",
     "fetch_poverty_indicators",
     "scrape_dane_portal_playwright",
+    "validate_socioeconomic",
 ]
 
 logger = logging.getLogger(__name__)
@@ -231,12 +232,90 @@ def calculate_features(
     result["pct_afro_colombian"] = result["pct_afro_colombian"].clip(0.0, 1.0)
     result["pct_indigenous"] = result["pct_indigenous"].clip(0.0, 1.0)
     result["pct_rural_disperso"] = result["pct_rural_disperso"].clip(0.0, 1.0)
-    result["internet_access_rate"] = result["internet_access_rate"].clip(0.0, 1.0)
-    if "ipm_score" in result.columns:
-        result["ipm_score"] = result["ipm_score"].clip(0.0, 1.0)
-    if "nbi_rate" in result.columns:
-        result["nbi_rate"] = result["nbi_rate"].clip(0.0, 1.0)
+    # Clipping of ipm_score, internet_access_rate, and nbi_rate is performed
+    # in build_socioeconomic_matrix() after validate_socioeconomic() so that
+    # range checks can fire on the raw values before clamping.
     return result
+
+
+_CRITICAL_COLUMNS: list[str] = ["ipm_score", "internet_access_rate", "population_2022"]
+
+_VALIDATION_EXPECTED_COLUMNS: set[str] = {
+    "codigo_municipio",
+    "pct_afro_colombian",
+    "pct_indigenous",
+    "pct_rural_disperso",
+    "years_schooling",
+    "internet_access_rate",
+    "ipm_score",
+    "nbi_rate",
+    "population_2022",
+}
+
+
+def validate_socioeconomic(df: pd.DataFrame) -> list[str]:
+    """Validate a socioeconomic feature DataFrame against acceptance criteria.
+
+    Checks for missing columns, nulls in critical columns, out-of-range
+    values, and insufficient municipality count.
+
+    Args:
+        df: The socioeconomic feature DataFrame to validate.
+
+    Returns:
+        List of warning messages (empty if all checks pass).
+
+    Examples:
+        >>> df = pd.DataFrame({
+        ...     "codigo_municipio": ["11001"],
+        ...     "pct_afro_colombian": [0.013],
+        ...     "pct_indigenous": [0.002],
+        ...     "pct_rural_disperso": [0.0],
+        ...     "years_schooling": [11.5],
+        ...     "internet_access_rate": [0.79],
+        ...     "ipm_score": [0.045],
+        ...     "nbi_rate": [0.032],
+        ...     "population_2022": [7_900_000],
+        ... })
+        >>> validate_socioeconomic(df)
+        ['Expected 1122 municipalities, got 1']
+
+    """
+    warnings: list[str] = []
+
+    missing_cols = _VALIDATION_EXPECTED_COLUMNS - set(df.columns)
+    if missing_cols:
+        warnings.append(f"Missing columns: {sorted(missing_cols)}")
+        return warnings
+
+    null_counts = df[_CRITICAL_COLUMNS].isna().sum()
+    for col in _CRITICAL_COLUMNS:
+        count = int(null_counts[col])
+        if count > 0:
+            warnings.append(
+                f"{col}: {count} null value{'s' if count > 1 else ''} (out of {len(df)} rows)"
+            )
+
+    out_of_range = df["ipm_score"].dropna()
+    if not out_of_range.between(0.0, 1.0).all():
+        warnings.append("ipm_score: found values outside [0.0, 1.0] range")
+
+    internet = df["internet_access_rate"].dropna()
+    if not internet.between(0.0, 1.0).all():
+        warnings.append("internet_access_rate: found values outside [0.0, 1.0] range")
+
+    nbi = df["nbi_rate"].dropna()
+    if not nbi.between(0.0, 1.0).all():
+        warnings.append("nbi_rate: found values outside [0.0, 1.0] range")
+
+    pop = df["population_2022"].dropna()
+    if not (pop > 0).all():
+        warnings.append("population_2022: found zero or negative values")
+
+    if len(df) < _EXPECTED_MUNICIPALITIES:
+        warnings.append(f"Expected {_EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
+
+    return warnings
 
 
 def build_socioeconomic_matrix(data_dir: Path | None = None) -> None:
@@ -256,6 +335,16 @@ def build_socioeconomic_matrix(data_dir: Path | None = None) -> None:
     poverty = fetch_poverty_indicators()
     projections = _fetch_population_projections()
     features = calculate_features(census, poverty, projections)
+    validation_warnings = validate_socioeconomic(features)
+    # Clip after validation so range checks can fire on raw unclipped values.
+    if "internet_access_rate" in features.columns:
+        features["internet_access_rate"] = features["internet_access_rate"].clip(0.0, 1.0)
+    if "ipm_score" in features.columns:
+        features["ipm_score"] = features["ipm_score"].clip(0.0, 1.0)
+    if "nbi_rate" in features.columns:
+        features["nbi_rate"] = features["nbi_rate"].clip(0.0, 1.0)
+    for warning in validation_warnings:
+        logger.warning("Socioeconomic validation: %s", warning)
     target_dir = data_dir / "fundamentals"
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / "socioeconomic.csv"
