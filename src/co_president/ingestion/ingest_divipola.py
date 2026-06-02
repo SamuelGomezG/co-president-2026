@@ -130,10 +130,15 @@ def _fetch_with_fallback() -> pd.DataFrame:
     """Attempt Socrata fetch; fall back to GitHub Gist on failure."""
     try:
         logger.info("Fetching DIVIPOLA from Socrata API ...")
-        return fetch_divipola_socrata()
+        df = fetch_divipola_socrata()
+        if "codigo_municipio" not in df.columns:
+            logger.warning("Socrata response missing codigo_municipio; trying Gist fallback")
+            return fetch_divipola_github()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Socrata fetch failed (%s); trying GitHub Gist fallback", exc)
         return fetch_divipola_github()
+    else:
+        return df
 
 
 def _raise_if_below_minimum(df: pd.DataFrame) -> None:
@@ -188,10 +193,18 @@ def _rename_gist_columns(df: pd.DataFrame) -> None:
         "department": "departamento",
         "lat": "latitud",
         "lng": "longitud",
+        # Spanish-named columns from the canonical Gist
+        "CÓDIGO DANE DEL MUNICIPIO": "codigo_municipio",
+        "MUNICIPIO": "nombre_municipio",
+        "DEPARTAMENTO": "departamento",
     }
     existing = {k: v for k, v in rename_map.items() if k in df.columns and k != v}
     if existing:
         df.columns = [rename_map.get(c, c) if c in existing else c for c in df.columns]
+
+    # Zero-pad codigo_municipio to 5 digits (Gist stores codes without leading zeros)
+    if "codigo_municipio" in df.columns:
+        df["codigo_municipio"] = df["codigo_municipio"].astype(str).str.strip().str.zfill(5)
 
 
 def _fallback_hardcoded() -> pd.DataFrame:

@@ -120,6 +120,8 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
                 browser.close()
     except ImportError:
         logger.warning("Playwright not installed; skipping browser automation fallback")
+    except Exception:  # noqa: BLE001 — browser launch failure (missing binaries, etc.)
+        logger.warning("Playwright browser launch failed; skipping browser automation")
     return None
 
 
