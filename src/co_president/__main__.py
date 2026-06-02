@@ -106,6 +106,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory to save plots (default: results/)",
     )
 
+    download_cedae_parser = subparsers.add_parser(
+        "download-cedae",
+        help="Download CEDAE election-result CSVs from S3",
+    )
+    download_cedae_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Target directory (default: data/raw/cedae/)",
+    )
+    download_cedae_parser.add_argument(
+        "--years",
+        type=str,
+        default="2002,2006,2010,2014,2018",
+        help="Comma-separated election years (default: 2002,2006,2010,2014,2018)",
+    )
+    download_cedae_parser.add_argument(
+        "--niveles",
+        type=str,
+        default="Camara,Presidencia,Senado",
+        help="Comma-separated niveles (default: Camara,Presidencia,Senado)",
+    )
+
     subparsers.add_parser("config", help="Print current configuration")
 
     return parser
@@ -1059,6 +1082,34 @@ def _plot_errors(
         logger.warning("Failed to generate error over time plot: %s", e)
 
 
+def _cmd_download_cedae(args: argparse.Namespace) -> None:
+    """Execute the ``download-cedae`` subcommand.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+    from co_president.ingestion._download_cedae import download_cedae_elections  # noqa: PLC0415
+
+    dest_dir = Path(args.output_dir) if args.output_dir else None
+    years = tuple(int(y.strip()) for y in args.years.split(","))
+    niveles = tuple(n.strip() for n in args.niveles.split(","))
+
+    files = download_cedae_elections(dest_dir=dest_dir, years=years, niveles=niveles)
+    total_mb = sum(f.stat().st_size for f in files) / (1024 * 1024)
+    logger.info(
+        "Downloaded %d files (%.1f MiB) to %s",
+        len(files),
+        total_mb,
+        files[0].parent if files else "N/A",
+    )
+
+
 def _cmd_plot(output_dir: str) -> None:
     """Generate all visualization plots and save to *output_dir*.
 
@@ -1118,6 +1169,8 @@ def main() -> None:
             _cmd_run(args)
         elif args.command == "validate":
             _cmd_validate()
+        elif args.command == "download-cedae":
+            _cmd_download_cedae(args)
         elif args.command == "plot":
             _cmd_plot(args.output_dir)
         else:
