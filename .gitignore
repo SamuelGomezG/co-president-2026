@@ -27,7 +27,9 @@ dist/
 data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*v.csv
 
 # Raw API downloads — not tracked in git
-data/raw/
+data/raw/*
+!data/raw/cedae/
+data/raw/cedae/*.csv
 
 .ruff_cache/
 .pytest_cache/
