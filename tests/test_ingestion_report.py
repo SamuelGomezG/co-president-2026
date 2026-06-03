@@ -50,11 +50,11 @@ def fundamentals_dir(tmp_path: Path) -> Path:
             "pct_indigenous": [0.01, 0.02, 0.03],
         }
     ).to_csv(fund_dir / "socioeconomic.csv", index=False)
-    # Risk: 10 rows (below STUB threshold of 15)
+    # Risk: 5 rows (below STUB threshold of 15)
     pd.DataFrame(
         {
-            "codigo_municipio": [f"{i:05d}" for i in range(1, 11)],
-            "risk_level": ["low"] * 10,
+            "codigo_municipio": [f"{i:05d}" for i in range(1, 6)],
+            "risk_level": ["low"] * 5,
         }
     ).to_csv(fund_dir / "risk_factors.csv", index=False)
     return tmp_path

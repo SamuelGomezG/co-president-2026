@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 
@@ -460,8 +460,8 @@ def _assess_schema_compatibility(result: dict[str, object]) -> None:
     if not senado_ok:
         notes_parts.append("Senado: missing shared columns")
 
-    cedae_camara: set[str] = set(result.get("cedae_camara_columns", []))  # type: ignore[assignment]
-    moe_camara: set[str] = set(result.get("moe_camara_columns", []))  # type: ignore[assignment]
+    cedae_camara: set[str] = set(cast("list[str]", result.get("cedae_camara_columns", [])))
+    moe_camara: set[str] = set(cast("list[str]", result.get("moe_camara_columns", [])))
     cedae_party = "codigo_partido" in cedae_camara
     moe_party = "codparti" in moe_camara or "nomparti" in moe_camara
     if cedae_party and moe_party:
@@ -474,8 +474,8 @@ def _assess_schema_compatibility(result: dict[str, object]) -> None:
 
 def _check_one_chamber(result: dict[str, object], chamber: str) -> bool:
     """Check compatibility for one chamber.  Returns True if compatible."""
-    cedae_cols: set[str] = set(result.get(f"cedae_{chamber}_columns", []))  # type: ignore[assignment]
-    moe_cols: set[str] = set(result.get(f"moe_{chamber}_columns", []))  # type: ignore[assignment]
+    cedae_cols: set[str] = set(cast("list[str]", result.get(f"cedae_{chamber}_columns", [])))
+    moe_cols: set[str] = set(cast("list[str]", result.get(f"moe_{chamber}_columns", [])))
 
     if not cedae_cols or not moe_cols:
         return False
