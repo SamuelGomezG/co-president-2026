@@ -1,0 +1,11 @@
+codigo_municipio,risk_level,is_pdet,coca_hectares,armed_group_presence,high_risk_flag
+11001,low,0,0.0,0,0
+05001,medium,0,0.0,0,0
+76001,low,0,0.0,0,0
+08001,extreme,0,4500.0,0,1
+68001,high,0,0.0,0,1
+54001,medium,0,0.0,0,0
+50001,extreme,0,12500.0,0,1
+41001,high,0,0.0,0,1
+20001,high,1,0.0,0,1
+73001,low,0,0.0,0,0
