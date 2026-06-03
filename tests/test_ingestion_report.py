@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -13,6 +13,9 @@ from co_president.ingestion.report import (
     verify_legislative_schemas,
     write_coverage_report,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 __all__: list[str] = []
 
@@ -104,15 +107,15 @@ def test_write_coverage_report_creates_file(fundamentals_dir: Path, tmp_path: Pa
     assert "Coverage" in content
 
 
-def test_verify_legislative_schemas_returns_dict() -> None:
-    result = verify_legislative_schemas(Path("data"))
+def test_verify_legislative_schemas_returns_dict(tmp_path: Path) -> None:
+    result = verify_legislative_schemas(tmp_path)
     assert isinstance(result, dict)
     assert "cedae_camara_columns" in result
     assert "moe_camara_columns" in result
 
 
-def test_verify_legislative_schemas_senado() -> None:
-    result = verify_legislative_schemas(Path("data"))
+def test_verify_legislative_schemas_senado(tmp_path: Path) -> None:
+    result = verify_legislative_schemas(tmp_path)
     assert "cedae_senado_columns" in result
     assert "moe_senado_columns" in result
 

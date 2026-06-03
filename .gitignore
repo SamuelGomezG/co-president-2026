@@ -43,3 +43,6 @@ data/cnpv-2018/docs/
 
 # Plan files — not part of source
 PLAN.md
+
+# Generated coverage report — produced at runtime by write_coverage_report
+data/fundamentals/COVERAGE.md

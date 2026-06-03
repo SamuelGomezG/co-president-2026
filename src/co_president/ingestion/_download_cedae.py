@@ -260,6 +260,9 @@ def fetch_local_cedae_results(
         ``candidate``, ``votes``, ``total_votes``, ``registered_voters``,
         or ``None`` if no matching file is found.
 
+    Raises:
+        ValueError: If *round_num* is not 1 or 2.
+
     """
     _validate_round_num(round_num)
     if data_dir is None:
@@ -290,6 +293,16 @@ def fetch_local_cedae_results(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to read CEDAE file %s: %s", candidate_path, exc)
+        return None
+
+    required = {"codmpio", "ano", "votos"}
+    missing = required - set(raw.columns)
+    if missing:
+        logger.warning(
+            "Local CEDAE file %s is missing columns %s; falling back to remote source",
+            candidate_path.name,
+            missing,
+        )
         return None
 
     records: list[dict[str, object]] = []

@@ -189,9 +189,10 @@ def compute_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     safe_total = result["total_votes"].replace(0, pd.NA)
     safe_registered = result["registered_voters"].replace(0, pd.NA)
     result["vote_share"] = (result["votes"] / safe_total).fillna(0.0).clip(0.0, 1.0)
-    result["abstention_rate"] = (
-        (1 - (result["total_votes"] / safe_registered)).fillna(1.0).clip(0.0, 1.0)
-    )
+    raw_abstention = 1 - (result["total_votes"] / safe_registered)
+    # Do NOT call .fillna(1.0): missing registered_voters yields NaN
+    # (unknown) abstention, not 100% abstention.
+    result["abstention_rate"] = raw_abstention.clip(0.0, 1.0)
     return result
 
 

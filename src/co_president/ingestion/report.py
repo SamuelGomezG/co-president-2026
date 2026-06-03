@@ -89,6 +89,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
             df=historical_df,
             row_note=f"{years_count} election years"
             + ("; CONTAINS 000NA PLACEHOLDER" if has_placeholder else ""),
+            placeholder=bool(has_placeholder),
         )
     )
 
@@ -100,7 +101,9 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
             rows_expected=_EXPECTED_MUNICIPALITIES,
             df=socioeconomic_df,
             stub_threshold=_SOCIOECONOMIC_STUB_THRESHOLD,
-            row_note="Hardcoded fallback (3 rows only)"
+            row_note=_stub_note(
+                "Socioeconomic", len(socioeconomic_df), _SOCIOECONOMIC_STUB_THRESHOLD
+            )
             if len(socioeconomic_df) <= _SOCIOECONOMIC_STUB_THRESHOLD
             else "",
         )
@@ -114,7 +117,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
             rows_expected=_EXPECTED_MUNICIPALITIES,
             df=risk_df,
             stub_threshold=_RISK_STUB_THRESHOLD,
-            row_note="Hardcoded fallback (10 rows only)"
+            row_note=_stub_note("Risk", len(risk_df), _RISK_STUB_THRESHOLD)
             if len(risk_df) <= _RISK_STUB_THRESHOLD
             else "",
         )
@@ -150,18 +153,22 @@ def generate_coverage_markdown(data_dir: Path | None = None) -> str:
         "",
         f"Generated: {now_str}",
         "",
-        "| Source | File | Rows Expected | Rows Actual | Status | Notes |",
-        "|---|---|---|---|---|---|",
+        "| Source | File | Rows Expected | Rows Actual | Null Rate | Status | Notes |",
+        "|---|---|---|---|---|---|---|",
     ]
 
     for _, row in df.iterrows():
         rows_exp = str(row.get("rows_expected", ""))
         rows_act = str(row.get("rows_actual", ""))
+        null_rate = str(row.get("null_rate", ""))
         status = str(row.get("status", ""))
         notes = str(row.get("notes", "")) if pd.notna(row.get("notes")) else ""
         source = str(row.get("source", ""))
         file_str = str(row.get("file", ""))
-        lines.append(f"| {source} | {file_str} | {rows_exp} | {rows_act} | {status} | {notes} |")
+        lines.append(
+            f"| {source} | {file_str} | {rows_exp} | {rows_act}"
+            f" | {null_rate} | {status} | {notes} |"
+        )
 
     lines.extend(
         [
@@ -286,12 +293,14 @@ def _read_safe(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def _coverage_row(
+def _coverage_row(  # noqa: PLR0913
     source: str,
     rows_expected: int,
     df: pd.DataFrame,
     stub_threshold: int | None = None,
     row_note: str = "",
+    *,
+    placeholder: bool = False,
 ) -> dict[str, object]:
     """Build a single coverage report row from a parsed DataFrame.
 
@@ -309,7 +318,10 @@ def _coverage_row(
         null_rate_val = df.isna().sum().sum() / total_cells
         null_rate = f"{null_rate_val:.1%}"
 
-        if stub_threshold is not None and rows_actual <= stub_threshold:
+        if placeholder:
+            status = "⚠️ PLACEHOLDER"
+            notes = row_note or "Contains 000NA sentinel rows"
+        elif stub_threshold is not None and rows_actual <= stub_threshold:
             status = "⚠️ STUB"
             notes = row_note or _stub_note(source, rows_actual, stub_threshold)
         elif rows_actual < rows_expected:
@@ -433,32 +445,42 @@ def _read_moe_schema(
 
 
 def _assess_schema_compatibility(result: dict[str, object]) -> None:
-    """Check CEDAE and MOE Cámara schemas for shared columns."""
-    cedae_raw: list[str] = result.get("cedae_camara_columns", [])  # type: ignore[assignment]
-    moe_raw: list[str] = result.get("moe_camara_columns", [])  # type: ignore[assignment]
-    cedae_cols: set[str] = set(cedae_raw)
-    moe_cols: set[str] = set(moe_raw)
+    """Check CEDAE and MOE Cámara and Senado schemas for shared columns.
 
-    if not cedae_cols or not moe_cols:
-        result["notes"] = "Could not read one or both Cámara data sources"
-        return
-
-    shared = cedae_cols & moe_cols
-    has_muni_code = "codmpio" in shared
-    has_votes = "votos" in shared
-    result["schemas_compatible"] = has_muni_code and has_votes
+    Sets ``schemas_compatible`` to ``True`` only when both Cámara and
+    Senado pairs share the required columns (``codmpio`` and ``votos``).
+    """
+    camara_ok = _check_one_chamber(result, "camara")
+    senado_ok = _check_one_chamber(result, "senado")
+    result["schemas_compatible"] = camara_ok and senado_ok
 
     notes_parts: list[str] = []
-    if not has_muni_code:
-        notes_parts.append("Missing shared municipality code column")
-    if not has_votes:
-        notes_parts.append("Missing shared vote column")
+    if not camara_ok:
+        notes_parts.append("Cámara: missing shared columns")
+    if not senado_ok:
+        notes_parts.append("Senado: missing shared columns")
 
-    cedae_party = "codigo_partido" in cedae_cols
-    moe_party = "codparti" in moe_cols or "nomparti" in moe_cols
+    cedae_camara: set[str] = set(result.get("cedae_camara_columns", []))  # type: ignore[assignment]
+    moe_camara: set[str] = set(result.get("moe_camara_columns", []))  # type: ignore[assignment]
+    cedae_party = "codigo_partido" in cedae_camara
+    moe_party = "codparti" in moe_camara or "nomparti" in moe_camara
     if cedae_party and moe_party:
         notes_parts.append(
             "Party code crosswalk needed (cedae=codigo_partido, moe=codparti/nomparti)"
         )
 
-    result["notes"] = "; ".join(notes_parts) if notes_parts else ""
+    result["notes"] = "; ".join(notes_parts) if notes_parts else "Both Cámara and Senado compatible"
+
+
+def _check_one_chamber(result: dict[str, object], chamber: str) -> bool:
+    """Check compatibility for one chamber.  Returns True if compatible."""
+    cedae_cols: set[str] = set(result.get(f"cedae_{chamber}_columns", []))  # type: ignore[assignment]
+    moe_cols: set[str] = set(result.get(f"moe_{chamber}_columns", []))  # type: ignore[assignment]
+
+    if not cedae_cols or not moe_cols:
+        return False
+
+    shared = cedae_cols & moe_cols
+    has_muni_code = "codmpio" in shared
+    has_votes = "votos" in shared
+    return has_muni_code and has_votes
