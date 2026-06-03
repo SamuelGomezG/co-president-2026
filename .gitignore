@@ -31,6 +31,10 @@ data/raw/*
 !data/raw/cedae/
 data/raw/cedae/*.csv
 
+# CNPV 2018 microdata files (re-download via `make download-cnpv`)
+data/cnpv-2018/raw/
+data/cnpv-2018/docs/
+
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/

@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci
+.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv
 
 check: fmt lint typecheck test
 
@@ -56,3 +56,6 @@ clean:
 	rm -rf .*.nc
 	rm -rf .coverage coverage.xml htmlcov/
 	rm -rf dist/ build/
+
+download-cnpv:
+	uv run python scripts/download_cnpv_2018.py
