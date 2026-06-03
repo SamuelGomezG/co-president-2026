@@ -1,0 +1,87 @@
+name: "SPEC Issue"
+description: "Standard template for SPEC implementation issues following the co-president 2026 workflow"
+title: "type(SCOPE): brief description"
+labels: ["status:ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Title format**: `type(SCOPE): brief description`
+        - Types: `feat | fix | chore | test | docs | refactor | data | ci | sec`
+        - Scope: `SPEC-XX` for spec work; omit for cross-cutting
+        - Examples: `feat(SPEC-04): add forced-choice poll detection`
+
+        **Labels** (apply on creation):
+        - `type:*` — feat, fix, chore, test, docs, refactor, data, ci, sec
+        - `spec:*` — matching the spec being implemented
+        - `priority:*` — critical, high, medium, low
+        - `status:*` — ready, in-review, blocked
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: "Reason"
+      description: "Why does this issue exist? Motivation, problem, or reference to the SPEC document."
+      placeholder: "MVP_SPECS_GUIDE.md §X.Y requires ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Description"
+      description: "What is the proposed change? Summarize the approach, scope, and key design decisions. For multi-part specs, list sub-tasks."
+      placeholder: "This SPEC covers ... The approach is to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies"
+      description: "Issues or SPECs this depends on."
+      placeholder: |
+        - Depends on #XX / SPEC-XX — reason
+        - Blocked by #XX — reason
+      render: markdown
+
+  - type: textarea
+    id: task_list
+    attributes:
+      label: "Task List"
+      description: "Actionable, granular steps to implement the solution."
+      placeholder: |
+        - [ ] Step 1 ...
+        - [ ] Step 2 ...
+        - [ ] Write/update tests (TDD: RED first)
+        - [ ] Run `make check`
+      value: |
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: completion_criteria
+    attributes:
+      label: "Completion Criteria"
+      description: "Verifiable, binary conditions that confirm the issue is fully resolved."
+      placeholder: |
+        - [ ] `make check` exits 0
+        - [ ] All new/changed tests pass
+        - [ ] ...
+      value: |
+        - [ ] `make check` exits 0
+        - [ ] All new/changed tests pass
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: "References"
+      description: "Links to SPECs, docs, data sources, or related issues."
+      placeholder: |
+        - `MVP_SPECS_GUIDE.md` §...
+        - `AGENTS.md` §...
+        - Data source URL
+      render: markdown
