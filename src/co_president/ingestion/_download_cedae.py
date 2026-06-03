@@ -17,6 +17,7 @@ from pathlib import Path
 import re
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -29,6 +30,7 @@ __all__ = [
     "compress_csvs",
     "download_cedae_elections",
     "fetch_cedae_index",
+    "fetch_local_cedae_results",
     "select_cedae_files",
 ]
 
@@ -168,6 +170,208 @@ def download_cedae_elections(
         _download_one(url, dest, size)
         downloaded.append(dest)
     return downloaded
+
+
+_CEDAE_CANDIDATE_MAP: dict[str, str] = {
+    "GUSTAVO FRANCISCO PETRO URREGO": "gustavo_petro",
+    "IVAN DUQUE MARQUEZ": "ivan_duque",
+    "RODOLFO HERNANDEZ": "rodolfo_hernandez",
+    "FEDERICO GUTIERREZ": "federico_gutierrez",
+    "SERGIO FAJARDO": "sergio_fajardo",
+    "INGRID BETANCOURT": "ingrid_betancourt",
+    "JUAN MANUEL SANTOS": "juan_manuel_santos",
+    "ALVARO URIBE VELEZ": "alvaro_uribe",
+    "CARLOS GAVIRIA": "carlos_gaviria",
+    "CLARA LOPEZ": "clara_lopez",
+    "HORACIO SERPA": "horacio_serpa",
+    "ANTANAS MOCKUS": "antanas_mockus",
+    "NOEMI SANIN": "noemi_sanin",
+    "NOEMI SANIN POSADA": "noemi_sanin",
+    "ENRIQUE PENALOSA": "enrique_penalosa",
+    "OSCAR IVAN ZULUAGA": "oscar_ivan_zuluaga",
+    "LUIS EDUARDO GARZON": "luis_eduardo_garzon",
+    "MARTA NOEMI DEL ESPIRITU SANTO SANIN POSADA": "noemi_sanin",
+    "PROMOTORES VOTO EN BLANCO": "blanco",
+}
+
+
+def _cedae_candidate_key(row: dict[str, object]) -> str:
+    """Derive a canonical candidate key from a CEDAE raw-data row.
+
+    Concatenates ``nombres`` + ``primer_apellido`` (and optionally
+    ``segundo_apellido``) and looks it up in
+    ``_CEDAE_CANDIDATE_MAP``.  Falls back to ``primer_apellido`` when
+    no match is found, then to ``nombres``.
+    """
+    nombres = str(row.get("nombres", "") or "").strip()
+    primer = str(row.get("primer_apellido", "") or "").strip()
+    segundo = str(row.get("segundo_apellido", "") or "").strip()
+
+    full_name = f"{nombres} {primer} {segundo}".strip()
+    full_name = re.sub(r"\s+", " ", full_name).upper()
+
+    if full_name in _CEDAE_CANDIDATE_MAP:
+        return _CEDAE_CANDIDATE_MAP[full_name]
+
+    name_2 = f"{nombres} {primer}".strip().upper()
+    if name_2 in _CEDAE_CANDIDATE_MAP:
+        return _CEDAE_CANDIDATE_MAP[name_2]
+
+    if primer:
+        logger.debug("Unmapped CEDAE candidate: %s (using raw last name)", full_name)
+        return primer
+
+    return nombres or "UNKNOWN"
+
+
+_ROUND_FILE_PATTERNS: dict[int, list[str]] = {
+    1: ["_presidencia_primera_vuelta.dta.csv.gz", "_presidencia.dta.csv.gz"],
+    2: ["_presidencia_segunda_vuelta.dta.csv.gz"],
+}
+
+
+def _validate_round_num(round_num: int) -> None:
+    """Raise ``ValueError`` if *round_num* is not a known election round."""
+    if round_num not in _ROUND_FILE_PATTERNS:
+        keys = list(_ROUND_FILE_PATTERNS.keys())
+        msg = f"Invalid round_num={round_num!r}. Expected one of {keys}."
+        raise ValueError(msg)
+
+
+def fetch_local_cedae_results(
+    year: int,
+    round_num: int,
+    data_dir: Path | None = None,
+) -> pd.DataFrame | None:
+    """Read presidential election results from a local CEDAE CSV file.
+
+    Tries to find a matching file in ``data/raw/cedae/`` for the given
+    year and round, maps its columns to the canonical schema expected
+    by downstream pipeline functions, and returns a DataFrame.
+
+    Args:
+        year: Election year (2002, 2006, …, 2022).
+        round_num: Election round (1 or 2).
+        data_dir: Root data directory.  If ``None``, resolves via
+            ``resolve_data_dir``.
+
+    Returns:
+        DataFrame with columns ``codigo_municipio``, ``year``, ``round``,
+        ``candidate``, ``votes``, ``total_votes``, ``registered_voters``,
+        or ``None`` if no matching file is found.
+
+    """
+    _validate_round_num(round_num)
+    if data_dir is None:
+        data_dir = resolve_data_dir(None)
+
+    cedae_dir = data_dir / "raw" / "cedae"
+    if not cedae_dir.is_dir():
+        return None
+
+    patterns = _ROUND_FILE_PATTERNS[round_num]
+    candidate_path: Path | None = None
+
+    for suffix in patterns:
+        candidate = cedae_dir / f"{year}{suffix}"
+        if candidate.is_file():
+            candidate_path = candidate
+            break
+
+    if candidate_path is None:
+        return None
+
+    try:
+        raw = pd.read_csv(
+            candidate_path,
+            compression="gzip",
+            encoding="latin-1",
+            dtype={"codmpio": str, "coddpto": str},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to read CEDAE file %s: %s", candidate_path, exc)
+        return None
+
+    records: list[dict[str, object]] = []
+    grouped = raw.groupby(["codmpio", "ano"], sort=False)
+
+    for (codmpio, ano), group in grouped:
+        muni_code = str(codmpio).zfill(5)
+        try:
+            ano_val: int | float | str = int(float(ano))  # type: ignore[arg-type]
+            records.extend(
+                _aggregate_cedae_group(
+                    group,
+                    round_num,
+                    ano_val,
+                    muni_code,
+                    candidate_path.name,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to process group %s/%s: %s", codmpio, ano, exc)
+            continue
+
+    df = pd.DataFrame(records)
+    n_munis = df["codigo_municipio"].nunique() if not df.empty else 0
+    logger.info(
+        "Loaded local CEDAE %s (%d rows, %d municipalities)",
+        candidate_path.name,
+        len(df),
+        n_munis,
+    )
+    return df
+
+
+def _aggregate_cedae_group(
+    group: pd.DataFrame,
+    round_num: int,
+    ano_key: float | str,
+    muni_code: str,
+    cedae_filename: str,
+) -> list[dict[str, object]]:
+    """Aggregate votes per candidate within a municipality-year group."""
+    ano_int = int(float(ano_key))
+    total = int(pd.to_numeric(group["votos"], errors="coerce").fillna(0).sum())
+
+    labeled = group.copy()
+    labeled["_candidate"] = [
+        _cedae_candidate_key({str(k): v for k, v in row.items()}) for _, row in labeled.iterrows()
+    ]
+    votes_by_candidate = (
+        pd.to_numeric(labeled["votos"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .groupby(labeled["_candidate"])
+        .sum()
+    )
+
+    reg_voters: int | None = None
+    for col in ("potencial", "censo", "inscritos", "mesas_potencial_sufragantes"):
+        if col in group.columns:
+            vals = pd.to_numeric(group[col], errors="coerce").fillna(0)
+            reg_voters = int(vals.sum())
+            break
+    if reg_voters is None:
+        logger.debug(
+            "No registered-voters column found for %s; abstention rate will be unknown",
+            cedae_filename,
+        )
+
+    result: list[dict[str, object]] = []
+    for candidate, votes in votes_by_candidate.items():
+        result.append(
+            {
+                "codigo_municipio": muni_code,
+                "year": ano_int,
+                "round": round_num,
+                "candidate": candidate,
+                "votes": int(votes),
+                "total_votes": total,
+                "registered_voters": reg_voters,
+            }
+        )
+    return result
 
 
 def compress_csvs(source_dir: Path | None = None, dest_dir: Path | None = None) -> list[Path]:
