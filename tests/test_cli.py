@@ -479,6 +479,16 @@ def test_cli_parser_accepts_config() -> None:
     assert args.command == "config"
 
 
+def test_cli_parser_accepts_ingest() -> None:
+    """Parser must accept ``ingest`` as a subcommand."""
+    from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+    parser = _build_parser()
+    args = parser.parse_args(["ingest", "--component", "sabaneta"])
+    assert args.command == "ingest"
+    assert args.component == "sabaneta"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Runoff matrix CLI integration tests
 # ═══════════════════════════════════════════════════════════════════════
