@@ -232,8 +232,8 @@ class TestComputeDerivedFeatures:
         result = compute_derived_features(df)
         assert result["vote_share"].iloc[0] == 0.0
 
-    def test_zero_registered_yields_full_abstention(self) -> None:
-        """Rows with registered_voters == 0 get abstention_rate == 1.0."""
+    def test_zero_registered_yields_unknown_abstention(self) -> None:
+        """Rows with registered_voters == 0 should have NA abstention (unknown)."""
         df = pd.DataFrame(
             {
                 "codigo_municipio": ["05001"],
@@ -246,7 +246,7 @@ class TestComputeDerivedFeatures:
             }
         )
         result = compute_derived_features(df)
-        assert result["abstention_rate"].iloc[0] == 1.0
+        assert pd.isna(result["abstention_rate"].iloc[0])
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -609,7 +609,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
@@ -622,7 +622,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
@@ -641,7 +641,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
@@ -656,7 +656,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
