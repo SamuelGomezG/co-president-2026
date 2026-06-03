@@ -86,32 +86,51 @@ def _make_historical() -> pd.DataFrame:
 
 
 def _make_socioeconomic() -> pd.DataFrame:
-    """Synthetic socioeconomic feature DataFrame (5 municipalities)."""
+    """Synthetic socioeconomic feature DataFrame (6 municipalities)."""
     return pd.DataFrame(
         {
-            "codigo_municipio": [f"{i:05d}" for i in range(1, 6)],
-            "pct_afro_colombian": [0.08, 0.45, 0.02, 0.12, 0.30],
-            "pct_indigenous": [0.001, 0.02, 0.15, 0.005, 0.01],
-            "pct_rural_disperso": [0.05, 0.85, 0.30, 0.10, 0.60],
-            "years_schooling": [10.2, 6.5, 8.0, 11.5, 7.2],
-            "internet_access_rate": [0.78, 0.25, 0.45, 0.85, 0.30],
-            "ipm_score": [0.15, 0.68, 0.45, 0.12, 0.55],
-            "nbi_rate": [0.10, 0.72, 0.50, 0.08, 0.60],
-            "population_2022": [2_569_007, 3_456, 15_200, 7_900_000, 28_000],
+            "codigo_municipio": [f"{i:05d}" for i in range(1, 7)],
+            "pct_afro_colombian": [0.08, 0.45, 0.02, 0.12, 0.30, 0.05],
+            "pct_indigenous": [0.001, 0.02, 0.15, 0.005, 0.01, 0.50],
+            "pct_rural_disperso": [0.05, 0.85, 0.30, 0.10, 0.60, 0.80],
+            "years_schooling": [10.2, 6.5, 8.0, 11.5, 7.2, 5.0],
+            "internet_access_rate": [0.78, 0.25, 0.45, 0.85, 0.30, 0.10],
+            "ipm_score": [0.15, 0.68, 0.45, 0.12, 0.55, 0.80],
+            "nbi_rate": [0.10, 0.72, 0.50, 0.08, 0.60, 0.85],
+            "population_2022": [2_569_007, 3_456, 15_200, 7_900_000, 28_000, 5_000],
         }
     )
 
 
 def _make_risk() -> pd.DataFrame:
-    """Synthetic risk feature DataFrame (5 municipalities)."""
+    """Synthetic risk feature DataFrame (16 municipalities)."""
+    risk_levels = [
+        "low",
+        "extreme",
+        "medium",
+        "low",
+        "high",
+        "medium",
+        "low",
+        "extreme",
+        "high",
+        "low",
+        "medium",
+        "low",
+        "high",
+        "extreme",
+        "low",
+        "medium",
+    ]
+    flags = [0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0]
     return pd.DataFrame(
         {
-            "codigo_municipio": [f"{i:05d}" for i in range(1, 6)],
-            "risk_level": ["low", "extreme", "medium", "low", "high"],
-            "high_risk_flag": [0, 1, 0, 0, 1],
-            "armed_group_presence": [0, 1, 0, 0, 1],
-            "is_pdet": [0, 1, 1, 0, 0],
-            "coca_hectares": [0, 1250, 0, 0, 450],
+            "codigo_municipio": [f"{i:05d}" for i in range(1, 17)],
+            "risk_level": risk_levels,
+            "high_risk_flag": flags,
+            "armed_group_presence": flags,
+            "is_pdet": [0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0],
+            "coca_hectares": [0, 1250, 0, 0, 450, 800, 0, 2000, 600, 0, 0, 0, 900, 1500, 0, 0],
         }
     )
 
@@ -211,6 +230,52 @@ class TestValidateComponentHealth:
         components["risk"].loc[0, "codigo_municipio"] = None  # type: ignore[typeddict-item]
         warnings = validate_component_health(components)
         assert len(warnings) >= 3
+
+    # --- Strict mode ---
+
+    def test_strict_mode_raises_on_socioeconomic_stub(self) -> None:
+        """Strict mode raises ``ValueError`` for a small socioeconomic DataFrame."""
+        components = _make_components()
+        components["socioeconomic"] = pd.DataFrame(
+            {"codigo_municipio": ["00001", "00002", "00003"]}
+        )
+        with pytest.raises(ValueError, match="stub"):
+            validate_component_health(components, strict=True)
+
+    def test_strict_mode_raises_on_risk_stub(self) -> None:
+        """Strict mode raises ``ValueError`` for a small risk DataFrame."""
+        components = _make_components()
+        components["risk"] = pd.DataFrame({"codigo_municipio": [f"{i:05d}" for i in range(1, 11)]})
+        with pytest.raises(ValueError, match="stub"):
+            validate_component_health(components, strict=True)
+
+    def test_strict_mode_raises_on_historical_placeholder(self) -> None:
+        """Strict mode raises ``ValueError`` when historical has ``000NA`` rows."""
+        components = _make_components()
+        components["historical"] = components["historical"].copy()
+        na_rows = pd.DataFrame(
+            {
+                "codigo_municipio": ["000NA"],
+                "year": [2022],
+                "round": [1],
+                "candidate": ["test"],
+                "vote_share": [0.5],
+                "votes": [100],
+                "total_votes": [200],
+                "registered_voters": [300],
+                "abstention_rate": [0.0],
+            }
+        )
+        components["historical"] = pd.concat([components["historical"], na_rows], ignore_index=True)
+        with pytest.raises(ValueError, match="000NA"):
+            validate_component_health(components, strict=True)
+
+    def test_default_mode_does_not_raise_on_stub(self) -> None:
+        """Default (non-strict) mode warns but does not raise on stubs."""
+        components = _make_components()
+        components["socioeconomic"] = pd.DataFrame({"codigo_municipio": ["00001"]})
+        warnings = validate_component_health(components)
+        assert any("stub" in w.lower() for w in warnings)
 
 
 # ═══════════════════════════════════════════════════════════════════

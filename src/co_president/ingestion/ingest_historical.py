@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from co_president.ingestion._download_cedae import fetch_local_cedae_results
 from co_president.paths import resolve_data_dir
 
 __all__ = [
@@ -45,6 +46,7 @@ _HISTORICAL_CANDIDATE_MAP: dict[str, str] = {
     "ingrid_betancourt": "ingrid_betancourt",
     "ivan_duque": "ivan_duque",
     "oscar_ivan_zuluaga": "oscar_ivan_zuluaga",
+    "luis_eduardo_garzon": "luis_eduardo_garzon",
     "juan_manuel_santos": "juan_manuel_santos",
     "alvaro_uribe": "alvaro_uribe",
     "carlos_gaviria": "carlos_gaviria",
@@ -314,7 +316,7 @@ def build_historical_matrix(data_dir: Path | None = None) -> None:
     if data_dir is None:
         data_dir = resolve_data_dir(None)
 
-    combined = _fetch_all_years()
+    combined = _fetch_all_years(data_dir)
     if combined.empty:
         logger.error(
             "No historical election data fetched for any year in %s. "
@@ -387,12 +389,41 @@ def _get_fallback_results() -> pd.DataFrame:
     return _fallback_results_cache.copy()
 
 
-def _fetch_all_years() -> pd.DataFrame:
-    """Fetch data for every combination of election year and round."""
+def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:
+    """Fetch data for every combination of election year and round.
+
+    Priority order:
+    1. Local CEDAE ``.dta.csv.gz`` files (fastest, no network)
+    2. Remote CEDAE REST API
+    3. Socrata ``datos.gov.co`` fallback.
+
+    Args:
+        data_dir: Root data directory.  If ``None``, resolves via
+            ``resolve_data_dir``.
+
+    Returns:
+        DataFrame with all election years and rounds combined.
+
+    """
+    if data_dir is None:
+        data_dir = resolve_data_dir(None)
     all_frames: list[pd.DataFrame] = []
 
     for year in _ELECTION_YEARS:
         for round_num in (1, 2):
+            # Level 1: Local CEDAE files
+            local_frame = fetch_local_cedae_results(year, round_num, data_dir=data_dir)
+            if local_frame is not None and not local_frame.empty:
+                all_frames.append(local_frame)
+                logger.info(
+                    "Loaded %s round %d from local CEDAE (%d rows)",
+                    year,
+                    round_num,
+                    len(local_frame),
+                )
+                continue
+
+            # Level 2: Remote CEDAE API
             try:
                 frame = fetch_cedae_results(year, round_num)
                 all_frames.append(frame)

@@ -609,7 +609,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
@@ -622,7 +622,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
@@ -641,7 +641,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)
@@ -656,7 +656,7 @@ class TestBuildHistoricalMatrix:
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_historical._fetch_all_years",
-            lambda: df,
+            lambda _: df,
         )
 
         build_historical_matrix(data_dir=tmp_path)

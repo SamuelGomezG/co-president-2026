@@ -83,21 +83,45 @@ def load_all_components(data_dir: Path) -> dict[str, pd.DataFrame]:
     return components
 
 
-def validate_component_health(components: dict[str, pd.DataFrame]) -> list[str]:
+_STUB_THRESHOLDS: dict[str, int] = {
+    "socioeconomic": 5,
+    "risk": 15,
+}
+
+
+def validate_component_health(
+    components: dict[str, pd.DataFrame],
+    *,
+    strict: bool = False,
+    thresholds: dict[str, int] | None = None,
+) -> list[str]:
     """Check each component for basic data quality.
 
     Inspects every DataFrame for:
     - Presence of ``codigo_municipio`` column
     - Null values in ``codigo_municipio``
     - Duplicate ``codigo_municipio`` values
+    - Stub detection for ``socioeconomic`` (<= 5 rows) and ``risk`` (<= 15 rows)
+    - Placeholder detection for ``historical`` (contains ``codigo_municipio == "000NA"``)
+
+    When *strict* is ``True``, stub and placeholder conditions raise
+    ``ValueError`` instead of returning warning strings.
 
     Args:
         components: Dict of component DataFrames (as returned by
             ``load_all_components``).
+        strict: If ``True``, raise ``ValueError`` on stub/placeholder
+            components instead of appending warnings.
+        thresholds: Optional per-component stub thresholds.  If ``None``,
+            defaults from ``_STUB_THRESHOLDS`` are used.
 
     Returns:
         List of warning messages.  An empty list signals a clean bill of
         health.
+
+    Raises:
+        ValueError: When *strict* is ``True`` and a stub or placeholder
+            is detected.
 
     Examples:
         >>> components = {"divipola": pd.DataFrame({"codigo_municipio": ["05001"]})}
@@ -105,37 +129,91 @@ def validate_component_health(components: dict[str, pd.DataFrame]) -> list[str]:
         []
 
     """
+    if thresholds is None:
+        thresholds = dict(_STUB_THRESHOLDS)
     warnings: list[str] = []
 
     for name, df in components.items():
-        if df.empty:
-            warnings.append(f"{name}: empty DataFrame (no data loaded)")
-            continue
-
-        msg_prefix = f"{name}: "
-
-        if "codigo_municipio" not in df.columns:
-            warnings.append(f"{msg_prefix}missing codigo_municipio column")
-            continue
-
-        null_count = int(df["codigo_municipio"].isna().sum())
-        if null_count > 0:
-            warnings.append(
-                f"{msg_prefix}{null_count} null codigo_municipio value"
-                f"{'s' if null_count != 1 else ''}"
-            )
-
-        # Historical is long-format (one row per municipio-year-round-candidate),
-        # so duplicate codigo_municipio values are expected and do not signal data quality issues.
-        if name != "historical":
-            dup_count = int(df["codigo_municipio"].duplicated().sum())
-            if dup_count > 0:
-                warnings.append(
-                    f"{msg_prefix}{dup_count} duplicate codigo_municipio value"
-                    f"{'s' if dup_count != 1 else ''}"
-                )
+        _check_component_basics(name, df, warnings)
+        _check_stub(name, df, warnings, strict=strict, threshold=thresholds.get(name))
+        _check_historical_placeholder(name, df, warnings, strict=strict)
 
     return warnings
+
+
+def _check_component_basics(
+    name: str,
+    df: pd.DataFrame,
+    warnings: list[str],
+) -> None:
+    """Check for empty DataFrame, missing column, nulls, and duplicates."""
+    if df.empty:
+        warnings.append(f"{name}: empty DataFrame (no data loaded)")
+        return
+
+    if "codigo_municipio" not in df.columns:
+        warnings.append(f"{name}: missing codigo_municipio column")
+        return
+
+    null_count = int(df["codigo_municipio"].isna().sum())
+    if null_count > 0:
+        msg = f"{name}: {null_count} null codigo_municipio value"
+        if null_count != 1:
+            msg += "s"
+        warnings.append(msg)
+
+    # Historical is long-format — duplicates expected.
+    if name != "historical":
+        dup_count = int(df["codigo_municipio"].duplicated().sum())
+        if dup_count > 0:
+            msg = f"{name}: {dup_count} duplicate codigo_municipio value"
+            if dup_count != 1:
+                msg += "s"
+            warnings.append(msg)
+
+
+def _check_stub(
+    name: str,
+    df: pd.DataFrame,
+    warnings: list[str],
+    *,
+    strict: bool,
+    threshold: int | None,
+) -> None:
+    """Check if the component is a stub (too few rows)."""
+    if df.empty:
+        return
+    if threshold is None or len(df) > threshold:
+        return
+    msg = (
+        f"{name}: stub detected ({len(df)} rows, expected > {threshold}). "
+        "Verify ingestion pipeline completed successfully."
+    )
+    if strict:
+        raise ValueError(msg)
+    warnings.append(msg)
+
+
+def _check_historical_placeholder(
+    name: str,
+    df: pd.DataFrame,
+    warnings: list[str],
+    *,
+    strict: bool,
+) -> None:
+    """Check historical data for ``000NA`` sentinel municipality codes."""
+    if name != "historical" or df.empty or "codigo_municipio" not in df.columns:
+        return
+    placeholder_count = int(df["codigo_municipio"].eq("000NA").sum())
+    if placeholder_count == 0:
+        return
+    msg = (
+        f"historical: contains {placeholder_count} placeholder row(s) "
+        "with codigo_municipio='000NA'. Verify CEDAE ingestion."
+    )
+    if strict:
+        raise ValueError(msg)
+    warnings.append(msg)
 
 
 def pivot_historical_wide(historical: pd.DataFrame) -> pd.DataFrame:
