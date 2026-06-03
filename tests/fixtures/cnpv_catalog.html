@@ -1,0 +1,2273 @@
+<!DOCTYPE html>
+<html>
+
+<head>    
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Colombia - Censo Nacional de Población y Vivienda - CNPV - 2018</title>
+<link rel="stylesheet" href="https://microdatos.dane.gov.co/themes/nada/css/font-awesome.min.css">
+
+    <link rel="stylesheet" href="https://microdatos.dane.gov.co/themes/nada/css/bootstrap.min.css">
+    
+
+<link rel="stylesheet" href="https://microdatos.dane.gov.co/themes/nada/css/style.css?v03212019">
+<link rel="stylesheet" href="https://microdatos.dane.gov.co/themes/nada/css/custom.css?v03212019">
+
+    <script src="https://microdatos.dane.gov.co/javascript/jquery/jquery.js"></script>
+    <script src="https://microdatos.dane.gov.co/themes/nada/js/popper.min.js"></script>
+    <script src="https://microdatos.dane.gov.co/themes/nada/js/bootstrap.min.js"></script>
+
+<script src="https://microdatos.dane.gov.co/themes/nada/js/script.js"></script>
+<script type="text/javascript" src="https://microdatos.dane.gov.co/javascript/jquery.ba-bbq.js"></script>
+
+<script type="text/javascript">
+    var CI = {'base_url': 'https://microdatos.dane.gov.co/index.php'};
+
+    if (top.frames.length!=0) {
+        top.location=self.document.location;
+    }
+
+    $(document).ready(function()  {
+        /*global ajax error handler */
+        $( document ).ajaxError(function(event, jqxhr, settings, exception) {
+            if(jqxhr.status==401){
+                window.location=CI.base_url+'/auth/login/?destination=catalog/';
+            }
+            else if (jqxhr.status>=500){
+                alert(jqxhr.responseText);
+            }
+        });
+
+    }); //end-document-ready
+
+</script>
+
+
+</head>
+<body>
+
+<!-- site header -->
+<header id="header" class="header shadow-sm">
+      <div class="container-fluid">
+        <div class="row contenedor-header">
+          <div class="col-xs-12 col-md-6 col-xl-6 p-0 column-1">
+            <!-- <img src=https://microdatos.dane.gov.co/themes/nada/images/header/LogoAnda.svg alt="LogoANDA"
+              class="img-fluid logoANDA" /> -->
+              <img src=https://microdatos.dane.gov.co/themes/nada/images/header/logo_colombia_potencia_de_vida.svg alt="">
+          </div>
+          <div class="col-xs-12 col-md-6 col-xl-6 p-0 column-2">
+            <div class="col-box">
+              <a href="#"><img class="log1" src=https://microdatos.dane.gov.co/themes/nada/images/header/logo_anda.svg alt=""></a>
+              <a href="https://www.dane.gov.co/"><img class="log2" src="https://www.dane.gov.co/files/images/logos/logo-dane-blanco.svg" alt=""></a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header><!-- page body -->
+<div class="container-fluid-n">    
+           
+                            <div class="body-content-wrap">
+                    
+                                        <!--breadcrumbs -->
+                    <div class="container">
+                                                                <ol class="breadcrumb wb-breadcrumb">
+                            	    <div class="breadcrumbs" xmlns:v="http://rdf.data-vocabulary.org/#">
+           <span typeof="v:Breadcrumb">
+                		         <a href="https://microdatos.dane.gov.co/index.php/" rel="v:url" property="v:title">Página principal</a> /
+                        
+       </span>
+                  <span typeof="v:Breadcrumb">
+                		         <a href="https://microdatos.dane.gov.co/index.php/catalog" rel="v:url" property="v:title">Catálogo Central de Datos</a> /
+                        
+       </span>
+                  <span typeof="v:Breadcrumb">
+                		         <a href="https://microdatos.dane.gov.co/index.php/catalog/DEM-Microdatos" rel="v:url" property="v:title">DEM-MICRODATOS</a> /
+                        
+       </span>
+                  <span typeof="v:Breadcrumb">
+        	         	         <a class="active" href="https://microdatos.dane.gov.co/index.php/catalog/643" rel="v:url" property="v:title">DANE-DCD-CNPV-2018</a>
+                        
+       </span>
+               </div>
+                        </ol>
+                                        </div>
+                    <!-- /breadcrumbs -->
+                                        
+<div class="page-body-full study-metadata-page">
+	<span 
+		id="dataset-metadata-info" 
+		data-repositoryid="DEM-Microdatos"
+		data-id="643"
+		data-idno="DANE-DCD-CNPV-2018"
+	></span>
+
+<div class="container-fluid page-header">
+<div class="container">
+
+
+<div class="row">
+			<div class="col-md-2">
+	<div class="collection-thumb-container">
+		<a href="https://microdatos.dane.gov.co/index.php/catalog/DEM-Microdatos">
+		<img  src="https://microdatos.dane.gov.co/files/images/demografia-y-poblacion3.png" class="mr-3 img-fluid img-thumbnail" alt="DEM-Microdatos" title="Demografía y población."/>
+		</a>
+			</div>
+	</div>
+			
+	<div class="col-md-10">
+		<h1 class="mt-0 mb-1" id="dataset-title">Censo Nacional de Población y Vivienda - CNPV - 2018</h1>
+		<h6 class="sub-title" id="dataset-sub-title"><span id="dataset-country">Colombia</span>, <span id="dataset-year">2018</span>
+		                    
+							<div class="collection badge badge-light"><a href="https://microdatos.dane.gov.co/index.php/catalog/DEM-Microdatos">Demografía y población.</a></div>
+			                    
+		
+		</h6>
+					
+
+		<div class="producers mb-3">
+					Dirección de Censos y Demografía - DCD, Departamento Administrativo Nacional de Estadística - DANE				</div>
+	
+
+		<div class="dataset-footer-bar mt-2">					
+			
+			<span class="mr-3 link-col float-left">
+				<small>
+					Creado el 
+					<strong>February 23, 2023</strong>
+				</small>
+			</span>
+			
+			<span class="mr-3 link-col float-left">
+				<small>
+					Última modificación 
+					<strong>February 23, 2023</strong>
+				</small>
+			</span>
+			
+                        <span class="mr-3 link-col float-left">
+                <small>
+				<i class="fa fa-eye" aria-hidden="true"></i> 
+				Visitas a la página 
+				<strong>1.683.148</strong>
+			</small>
+            </span>
+			
+			            <span class="mr-3 link-col float-left">
+                <small>
+				<i class="fa fa-eye" aria-hidden="true"></i> 
+				Descargar 
+				<strong>701.404</strong>
+			</small>
+            </span>
+						
+										<span class="mr-3 link-col float-left">
+					<small><a href="https://microdatos.dane.gov.co/index.php/catalog/643/pdf-documentation" title="PDF" >
+					<i class="fa fa-file-pdf-o" aria-hidden="true"> </i> Documentación en PDF					</a> 
+					</small>
+				</span>            
+			
+					
+			
+			<span class="mr-3 link-col  float-left">
+				<small><i class="fa fa-download" aria-hidden="true"> </i> metadata</small>
+									<a href="https://microdatos.dane.gov.co/index.php/metadata/export/643/ddi" title="metadata_in_ddi_xml">
+						<span class="badge badge-primary"> DDI/XML</span>
+					</a>
+				
+				<a href="https://microdatos.dane.gov.co/index.php/metadata/export/643/json" title="metadata_in_json">
+					<span class="badge badge-info">JSON</span>
+				</a>
+			</span>			
+
+		</div>
+
+	</div>
+</div>
+
+
+
+
+
+
+<!-- Nav tabs -->
+<ul class="nav nav-tabs wb-nav-tab-space flex-wrap" role="tablist">
+								<li class="nav-item tab-study_description "  >
+				<a href="https://microdatos.dane.gov.co/index.php/catalog/643/study-description" class="nav-link wb-nav-link wb-text-link " role="tab"  data-id="related-materials" title="Related documentation: questionnaires, reports, technical documents, tables">Descripción de la operación estadística</a>
+			</li>
+										<li class="nav-item tab-related_materials "  >
+				<a href="https://microdatos.dane.gov.co/index.php/catalog/643/related-materials" class="nav-link wb-nav-link wb-text-link " role="tab"  data-id="related-materials" title="Related documentation: questionnaires, reports, technical documents, tables">Materiales Relacionados</a>
+			</li>
+										<li class="nav-item tab-data_dictionary "  >
+				<a href="https://microdatos.dane.gov.co/index.php/catalog/643/data-dictionary" class="nav-link wb-nav-link wb-text-link " role="tab"  data-id="related-materials" title="Related documentation: questionnaires, reports, technical documents, tables">Diccionario de Datos</a>
+			</li>
+										<li class="nav-item nav-item-get-microdata tab-get_microdata" >
+				<a href="https://microdatos.dane.gov.co/index.php/catalog/643/get-microdata" class="nav-link wb-nav-link wb-text-link active" role="tab" data-id="related-materials" title="Related documentation: questionnaires, reports, technical documents, tables">
+					<span class="get-microdata icon-da-direct"></span> Obtener Microdatos				</a>
+			</li>                            
+								
+	<!--review-->
+	</ul>
+<!-- end nav tabs -->
+</div>
+</div>
+
+
+
+<div class="container study-metadata-body-content " >
+
+
+<!-- tabs -->
+<div id="tabs" class="study-metadata ui-tabs ui-widget ui-widget-content ui-corner-all study-tabs" >	
+  
+  <div id="tabs-1" aria-labelledby="ui-id-1" class="ui-tabs-panel ui-widget-content ui-corner-bottom" role="tabpanel" >
+  	
+        <div class="tab-body-no-sidebar-x"><head>
+   <script src='https://www.google.com/recaptcha/api.js'></script>
+</head>
+<style>
+td.caption{
+	text-align:left;width:200px;
+}
+</style>
+<div style="padding-top:20px;overflow:hidden;">
+<h2>Archivos de datos</h2>
+<div class="resources data-files">
+    					
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12143">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					05Antioquia                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 344.75 MB]"  title="05_Antioquia.zip" onclick="mostrarModal('05_Antioquia.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12143 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12143" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>05_Antioquia.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 344.75 MB]"  title="05_Antioquia.zip" onclick="mostrarModal('05_Antioquia.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12143 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12144">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					08Atlantico                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 117.23 MB]"  title="08_Atlantico.zip" onclick="mostrarModal('08_Atlantico.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12144 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12144" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>08_Atlantico.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 117.23 MB]"  title="08_Atlantico.zip" onclick="mostrarModal('08_Atlantico.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12144 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12145">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					11Bogota                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 401.86 MB]"  title="11_Bogota.zip" onclick="mostrarModal('11_Bogota.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12145 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12145" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>11_Bogota.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 401.86 MB]"  title="11_Bogota.zip" onclick="mostrarModal('11_Bogota.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12145 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12146">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					13Bolivar                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 97.83 MB]"  title="13_Bolivar.zip" onclick="mostrarModal('13_Bolivar.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12146 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12146" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>13_Bolivar.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 97.83 MB]"  title="13_Bolivar.zip" onclick="mostrarModal('13_Bolivar.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12146 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12147">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					15Boyaca                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 66.52 MB]"  title="15_Boyaca.zip" onclick="mostrarModal('15_Boyaca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12147 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12147" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>15_Boyaca.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 66.52 MB]"  title="15_Boyaca.zip" onclick="mostrarModal('15_Boyaca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12147 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12148">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					17Caldas                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 54.97 MB]"  title="17_Caldas.zip" onclick="mostrarModal('17_Caldas.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12148 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12148" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>17_Caldas.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 54.97 MB]"  title="17_Caldas.zip" onclick="mostrarModal('17_Caldas.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12148 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12149">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					18Caqueta                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 20.54 MB]"  title="18_Caqueta.zip" onclick="mostrarModal('18_Caqueta.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12149 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12149" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>18_Caqueta.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 20.54 MB]"  title="18_Caqueta.zip" onclick="mostrarModal('18_Caqueta.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12149 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12150">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					19Cauca                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 71.33 MB]"  title="19_Cauca.zip" onclick="mostrarModal('19_Cauca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12150 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12150" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>19_Cauca.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 71.33 MB]"  title="19_Cauca.zip" onclick="mostrarModal('19_Cauca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12150 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12151">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					20Cesar                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 59.19 MB]"  title="20_Cesar.zip" onclick="mostrarModal('20_Cesar.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12151 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12151" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>20_Cesar.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 59.19 MB]"  title="20_Cesar.zip" onclick="mostrarModal('20_Cesar.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12151 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12152">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					23Cordoba                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 80.73 MB]"  title="23_Cordoba.zip" onclick="mostrarModal('23_Cordoba.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12152 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12152" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>23_Cordoba.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 80.73 MB]"  title="23_Cordoba.zip" onclick="mostrarModal('23_Cordoba.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12152 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12153">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					25Cundinamarca                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 161.38 MB]"  title="25_Cundinamarca.zip" onclick="mostrarModal('25_Cundinamarca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12153 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12153" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>25_Cundinamarca.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 161.38 MB]"  title="25_Cundinamarca.zip" onclick="mostrarModal('25_Cundinamarca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12153 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12154">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					27Choco                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 25 MB]"  title="27_Choco.zip" onclick="mostrarModal('27_Choco.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12154 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12154" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>27_Choco.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 25 MB]"  title="27_Choco.zip" onclick="mostrarModal('27_Choco.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12154 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12155">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					41Huila                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 56.75 MB]"  title="41_Huila.zip" onclick="mostrarModal('41_Huila.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12155 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12155" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>41_Huila.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 56.75 MB]"  title="41_Huila.zip" onclick="mostrarModal('41_Huila.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12155 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12156">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					44La Guajira                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 43.2 MB]"  title="44_LaGuajira.zip" onclick="mostrarModal('44_LaGuajira.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12156 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12156" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>44_LaGuajira.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 43.2 MB]"  title="44_LaGuajira.zip" onclick="mostrarModal('44_LaGuajira.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12156 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12157">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					47Magdalena                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 65.36 MB]"  title="47_Magdalena.zip" onclick="mostrarModal('47_Magdalena.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12157 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12157" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>47_Magdalena.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 65.36 MB]"  title="47_Magdalena.zip" onclick="mostrarModal('47_Magdalena.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12157 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12158">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					50Meta                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 52.58 MB]"  title="50_Meta.zip" onclick="mostrarModal('50_Meta.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12158 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12158" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>50_Meta.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 52.58 MB]"  title="50_Meta.zip" onclick="mostrarModal('50_Meta.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12158 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12159">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					52Narino                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 74.52 MB]"  title="52_Narino.zip" onclick="mostrarModal('52_Narino.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12159 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12159" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>52_Narino.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 74.52 MB]"  title="52_Narino.zip" onclick="mostrarModal('52_Narino.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12159 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12160">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					54Norte de Santander                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 73.99 MB]"  title="54_NorteDeSantander.zip" onclick="mostrarModal('54_NorteDeSantander.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12160 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12160" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>54_NorteDeSantander.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 73.99 MB]"  title="54_NorteDeSantander.zip" onclick="mostrarModal('54_NorteDeSantander.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12160 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12161">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					63Quindio                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 29.93 MB]"  title="63_Quindio.zip" onclick="mostrarModal('63_Quindio.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12161 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12161" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-08-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>63_Quindio.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 29.93 MB]"  title="63_Quindio.zip" onclick="mostrarModal('63_Quindio.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12161 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12162">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					66Risaralda                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 49.56 MB]"  title="66_Risaralda.zip" onclick="mostrarModal('66_Risaralda.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12162 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12162" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>66_Risaralda.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 49.56 MB]"  title="66_Risaralda.zip" onclick="mostrarModal('66_Risaralda.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12162 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12163">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					68Santander                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 114.79 MB]"  title="68_Santander.zip" onclick="mostrarModal('68_Santander.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12163 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12163" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>68_Santander.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 114.79 MB]"  title="68_Santander.zip" onclick="mostrarModal('68_Santander.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12163 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12164">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					70Sucre                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 45.51 MB]"  title="70_Sucre.zip" onclick="mostrarModal('70_Sucre.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12164 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12164" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>70_Sucre.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 45.51 MB]"  title="70_Sucre.zip" onclick="mostrarModal('70_Sucre.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12164 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12165">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					73Tolima                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 71.22 MB]"  title="73_Tolima.zip" onclick="mostrarModal('73_Tolima.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12165 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12165" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>73_Tolima.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 71.22 MB]"  title="73_Tolima.zip" onclick="mostrarModal('73_Tolima.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12165 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12166">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					76Valle del Cauca                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 219.21 MB]"  title="76_ValleDelCauca.zip" onclick="mostrarModal('76_ValleDelCauca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12166 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12166" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>76_ValleDelCauca.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 219.21 MB]"  title="76_ValleDelCauca.zip" onclick="mostrarModal('76_ValleDelCauca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12166 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12167">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					81Arauca                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 13.54 MB]"  title="81_Arauca.zip" onclick="mostrarModal('81_Arauca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12167 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12167" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>81_Arauca.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 13.54 MB]"  title="81_Arauca.zip" onclick="mostrarModal('81_Arauca.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12167 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12168">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					85Casanare                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 21.78 MB]"  title="85_Casanare.zip" onclick="mostrarModal('85_Casanare.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12168 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12168" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>85_Casanare.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 21.78 MB]"  title="85_Casanare.zip" onclick="mostrarModal('85_Casanare.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12168 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12169">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					86Putumayo                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 17.3 MB]"  title="86_Putumayo.zip" onclick="mostrarModal('86_Putumayo.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12169 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12169" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>86_Putumayo.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 17.3 MB]"  title="86_Putumayo.zip" onclick="mostrarModal('86_Putumayo.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12169 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12170">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					88San Andres Providencia y SantaCatalina                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 2.89 MB]"  title="88_SanAndresProvidenciaYSantaCatalina.zip" onclick="mostrarModal('88_SanAndresProvidenciaYSantaCatalina.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12170 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12170" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>88_SanAndresProvidenciaYSantaCatalina.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 2.89 MB]"  title="88_SanAndresProvidenciaYSantaCatalina.zip" onclick="mostrarModal('88_SanAndresProvidenciaYSantaCatalina.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12170 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12171">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					91Amazonas                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 3.5 MB]"  title="91_Amazonas.zip" onclick="mostrarModal('91_Amazonas.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12171 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12171" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>91_Amazonas.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 3.5 MB]"  title="91_Amazonas.zip" onclick="mostrarModal('91_Amazonas.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12171 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12172">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					94Guainia                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 2.25 MB]"  title="94_Guainia.zip" onclick="mostrarModal('94_Guainia.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12172 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12172" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>94_Guainia.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 2.25 MB]"  title="94_Guainia.zip" onclick="mostrarModal('94_Guainia.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12172 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12173">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					95Guaviare                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 4.33 MB]"  title="95_Guaviare.zip" onclick="mostrarModal('95_Guaviare.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12173 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12173" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>95_Guaviare.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 4.33 MB]"  title="95_Guaviare.zip" onclick="mostrarModal('95_Guaviare.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12173 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource alternate" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12174">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					97Vaupes                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 1.74 MB]"  title="97_Vaupes.zip" onclick="mostrarModal('97_Vaupes.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12174 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12174" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>97_Vaupes.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 1.74 MB]"  title="97_Vaupes.zip" onclick="mostrarModal('97_Vaupes.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12174 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+						
+		<div class="resource" data-file-type="microdata" >
+			<div class="resource-left-col">
+				<span class="resource-info" class="resource-info" 
+					title="Haga clic para ver la información" 
+					alt="Ver más información" 
+					id="12175">
+					<i class="fa fa-plus-square-o icon-expand" aria-hidden="true"></i>
+					<i class="fa fa-minus-square-o icon-collapsed" aria-hidden="true"></i>
+					99Vichada                                 
+				</span>
+				<div class="resource-right-col float-right">
+										<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 3.86 MB]"  title="99_Vichada.zip" onclick="mostrarModal('99_Vichada.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12175 ');" ></input>								
+										
+				</div>
+			</div>
+			
+			
+
+			                    
+				<div id="info_12175" class="abstract">
+				
+								
+				<table class="table table-sm wb-table-sm grid-table tbl-resource-info" >
+																																																																																																																																				<tr valign="top">
+								<td  class="caption">Autores</td>
+								<td>Dane</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Fecha</td>
+								<td>10-16-2019</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">País</td>
+								<td>Colombia</td>
+							</tr>
+																																						<tr valign="top">
+								<td  class="caption">Lenguaje</td>
+								<td>Spanish</td>
+							</tr>
+																																																																																																																																																																																												<tr>
+						<td class="caption">Nombre del archivo</td>
+						<td>99_Vichada.zip</td>
+					</tr>
+										
+										<tr>						
+						<td class="caption">Descargar</td>
+						<td>
+							<input type="image" src="images/page_white_compressed.png" alt="Descargar [ZIP, 3.86 MB]"  title="99_Vichada.zip" onclick="mostrarModal('99_Vichada.zip' , 'https://microdatos.dane.gov.co/index.php/catalog/643/download/12175 ');" ></input>						   
+						</td>
+					</tr> 
+									</table>
+				
+				</div>
+					
+			</div>
+				
+		<div id="modalRecaptcha" name="modalRecaptcha" style="position: fixed; width: Auto; height: Auto; top: 0; left: 0; font-family:Verdana, Arial, Helvetica, sans-serif; font-size: 12px; font-weight: normal; border: #333333 1px solid; background-color: #FAFAFA; color: #000000; display:none;">
+		         <div align="right">
+		         	<input type="button" onClick="ocultarModal()"  value="X" style="margin-top: 5px;margin-right:15px" ></input>
+		         </div>
+		         <br/>
+		       
+		         <div id="divBtn" disabled align="center">
+		             <output id="microDataSelected"></output>
+		             <output id="microDataUrl" style=" display:none;"></output>
+		         </div>
+		       
+		         <div id="recaptcha1" class="g-recaptcha" data-sitekey="6LclxiMeAAAAAJRs1lUTZzl2Kk3dTmnzp1CYh7q5" align="center" style="margin-right: 5px;margin-left:5px" >
+		         
+		         </div>
+		      
+		        <br/>
+		        <br/>	 
+		        
+		        <div align="center">     
+		        	<input id="btoDownload" name="btoDownload" type="button" onclick="download(document.getElementById('microDataUrl').value)" value="Descargar" >
+			    </div>  	
+			        
+			    <br/>
+			        
+			</div>
+
+</div>
+
+<script  >
+
+	    var resource;
+		function mostrarModal(a,b)
+		{
+		    var ventana = document.getElementById('modalRecaptcha');
+		    ventana.style.marginTop = "100px";
+		    ventana.style.left = ((document.body.clientWidth-350) / 2) +  "px";
+		    ventana.style.display = 'block';
+
+		    var microDataSelect=document.getElementById('microDataSelected');
+		    microDataSelect.value=a;
+
+		    var microDataUrl=document.getElementById('microDataUrl');
+
+
+		    microDataUrl.value=b;
+		  
+		   
+		}
+
+		function ocultarModal()
+		{
+		    var ventana = document.getElementById('modalRecaptcha');
+		    ventana.style.display = 'none';
+		    grecaptcha.reset();
+		}
+
+		
+      var verifyCallback = function(response) {
+        alert(response);
+      };
+
+      
+      var widgetId2;
+      var estadoBoton="true";
+      
+      var onloadCallback = function() {
+
+        widgetId2 = grecaptcha.render(document.getElementById('recaptcha1'), {'6LclxiMeAAAAAJRs1lUTZzl2Kk3dTmnzp1CYh7q5' : '6LclxiMeAAAAAKu3k8q4-h3_0uOI14vhVeXFXQgz'});
+
+        var btD = document.getElementById('btoDownload');
+        var response= grecaptcha.getResponse(widgetId2);
+
+        if(response.length == 0){
+        	document.formRecaptcha.btoDownload.disabled=false;
+           }
+
+        else{
+        	document.formRecaptcha.btoDownload.disabled=true;
+            }
+            
+      };
+
+
+      var download = function(resource) {
+      var response= grecaptcha.getResponse(widgetId2);
+      if(response.length == 0){
+    		  alert("No se ha validado el captcha");
+      }
+      else{
+    		grecaptcha.reset();
+    		
+    		window.open(resource,'_blank');
+			
+    		ocultarModal();
+    	   }
+     
+                    
+        };
+      
+    </script>
+
+</div></div>
+      </div>
+</div>
+<!-- end-tabs-->    
+   </div> 
+</div>
+
+
+<!--survey summary resources-->
+<script type="text/javascript">
+	function toggle_resource(element_id){
+		$("#"+element_id).parent(".resource").toggleClass("active");
+		$("#"+element_id).toggle();
+	}
+	
+	$(document).ready(function () { 
+		bind_behaviours();
+		
+		$(".show-datafiles").click(function(){
+			$(".data-files .hidden").removeClass("hidden");
+			$(".show-datafiles").hide();
+			return false;
+		});
+
+	});	
+	
+	function bind_behaviours() {
+		//show variable info by id
+		$(".resource-info").unbind('click');
+		$(".resource-info").click(function(){
+			if($(this).attr("id")!=''){
+				toggle_resource('info_'+$(this).attr("id"));
+			}
+			return false;
+		});			
+	}
+</script>                </div>
+                       
+
+</div>
+
+<!-- page footer -->
+ <!-- footer -->
+ <div id="footer">
+    <!-- contedores de footer se pueden incluir los que sean necesarios. de debe crear una clase de flexbox para el contenedor principal y a ese elementos los atribuitos que se deseen para su alineacion y posicionamiento la clase creada es content_footerinfo, que esta en custom.css. Esta nueva libreria de flexbox esta inlcuida dentro del header del archivo y puede ser mezclado con boostrap sin problemas-->
+    <div class="container-fluid bg-footer footer-enc content_footerinfo">
+       <div class="content-footer_dane container-fluid row" style="">
+
+          <div class="item-info_dane col-12 col-lg-3">
+             <div class="icon-position"> <img src=https://microdatos.dane.gov.co/themes/nada/images/call-icon.png> </div>
+             <div class="text-info_dane">
+                <h5>CALL CENTER</h5>
+                <p><strong>Conmutador:</strong> (+57 601) 597 8300 ó (+57 601) 597 8398 / <strong> <br>Línea gratuita de
+                      atención:</strong> 01 8000
+                   912002 </p>
+             </div>
+          </div>
+
+          <!--espacio 2-->
+          <div class="col-12 col-lg-3 item-info_dane">
+             <div class="icon-position"> <img src=https://microdatos.dane.gov.co/themes/nada/images/clock-icon.png> </div>
+             <div class="text-info_dane">
+                <h5>HORARIO DE ATENCIÓN</h5>
+                <p>Lunes a viernes 8:00 a 17:00</p>
+             </div>
+          </div>
+
+          <!--espacio 3-->
+          <div class="col-12 col-lg-3 item-info_dane" style="border: none;">
+             <div class="icon-position"> <img src=https://microdatos.dane.gov.co/themes/nada/images/location-icon.png>
+             </div>
+             <div class="text-info_dane">
+                <h5>DIRECCIÓN</h5>
+                <p>Carrera 59 No. 26-70 Interior I - CAN / <strong>Bogotá D.C. - Colombia </strong></p>
+                <p><strong></strong></p>
+             </div>
+          </div>
+
+          <div class="logo-gobierno col-12 col-lg-3">
+             <!-- <img class="pull-right img-fluid hidden-xs mx-auto"
+                src="https://www.dane.gov.co/files/images/nuevaImg/logo-gobierno.png" style="width: 70%; "> -->
+          </div>
+       </div>
+    </div>
+ </div></body>
+
+</html>
