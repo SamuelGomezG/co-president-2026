@@ -1,0 +1,260 @@
+{
+  "municipalities": 1123,
+  "columns": 50,
+  "null_count": 24739,
+  "null_rate": 0.4406,
+  "memory_bytes": 498020,
+  "memory_mb": 0.47,
+  "column_names": [
+    {
+      "name": "REGION",
+      "dtype": "str",
+      "nulls": 0
+    },
+    {
+      "name": "C\u00d3DIGO DANE DEL DEPARTAMENTO",
+      "dtype": "int64",
+      "nulls": 0
+    },
+    {
+      "name": "departamento",
+      "dtype": "str",
+      "nulls": 0
+    },
+    {
+      "name": "codigo_municipio",
+      "dtype": "str",
+      "nulls": 0
+    },
+    {
+      "name": "nombre_municipio_x",
+      "dtype": "str",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2002_r1_alvaro_uribe",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2002_r1_horacio_serpa",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2006_r1_alvaro_uribe",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2006_r1_carlos_gaviria",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2010_r1_gustavo_petro",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2010_r1_juan_manuel_santos",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2014_r1_clara_lopez",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2014_r1_oscar_ivan_zuluaga",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2018_r1_gustavo_petro",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2018_r1_ivan_duque",
+      "dtype": "float64",
+      "nulls": 0
+    },
+    {
+      "name": "vote_share_2022_r1_blanco",
+      "dtype": "float64",
+      "nulls": 7
+    },
+    {
+      "name": "vote_share_2022_r1_federico_gutierrez",
+      "dtype": "float64",
+      "nulls": 3
+    },
+    {
+      "name": "vote_share_2022_r1_gustavo_petro",
+      "dtype": "float64",
+      "nulls": 2
+    },
+    {
+      "name": "vote_share_2022_r1_no_marcados",
+      "dtype": "float64",
+      "nulls": 27
+    },
+    {
+      "name": "vote_share_2022_r1_nulos",
+      "dtype": "float64",
+      "nulls": 11
+    },
+    {
+      "name": "vote_share_2022_r1_rest",
+      "dtype": "float64",
+      "nulls": 8
+    },
+    {
+      "name": "vote_share_2022_r1_rodolfo_hernandez",
+      "dtype": "float64",
+      "nulls": 3
+    },
+    {
+      "name": "vote_share_2022_r1_sergio_fajardo",
+      "dtype": "float64",
+      "nulls": 2
+    },
+    {
+      "name": "vote_share_2022_r2_blanco",
+      "dtype": "float64",
+      "nulls": 6
+    },
+    {
+      "name": "vote_share_2022_r2_gustavo_petro",
+      "dtype": "float64",
+      "nulls": 2
+    },
+    {
+      "name": "vote_share_2022_r2_no_marcados",
+      "dtype": "float64",
+      "nulls": 51
+    },
+    {
+      "name": "vote_share_2022_r2_nulos",
+      "dtype": "float64",
+      "nulls": 10
+    },
+    {
+      "name": "vote_share_2022_r2_rodolfo_hernandez",
+      "dtype": "float64",
+      "nulls": 2
+    },
+    {
+      "name": "nombre_municipio_y",
+      "dtype": "str",
+      "nulls": 1120
+    },
+    {
+      "name": "poblacion_total",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "poblacion_afrocolombiana",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "poblacion_indigena",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "poblacion_rural_dispersa",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "anos_escolaridad",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "hogares_con_internet",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "hogares_totales",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "pct_afro_colombian",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "pct_indigenous",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "pct_rural_disperso",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "years_schooling",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "internet_access_rate",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "ipm_score",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "nbi_rate",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "proyeccion_2022",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "population_2022",
+      "dtype": "float64",
+      "nulls": 1120
+    },
+    {
+      "name": "risk_level",
+      "dtype": "str",
+      "nulls": 1113
+    },
+    {
+      "name": "is_pdet",
+      "dtype": "float64",
+      "nulls": 1113
+    },
+    {
+      "name": "coca_hectares",
+      "dtype": "float64",
+      "nulls": 1113
+    },
+    {
+      "name": "armed_group_presence",
+      "dtype": "float64",
+      "nulls": 1113
+    },
+    {
+      "name": "high_risk_flag",
+      "dtype": "float64",
+      "nulls": 1113
+    }
+  ]
+}
