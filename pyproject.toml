@@ -23,6 +23,7 @@ dependencies = [
     "playwright>=1.40",
     "pymupdf>=1.24",
     "pdfplumber>=0.10",
+    "pymupdf>=1.23",
     "openpyxl>=3.1",
 ]
 
