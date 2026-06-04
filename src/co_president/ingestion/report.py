@@ -375,6 +375,7 @@ def _coverage_row(  # noqa: PLR0913
         "Historical results": "CEDAE / Registraduria",
         "Socioeconomic": "DANE",
         "Risk": "MOE / UNODC",
+        "Population": "DANE PPED",
     }
     return {
         "source": source,
