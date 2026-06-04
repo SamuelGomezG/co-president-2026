@@ -20,6 +20,31 @@ from co_president.ingestion.ingest_ipm import (
 __all__: list[str] = []
 
 
+def _make_synthetic_raw() -> pd.DataFrame:
+    """Build a synthetic raw DataFrame mimicking the DANE NBI xlsx structure.
+
+    Columns are ordered 0..24 so that ``raw.iloc[:, i]`` positionally indexes
+    the same column as label ``i``, matching the real xlsx behavior.
+    """
+    from collections import OrderedDict  # noqa: PLC0415
+
+    cols: dict[int, list[str | None]] = OrderedDict()
+    for i in range(25):
+        if i == 0:
+            cols[i] = ["05", "05", "27", "91", "00"]
+        elif i == 2:
+            cols[i] = ["001", "002", "001", "001", "000"]
+        elif i == 4:
+            cols[i] = ["3.2", "5.1", "70.3", "8.0", "0.0"]
+        elif i == 11:
+            cols[i] = ["2.5", "4.0", "65.0", None, "0.0"]
+        elif i == 18:
+            cols[i] = ["4.0", "6.0", "75.0", "9.0", "0.0"]
+        else:
+            cols[i] = [""] * 5
+    return pd.DataFrame(cols)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Build and load tests (uses departamental ECV microdata on disk)
 # ═══════════════════════════════════════════════════════════════════
@@ -41,6 +66,14 @@ class TestBuildIpmFeaturesRealData:
     departamento-level ECV IPM does not correlate strongly enough
     with NBI (R² < 0.5).  These tests account for that optionality.
     """
+
+    @pytest.fixture(autouse=True)
+    def _mock_nbi_xlsx(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Override ``_read_nbi_xlsx`` to return synthetic data (no real xlsx)."""
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_nbi._read_nbi_xlsx",
+            lambda _: _make_synthetic_raw(),
+        )
 
     def test_emits_expected_columns_when_present(self, data_dir: Path) -> None:
         """If IPM-2018 passes the R² guard, all 5 expected columns exist."""
