@@ -493,7 +493,7 @@ def _try_local_pdet_excel() -> pd.DataFrame | None:
             logger.warning("PDET Excel missing required columns; falling through")
             return None
         dept_str = df["Código DANE Departamento"].astype(str).str.zfill(2)
-        mun_str = df["Código DANE Municipio"].astype(str).str[-3:]
+        mun_str = df["Código DANE Municipio"].astype(str).str.zfill(3)
         codes = (dept_str + mun_str).tolist()
         return pd.DataFrame({"codigo_municipio": codes, "is_pdet": 1})
     except Exception as exc:  # noqa: BLE001
