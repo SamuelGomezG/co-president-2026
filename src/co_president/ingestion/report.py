@@ -126,6 +126,30 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
         )
     )
 
+    # DANE NBI (processed CSV)
+    nbi_df = _read_safe(fundamentals / "nbi_2018.csv")
+    records.append(
+        _coverage_row(
+            source="NBI",
+            rows_expected=_EXPECTED_MUNICIPALITIES,
+            df=nbi_df,
+            row_note="Primary poverty feature (0% imputation)" if not nbi_df.empty else "",
+        )
+    )
+
+    # IPM (processed CSV)
+    ipm_df = _read_safe(fundamentals / "ipm_2018.csv")
+    records.append(
+        _coverage_row(
+            source="IPM",
+            rows_expected=_EXPECTED_MUNICIPALITIES,
+            df=ipm_df,
+            row_note="Secondary poverty feature (opt-in; R² guard may drop 2018 column)"
+            if not ipm_df.empty
+            else "",
+        )
+    )
+
     # CEDAE raw directory listing (informational)
     records.append(_build_directory_row(data_dir))
 
