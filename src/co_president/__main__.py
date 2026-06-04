@@ -4,11 +4,13 @@ Provides ``python -m co_president <command>`` subcommands for running the
 full pipeline, generating reports, and producing plots.
 
 Commands:
-    run         Run the full pipeline (or ``--no-sample`` for baseline only)
-    validate    Load saved ``InferenceData`` and print validation metrics
-    aggregate   Print baseline weighted polling averages (SPEC-05)
-    plot        Generate all visualization plots
-    config      Print current configuration
+    run             Run the full pipeline (or ``--no-sample`` for baseline only)
+    validate        Load saved ``InferenceData`` and print validation metrics
+    aggregate       Print baseline weighted polling averages (SPEC-05)
+    plot            Generate all visualization plots
+    ingest          Run ingestion pipeline for a component (SPEC-16)
+    download-cedae  Download CEDAE election-result CSVs from S3
+    config          Print current configuration
 """
 
 from __future__ import annotations
@@ -127,6 +129,21 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default="Camara,Presidencia,Senado",
         help="Comma-separated niveles (default: Camara,Presidencia,Senado)",
+    )
+
+    ingest_parser = subparsers.add_parser("ingest", help="Run ingestion pipeline for a component")
+    ingest_parser.add_argument(
+        "--component",
+        type=str,
+        choices=["sabaneta"],
+        default="sabaneta",
+        help="Ingestion component to run (default: sabaneta)",
+    )
+    ingest_parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Override the default data directory",
     )
 
     subparsers.add_parser("config", help="Print current configuration")
@@ -1151,6 +1168,60 @@ def _cmd_plot(output_dir: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Ingest command
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _cmd_ingest(args: argparse.Namespace) -> None:
+    """Execute the ``ingest`` subcommand.
+
+    Args:
+        args: Parsed CLI arguments.
+
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+    if args.component == "sabaneta":
+        from co_president.ingestion.ingest_sabaneta import (  # noqa: PLC0415
+            build_sabaneta_camara_matrix,
+            load_sabaneta_camara,
+            validate_sabaneta,
+        )
+
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        try:
+            df = load_sabaneta_camara(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to load sabaneta camara")
+            sys.exit(1)
+
+        for warning in validate_sabaneta(df):
+            logger.warning("Sabaneta validation: %s", warning)
+
+        min_period = int(df["periodo"].min())
+        max_period = int(df["periodo"].max())
+        logger.info(
+            "Sabaneta: loaded %d records across %d periods (%d-%d)",
+            len(df),
+            df["periodo"].nunique(),
+            min_period,
+            max_period,
+        )
+
+        try:
+            build_sabaneta_camara_matrix(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to build sabaneta camara matrix")
+            sys.exit(1)
+    else:
+        logger.error("Unsupported ingest component: %r", args.component)
+        sys.exit(1)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Main entry point
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1169,6 +1240,8 @@ def main() -> None:
             _cmd_run(args)
         elif args.command == "validate":
             _cmd_validate()
+        elif args.command == "ingest":
+            _cmd_ingest(args)
         elif args.command == "download-cedae":
             _cmd_download_cedae(args)
         elif args.command == "plot":

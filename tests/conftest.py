@@ -6,7 +6,7 @@ import pytest
 
 from co_president.paths import resolve_data_dir
 
-__all__ = ["data_dir"]
+__all__ = ["data_dir", "sabaneta_fixture"]
 
 
 @pytest.fixture(scope="session")
@@ -18,3 +18,14 @@ def data_dir() -> Path:
     during a test run.
     """
     return resolve_data_dir(None)
+
+
+@pytest.fixture(scope="session")
+def sabaneta_fixture() -> Path:
+    """Path to the Sabaneta gold-standard fixture directory.
+
+    Returns the directory containing the Sabaneta Camara de Representantes
+    fixture file. Session-scoped because the file is read-only and never
+    changes.
+    """
+    return Path(__file__).resolve().parent / "fixtures" / "sabaneta"
