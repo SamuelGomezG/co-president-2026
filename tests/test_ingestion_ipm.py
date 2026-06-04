@@ -33,10 +33,9 @@ def _make_synthetic_ecv_hogares(n_departamentos: int = 5) -> pd.DataFrame:
     for i in range(1, n_departamentos + 1):
         rows.extend(
             {
-                "COD_DEPTO": str(i).zfill(2),
-                "FACTOR_EXP": float(rng.uniform(100, 1000)),
-                "INGRESO": float(rng.uniform(500, 5000)),
-                "POBREZA": int(rng.choice([0, 1], p=[0.7, 0.3])),
+                "DEPARTAMENTO": str(i).zfill(2),
+                "fex_c": float(rng.uniform(100, 1000)),
+                "ipm": float(rng.uniform(0.0, 1.0)),
             }
             for _ in range(3)
         )
@@ -78,7 +77,9 @@ class TestBuildIpmFeatures:
         )
         monkeypatch.setattr(
             "co_president.ingestion.ingest_ipm._load_divipola",
-            lambda _base: pd.DataFrame({"codigo_municipio": [f"{i:05d}" for i in range(1, 6)]}),
+            lambda _base: pd.DataFrame(
+                {"codigo_municipio": [f"{i:02d}{i:03d}" for i in range(1, 6)]}
+            ),
         )
         build_ipm_features(data_dir=tmp_path)
         saved = pd.read_csv(
@@ -101,7 +102,9 @@ class TestBuildIpmFeatures:
         )
         monkeypatch.setattr(
             "co_president.ingestion.ingest_ipm._load_divipola",
-            lambda _base: pd.DataFrame({"codigo_municipio": [f"{i:05d}" for i in range(1, 6)]}),
+            lambda _base: pd.DataFrame(
+                {"codigo_municipio": [f"{i:02d}{i:03d}" for i in range(1, 6)]}
+            ),
         )
         build_ipm_features(data_dir=tmp_path)
         saved = pd.read_csv(
@@ -116,16 +119,12 @@ class TestPearsonR2:
 
     def test_perfect_correlation(self) -> None:
         """Perfectly correlated variables yield R² = 1.0."""
-        import numpy as np  # noqa: PLC0415
-
         x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y = x * 2
         assert _pearson_r2(x, y) == pytest.approx(1.0, abs=0.001)
 
     def test_no_correlation(self) -> None:
         """Uncorrelated variables yield R² close to 0."""
-        import numpy as np  # noqa: PLC0415
-
         x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
         assert _pearson_r2(x, y) < 0.5
