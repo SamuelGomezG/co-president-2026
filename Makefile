@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv
+.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv cnpv
 
 check: fmt lint typecheck test
 
@@ -59,3 +59,11 @@ clean:
 
 download-cnpv:
 	uv run python scripts/download_cnpv_2018.py
+
+CNPV_ZIPS := $(wildcard data/cnpv-2018/raw/*.zip)
+CNPV_OUT := data/fundamentals/cnpv_2018.csv
+
+cnpv: $(CNPV_OUT)
+
+$(CNPV_OUT): $(CNPV_ZIPS) src/co_president/ingestion/ingest_cnpv.py
+	uv run python -m co_president ingest --component cnpv
