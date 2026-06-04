@@ -213,7 +213,7 @@ def fetch_pdet_list() -> pd.DataFrame:
 
     Returns:
         DataFrame with ``codigo_municipio`` and ``is_pdet`` (1) columns.
-        Exactly 170 rows.
+        Up to 170 rows.
 
     """
     local = _try_local_pdet_excel()
