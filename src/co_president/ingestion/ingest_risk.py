@@ -732,9 +732,9 @@ def _moe_hardcoded_fallback() -> pd.DataFrame:
     result = divipola[["codigo_municipio"]].copy()
     result["risk_level"] = "low"
 
-    _overwrite_risk_levels(result, _EXTREME_RISK_CODES, "extreme")
-    _overwrite_risk_levels(result, _HIGH_RISK_CODES, "high")
     _overwrite_risk_levels(result, _MEDIUM_RISK_CODES, "medium")
+    _overwrite_risk_levels(result, _HIGH_RISK_CODES, "high")
+    _overwrite_risk_levels(result, _EXTREME_RISK_CODES, "extreme")
     return result
 
 
