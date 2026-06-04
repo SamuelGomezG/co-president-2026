@@ -74,6 +74,12 @@ def build_ipm_features(data_dir: Path | None = None) -> None:
     Raises:
         FileNotFoundError: If the ECV microdata is missing for a year.
 
+    Examples:
+        >>> build_ipm_features()
+        >>> df = pd.read_csv("data/fundamentals/ipm_2018.csv")
+        >>> "codigo_municipio" in df.columns
+        True
+
     """
     base = resolve_data_dir(data_dir)
     fundamentals_dir = base / "fundamentals"
@@ -146,6 +152,11 @@ def load_ipm_data(data_dir: Path | None = None) -> pd.DataFrame:
     Raises:
         FileNotFoundError: If ``ipm_2018.csv`` is not found.
 
+    Examples:
+        >>> df = load_ipm_data()
+        >>> "ipm_2022" in df.columns
+        True
+
     """
     base = resolve_data_dir(data_dir)
     path = base / "fundamentals" / "ipm_2018.csv"
@@ -167,6 +178,15 @@ def validate_ipm(df: pd.DataFrame) -> list[str]:
     Returns:
         List of warning messages (empty if all checks pass).
 
+    Examples:
+        >>> df = pd.DataFrame({
+        ...     "codigo_municipio": ["11001"],
+        ...     "ipm_2022": [0.15],
+        ...     "ipm_2022_imputed": [True],
+        ... })
+        >>> validate_ipm(df)
+        []
+
     """
     warnings: list[str] = []
 
@@ -177,10 +197,10 @@ def validate_ipm(df: pd.DataFrame) -> list[str]:
         "ipm_2022",
         "ipm_2022_imputed",
     }
+    # Minimal valid set when R² guard dropped 2018 columns.
+    minimal_valid = {"codigo_municipio", "ipm_2022", "ipm_2022_imputed"}
     has_columns = set(df.columns)
-    if not expected_bases.issubset(has_columns) and expected_bases.intersection(has_columns) != {
-        "codigo_municipio",
-    }:
+    if not (expected_bases.issubset(has_columns) or minimal_valid.issubset(has_columns)):
         warnings.append(f"Expected IPM columns, got: {sorted(has_columns)}")
         return warnings
 
