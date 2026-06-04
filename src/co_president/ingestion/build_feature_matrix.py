@@ -1,10 +1,11 @@
-"""SPEC-14: Municipal feature matrix integration (extended by SPEC-18).
+"""SPEC-14: Municipal feature matrix integration (extended by SPEC-18, SPEC-19).
 
-Loads all seven fundamental components (DIVIPOLA, historical results,
+Loads all eight fundamental components (DIVIPOLA, historical results,
 NBI poverty indicators, IPM poverty indicators, socioeconomic indicators,
-risk factors, and CNPV 2018 census data) produced by SPEC-12, SPEC-13,
-SPEC-17, and SPEC-18, joins them on ``codigo_municipio``, and produces
-a single validated municipal feature matrix ready for modeling.
+risk factors, CNPV 2018 census data, and DANE population projections)
+produced by SPEC-12, SPEC-13, SPEC-17, SPEC-18, and SPEC-19, joins them
+on ``codigo_municipio``, and produces a single validated municipal
+feature matrix ready for modeling.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ _COMPONENT_FILES: dict[str, str] = {
     "socioeconomic": "socioeconomic.csv",
     "risk": "risk_factors.csv",
     "cnpv": "cnpv_2018.csv",
+    "population": "population_2018_2026.csv",
 }
 
 _OPTIONAL_COMPONENTS: frozenset[str] = frozenset({"ipm"})
@@ -280,7 +282,7 @@ def pivot_historical_wide(historical: pd.DataFrame) -> pd.DataFrame:
     return pivoted.reset_index()
 
 
-def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
+def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901
     """Build the final municipal feature matrix by joining all components.
 
     Loads all seven fundamental components from disk, pivots historical
@@ -319,6 +321,7 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     socioeconomic = components["socioeconomic"]
     risk = components["risk"]
     cnpv = components["cnpv"]
+    population = components["population"]
 
     if divipola.empty:
         logger.error("DIVIPOLA component is empty — cannot anchor feature matrix")
@@ -339,6 +342,8 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
         matrix = matrix.merge(risk, on="codigo_municipio", how="left", validate="m:1")
     if not cnpv.empty:
         matrix = matrix.merge(cnpv, on="codigo_municipio", how="left", validate="m:1")
+    if not population.empty:
+        matrix = matrix.merge(population, on="codigo_municipio", how="left", validate="m:1")
 
     _log_matrix_stats(matrix)
     return matrix

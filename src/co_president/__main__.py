@@ -135,9 +135,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--component",
         type=str,
-        choices=["sabaneta", "cnpv", "nbi", "ipm"],
+        choices=["sabaneta", "cnpv", "nbi", "ipm", "population"],
         default="sabaneta",
-        help="Ingestion component to run (default: sabaneta; also: nbi, ipm)",
+        help="Ingestion component to run (default: sabaneta; also: nbi, ipm, population)",
     )
     ingest_parser.add_argument(
         "--data-dir",
@@ -1280,6 +1280,27 @@ def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR09
                 logger.warning("IPM validation: %s", warning)
         except FileNotFoundError:
             logger.info("IPM features not built — no data found or nothing to aggregate")
+
+    elif args.component == "population":
+        from co_president.ingestion.ingest_population import (  # noqa: PLC0415
+            build_population_features,
+            load_population_data,
+            validate_population,
+        )
+
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        try:
+            build_population_features(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError, AssertionError):
+            logger.exception("Failed to build population features")
+            sys.exit(1)
+
+        try:
+            df = load_population_data(data_dir=data_dir)
+            for warning in validate_population(df):
+                logger.warning("Population validation: %s", warning)
+        except FileNotFoundError:
+            logger.info("Population features not built — no data found or nothing to aggregate")
 
     else:
         logger.error("Unsupported ingest component: %r", args.component)

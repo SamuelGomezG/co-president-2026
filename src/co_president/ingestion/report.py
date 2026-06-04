@@ -39,6 +39,7 @@ _SOURCE_FILE_MAP: dict[str, str] = {
     "IPM": "ipm_2018.csv",
     "Socioeconomic": "socioeconomic.csv",
     "Risk": "risk_factors.csv",
+    "Population": "population_2018_2026.csv",
 }
 
 
@@ -147,6 +148,17 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
             row_note="Secondary poverty feature (opt-in; R² guard may drop 2018 column)"
             if not ipm_df.empty
             else "",
+        )
+    )
+
+    # Population projections (processed CSV)
+    pop_df = _read_safe(fundamentals / "population_2018_2026.csv")
+    records.append(
+        _coverage_row(
+            source="Population",
+            rows_expected=1_123,
+            df=pop_df,
+            row_note="DANE PPED; 1 123 municipalities (incl. ANM)" if not pop_df.empty else "",
         )
     )
 

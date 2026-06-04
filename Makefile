@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv cnpv nbi ipm
+.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv cnpv nbi ipm population
 
 check: fmt lint typecheck test
 
@@ -83,3 +83,11 @@ ipm: $(IPM_OUT)
 
 $(IPM_OUT): $(IPM_ZIPS) src/co_president/ingestion/ingest_ipm.py
 	uv run python -m co_president ingest --component ipm
+
+POPULATION_SRC := data/raw/PPED-AreaMun-2018-2042_VP.xlsx
+POPULATION_OUT := data/fundamentals/population_2018_2026.csv
+
+population: $(POPULATION_OUT)
+
+$(POPULATION_OUT): $(POPULATION_SRC) src/co_president/ingestion/ingest_population.py
+	uv run python -m co_president ingest --component population
