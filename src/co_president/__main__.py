@@ -135,7 +135,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--component",
         type=str,
-        choices=["sabaneta"],
+        choices=["sabaneta", "cnpv"],
         default="sabaneta",
         help="Ingestion component to run (default: sabaneta)",
     )
@@ -1216,6 +1216,29 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         except (FileNotFoundError, ValueError, OSError):
             logger.exception("Failed to build sabaneta camara matrix")
             sys.exit(1)
+
+    elif args.component == "cnpv":
+        from co_president.ingestion.ingest_cnpv import (  # noqa: PLC0415
+            build_cnpv_features,
+            load_cnpv_data,
+            validate_cnpv,
+        )
+
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        try:
+            build_cnpv_features(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to build cnpv features")
+            sys.exit(1)
+
+        # Only load/validate if the build succeeded and wrote output.
+        try:
+            df = load_cnpv_data(data_dir=data_dir)
+            for warning in validate_cnpv(df):
+                logger.warning("CNPV validation: %s", warning)
+        except FileNotFoundError:
+            logger.info("CNPV features not built — no data found or nothing to aggregate")
+
     else:
         logger.error("Unsupported ingest component: %r", args.component)
         sys.exit(1)

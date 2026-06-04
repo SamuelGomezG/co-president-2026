@@ -1,9 +1,10 @@
 """SPEC-14: Municipal feature matrix integration.
 
-Loads all four fundamental components (DIVIPOLA, historical results,
-socioeconomic indicators, and risk factors) produced by SPEC-12 and
-SPEC-13, joins them on ``codigo_municipio``, and produces a single
-validated municipal feature matrix ready for modeling.
+Loads all five fundamental components (DIVIPOLA, historical results,
+socioeconomic indicators, risk factors, and CNPV 2018 census data)
+produced by SPEC-12, SPEC-13, and SPEC-17, joins them on
+``codigo_municipio``, and produces a single validated municipal
+feature matrix ready for modeling.
 """
 
 from __future__ import annotations
@@ -32,7 +33,13 @@ _COMPONENT_FILES: dict[str, str] = {
     "historical": "historical_results.csv",
     "socioeconomic": "socioeconomic.csv",
     "risk": "risk_factors.csv",
+    "cnpv": "cnpv_2018.csv",
 }
+
+# NOTE(SPEC-17): ``cnpv_2018.csv`` shares column names with the
+# ``socioeconomic.csv`` stub (pct_afro_colombian, pct_indigenous, etc.).
+# ``build_feature_matrix`` appends ``_x``/``_y`` suffixes during merge.
+# SPEC-21 (Fundamentals API) will reconcile; this file defers that choice.
 
 
 def load_all_components(data_dir: Path) -> dict[str, pd.DataFrame]:
@@ -268,7 +275,7 @@ def pivot_historical_wide(historical: pd.DataFrame) -> pd.DataFrame:
 def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     """Build the final municipal feature matrix by joining all components.
 
-    Loads all four fundamental components from disk, pivots historical
+    Loads all five fundamental components from disk, pivots historical
     results to wide format, and sequentially LEFT-joins them anchored on
     the DIVIPOLA master registry.
 
@@ -301,6 +308,7 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     historical = components["historical"]
     socioeconomic = components["socioeconomic"]
     risk = components["risk"]
+    cnpv = components["cnpv"]
 
     if divipola.empty:
         logger.error("DIVIPOLA component is empty — cannot anchor feature matrix")
@@ -315,6 +323,8 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
         matrix = matrix.merge(socioeconomic, on="codigo_municipio", how="left", validate="m:1")
     if not risk.empty:
         matrix = matrix.merge(risk, on="codigo_municipio", how="left", validate="m:1")
+    if not cnpv.empty:
+        matrix = matrix.merge(cnpv, on="codigo_municipio", how="left", validate="m:1")
 
     _log_matrix_stats(matrix)
     return matrix

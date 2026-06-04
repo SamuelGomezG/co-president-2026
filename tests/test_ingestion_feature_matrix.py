@@ -135,6 +135,32 @@ def _make_risk() -> pd.DataFrame:
     )
 
 
+def _make_cnpv() -> pd.DataFrame:
+    """Synthetic CNPV 2018 feature DataFrame (5 municipalities)."""
+    return pd.DataFrame(
+        {
+            "codigo_municipio": [f"{i:05d}" for i in range(1, 6)],
+            "poblacion_total": [100_000, 50_000, 25_000, 10_000, 5_000],
+            "poblacion_afrocolombiana": [5_000, 1_000, 500, 200, 100],
+            "poblacion_indigena": [1_000, 500, 100, 50, 20],
+            "poblacion_rural_dispersa": [500, 200, 100, 50, 20],
+            "pct_afro_colombian": [0.05, 0.02, 0.02, 0.02, 0.02],
+            "pct_indigenous": [0.01, 0.01, 0.004, 0.005, 0.004],
+            "pct_rural_disperso": [0.005, 0.004, 0.004, 0.005, 0.004],
+            "years_schooling_promedio": [9.5, 8.0, 7.0, 6.0, 5.0],
+            "pct_school_attendance": [0.85, 0.80, 0.75, 0.70, 0.65],
+            "internet_access_rate": [0.75, 0.60, 0.40, 0.30, 0.20],
+            "labor_force_participation_rate": [0.70, 0.72, 0.68, 0.65, 0.60],
+            "pct_female": [0.52, 0.51, 0.50, 0.52, 0.51],
+            "rooms_per_household": [3.5, 3.0, 2.8, 2.5, 2.0],
+            "persons_per_household": [3.8, 3.5, 3.2, 3.0, 2.8],
+            "pct_age_18_29": [0.25, 0.28, 0.30, 0.32, 0.35],
+            "pct_age_30_54": [0.40, 0.38, 0.35, 0.33, 0.30],
+            "pct_age_55_plus": [0.35, 0.34, 0.35, 0.35, 0.35],
+        }
+    )
+
+
 def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
     """Build a complete synthetic component dict for testing."""
     return {
@@ -142,6 +168,7 @@ def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
         "historical": _make_historical(),
         "socioeconomic": _make_socioeconomic(),
         "risk": _make_risk(),
+        "cnpv": _make_cnpv(),
     }
 
 
@@ -154,10 +181,10 @@ class TestLoadAllComponents:
     """``load_all_components`` reads component CSVs from disk."""
 
     def test_returns_dict_with_expected_keys(self, tmp_path: Path) -> None:
-        """Returns dict with all four component keys."""
+        """Returns dict with all five component keys."""
         _write_component_files(tmp_path, _make_components())
         result = load_all_components(tmp_path)
-        assert set(result) == {"divipola", "historical", "socioeconomic", "risk"}
+        assert set(result) == {"divipola", "historical", "socioeconomic", "risk", "cnpv"}
 
     def test_all_dataframes_when_files_exist(self, tmp_path: Path) -> None:
         """Each component DataFrame contains the expected data."""
@@ -389,6 +416,28 @@ class TestBuildFeatureMatrix:
         assert len(result) == 5
         assert not any(c.startswith("vote_share_") for c in result.columns)
 
+    def test_cnpv_columns_merged(self, tmp_path: Path) -> None:
+        """CNPV-specific columns are present and overlapping columns are suffixed."""
+        _write_component_files(tmp_path, _make_components(5))
+        result = build_feature_matrix(data_dir=tmp_path)
+
+        # CNPV-specific columns (no overlap with socioeconomic).
+        cnpv_specific = {"poblacion_total", "poblacion_afrocolombiana", "poblacion_indigena"}
+        missing = cnpv_specific - set(result.columns)
+        assert not missing, f"Missing CNPV columns: {missing}"
+
+        # Overlapping columns should have both _x (socioeconomic) and _y (CNPV) suffixes.
+        overlapping_bases = [
+            "pct_afro_colombian",
+            "pct_indigenous",
+            "pct_rural_disperso",
+            "internet_access_rate",
+        ]
+        for base in overlapping_bases:
+            assert f"{base}_x" in result.columns, f"Missing {base}_x (socioeconomic)"
+            assert f"{base}_y" in result.columns, f"Missing {base}_y (CNPV)"
+            assert base not in result.columns, f"Unsuffixed {base} should not exist after merge"
+
 
 # ═══════════════════════════════════════════════════════════════════
 # generate_data_dictionary
@@ -530,6 +579,7 @@ def _write_component_files(data_dir: Path, components: dict[str, pd.DataFrame]) 
         "historical": "historical_results.csv",
         "socioeconomic": "socioeconomic.csv",
         "risk": "risk_factors.csv",
+        "cnpv": "cnpv_2018.csv",
     }
     for name, df in components.items():
         filename = filenames[name]
