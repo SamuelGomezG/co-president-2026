@@ -137,7 +137,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         choices=["sabaneta", "cnpv", "nbi", "ipm"],
         default="sabaneta",
-        help="Ingestion component to run (default: sabaneta; also: nbi, ipm)",
+        help="Ingestion component to run (default: sabaneta; also: cnpv, nbi, ipm)",
     )
     ingest_parser.add_argument(
         "--data-dir",
