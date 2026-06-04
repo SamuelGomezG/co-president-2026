@@ -282,7 +282,32 @@ def pivot_historical_wide(historical: pd.DataFrame) -> pd.DataFrame:
     return pivoted.reset_index()
 
 
-def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901
+def _merge_components(
+    matrix: pd.DataFrame,
+    components: list[tuple[str, pd.DataFrame]],
+) -> pd.DataFrame:
+    """Sequentially left-merge component DataFrames onto the matrix.
+
+    Each component is merged on ``codigo_municipio`` with ``validate="m:1"``
+    only if it is non-empty.  Empty components are silently skipped.
+
+    Args:
+        matrix: The anchor DataFrame (typically DIVIPOLA).
+        components: Ordered list of ``(name, dataframe)`` tuples.
+
+    Returns:
+        The matrix with all non-empty components merged in order.
+
+    """
+    for name, df in components:
+        if df.empty:
+            logger.debug("Skipping empty component: %s", name)
+            continue
+        matrix = matrix.merge(df, on="codigo_municipio", how="left", validate="m:1")
+    return matrix
+
+
+def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     """Build the final municipal feature matrix by joining all components.
 
     Loads all seven fundamental components from disk, pivots historical
@@ -330,20 +355,18 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:  # noqa:
     historical_wide = pivot_historical_wide(historical) if not historical.empty else pd.DataFrame()
 
     matrix = divipola.copy()
-    if not historical_wide.empty:
-        matrix = matrix.merge(historical_wide, on="codigo_municipio", how="left", validate="m:1")
-    if not nbi.empty:
-        matrix = matrix.merge(nbi, on="codigo_municipio", how="left", validate="m:1")
-    if not ipm.empty:
-        matrix = matrix.merge(ipm, on="codigo_municipio", how="left", validate="m:1")
-    if not socioeconomic.empty:
-        matrix = matrix.merge(socioeconomic, on="codigo_municipio", how="left", validate="m:1")
-    if not risk.empty:
-        matrix = matrix.merge(risk, on="codigo_municipio", how="left", validate="m:1")
-    if not cnpv.empty:
-        matrix = matrix.merge(cnpv, on="codigo_municipio", how="left", validate="m:1")
-    if not population.empty:
-        matrix = matrix.merge(population, on="codigo_municipio", how="left", validate="m:1")
+    matrix = _merge_components(
+        matrix,
+        [
+            ("historical_wide", historical_wide),
+            ("nbi", nbi),
+            ("ipm", ipm),
+            ("socioeconomic", socioeconomic),
+            ("risk", risk),
+            ("cnpv", cnpv),
+            ("population", population),
+        ],
+    )
 
     _log_matrix_stats(matrix)
     return matrix
