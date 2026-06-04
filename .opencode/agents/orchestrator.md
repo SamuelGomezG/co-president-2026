@@ -5,9 +5,8 @@ description: >
   list, and carries out the fixes directly on the files.
 color: "#2ecc71"
 mode: primary
-model: opencode-go/minimax-m2.7
+model: opencode-go/qwen3.6-plus
 temperature: 0.1
-steps: 30
 permission:
   read: allow
   edit: allow
