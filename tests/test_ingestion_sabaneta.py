@@ -6,6 +6,7 @@ data shape (periods, parties, vote totals).
 
 from __future__ import annotations
 
+import shutil
 import typing
 from typing import TYPE_CHECKING
 
@@ -13,19 +14,17 @@ import pandas as pd
 import pytest
 
 from co_president.ingestion.ingest_sabaneta import (
+    _EXPECTED_COLUMNS,
+    _EXPECTED_PERIODS,
     _parse_sabaneta_file,
+    build_sabaneta_camara_matrix,
     load_sabaneta_camara,
+    validate_sabaneta,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__: list[str] = []
-
-_EXPECTED_PERIODS: frozenset[int] = frozenset({2002, 2006, 2010, 2015, 2019})
-_EXPECTED_COLUMNS: frozenset[str] = frozenset(
-    {"municipio", "periodo", "partido", "total_votes"},
-)
 # Total votes (incl. blank/null/unmarked) in the 2019/2022 period,
 # precomputed from the source CSV to serve as a known-integrity anchor.
 _KNOWN_PERIOD_TOTALS: dict[int, int] = {
@@ -177,4 +176,113 @@ class TestLoadSabanetaCamaraEndToEnd:
         """Returns correct DataFrame when ``data_dir`` is passed explicitly."""
         df = load_sabaneta_camara(data_dir=sabaneta_fixture.parent)
         assert isinstance(df, pd.DataFrame)
+        assert len(df) == 80
+        assert set(df.columns) == _EXPECTED_COLUMNS
+        assert set(df["periodo"].unique()) == _EXPECTED_PERIODS
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Validation and error handling
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestValidation:
+    """``validate_sabaneta`` checks DataFrame integrity."""
+
+    def test_valid_dataframe_returns_empty_warnings(self) -> None:
+        """Returns empty list for a valid DataFrame."""
+        df = pd.DataFrame(
+            {
+                "municipio": ["Sabaneta"] * 5,
+                "periodo": [2002, 2006, 2010, 2015, 2019],
+                "partido": ["A", "B", "C", "D", "E"],
+                "total_votes": [100, 200, 300, 400, 500],
+            }
+        )
+        warnings = validate_sabaneta(df)
+        assert warnings == []
+
+    def test_missing_columns_returns_warnings(self) -> None:
+        """Returns warnings when expected columns are missing."""
+        df = pd.DataFrame({"municipio": ["Sabaneta"]})
+        warnings = validate_sabaneta(df)
+        assert len(warnings) == 1
+        assert "Missing columns" in warnings[0]
+
+    def test_negative_votes_returns_warning(self) -> None:
+        """Returns warning when negative vote totals are found."""
+        df = pd.DataFrame(
+            {
+                "municipio": ["Sabaneta", "Sabaneta"],
+                "periodo": [2002, 2006],
+                "partido": ["Partido A", "Partido B"],
+                "total_votes": [-100, 500],
+            }
+        )
+        warnings = validate_sabaneta(df)
+        assert any("negative vote totals" in w for w in warnings)
+
+    def test_mismatched_periods_returns_warning(self) -> None:
+        """Returns warning when periods don't match expected set."""
+        df = pd.DataFrame(
+            {
+                "municipio": ["Sabaneta"] * 5,
+                "periodo": [1999, 2006, 2010, 2015, 2019],
+                "partido": ["A", "B", "C", "D", "E"],
+                "total_votes": [100, 200, 300, 400, 500],
+            }
+        )
+        warnings = validate_sabaneta(df)
+        assert any("Expected periods" in w for w in warnings)
+
+
+class TestErrorHandling:
+    """Error paths for malformed input."""
+
+    def test_raises_on_bad_total(self, tmp_path: Path) -> None:
+        """Raises ValueError when Total contains non-numeric values."""
+        bad_csv = tmp_path / "bad.csv"
+        bad_csv.write_text(
+            '"Partido Político","Periodo","Tipo Candidatura","Total"\n'
+            '"Foo","2002/2006","Camara","N/A"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="Non-numeric Total"):
+            _parse_sabaneta_file(tmp_path)
+
+    def test_raises_on_bad_periodo(self, tmp_path: Path) -> None:
+        """Raises ValueError when Periodo cannot be parsed into a year."""
+        bad_csv = tmp_path / "bad.csv"
+        bad_csv.write_text(
+            '"Partido Político","Periodo","Tipo Candidatura","Total"\n'
+            '"Foo","MALFORMED","Camara","100"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="Failed to extract year"):
+            _parse_sabaneta_file(tmp_path)
+
+    def test_raises_on_empty_csv(self, tmp_path: Path) -> None:
+        """Raises ValueError when CSV has header but no data rows."""
+        empty_csv = tmp_path / "empty.csv"
+        empty_csv.write_text(
+            '"Partido Político","Periodo","Tipo Candidatura","Total"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="empty"):
+            _parse_sabaneta_file(tmp_path)
+
+
+class TestBuildMatrix:
+    """``build_sabaneta_camara_matrix`` persists output to disk."""
+
+    def test_saves_to_fundamentals(self, tmp_path: Path, sabaneta_fixture: Path) -> None:
+        """Saves CSV to data_dir/fundamentals/sabaneta_camara.csv."""
+        sabaneta_dst = tmp_path / "sabaneta"
+        shutil.copytree(sabaneta_fixture, sabaneta_dst)
+
+        build_sabaneta_camara_matrix(tmp_path)
+        target = tmp_path / "fundamentals" / "sabaneta_camara.csv"
+        assert target.exists()
+        df = pd.read_csv(target)
+        assert set(df.columns) == _EXPECTED_COLUMNS
         assert len(df) == 80

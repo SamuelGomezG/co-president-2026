@@ -489,6 +489,38 @@ def test_cli_parser_accepts_ingest() -> None:
     assert args.component == "sabaneta"
 
 
+def test_cli_parser_ingest_default_component() -> None:
+    """Parser defaults to sabaneta when --component is omitted."""
+    from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+    parser = _build_parser()
+    args = parser.parse_args(["ingest"])
+    assert args.command == "ingest"
+    assert args.component == "sabaneta"
+
+
+def test_cli_parser_ingest_accepts_data_dir() -> None:
+    """Parser accepts --data-dir for the ingest subcommand."""
+    from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+    parser = _build_parser()
+    args = parser.parse_args(["ingest", "--data-dir", "/tmp/data"])  # noqa: S108
+    assert args.command == "ingest"
+    assert args.data_dir == "/tmp/data"  # noqa: S108
+
+
+def test_ingest_command_exits_success() -> None:
+    """The ``ingest`` subcommand runs and exits successfully."""
+    result = subprocess.run(  # noqa: S603
+        [_PYTHON, "-m", "co_president", "ingest", "--component", "sabaneta"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Runoff matrix CLI integration tests
 # ═══════════════════════════════════════════════════════════════════════
