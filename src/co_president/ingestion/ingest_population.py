@@ -38,7 +38,7 @@ _YEAR_MAX = 2026
 _OUTPUT_FILENAME = "population_2018_2026.csv"
 _EXPECTED_2022_TOTAL = 50_000_000
 _TOLERANCE = 0.05  # ±5 %
-_EXPECTED_MUNICIPALITIES = 1_100
+_EXPECTED_MUNICIPALITIES = 1_123
 _NATIONAL_TOTAL_CHECK_MIN = 1_000
 _CNP_CODE_LENGTH = 5
 _CRITICAL_COLUMNS: frozenset[str] = frozenset({f"pop_{y}" for y in range(_YEAR_MIN, _YEAR_MAX + 1)})
@@ -125,6 +125,13 @@ def _pivot_population_wide(filtered: pd.DataFrame) -> pd.DataFrame:
 
     year_cols = list(range(_YEAR_MIN, _YEAR_MAX + 1))
     present = [c for c in year_cols if c in pivot.columns]
+    missing_years = sorted(set(year_cols) - set(present))
+    if missing_years:
+        msg = (
+            f"Population data missing years: {missing_years}. "
+            f"Expected {_YEAR_MIN}--{_YEAR_MAX}, found {present}"
+        )
+        raise ValueError(msg)
     pivot = pivot[["codigo_municipio", *present]]
 
     rename_map = {y: f"pop_{y}" for y in range(_YEAR_MIN, _YEAR_MAX + 1)}
@@ -255,6 +262,8 @@ def validate_population(df: pd.DataFrame) -> list[str]:
     for col in _CRITICAL_COLUMNS:
         if col not in df.columns:
             continue
+        if pd.api.types.is_float_dtype(df[col]):
+            warnings.append(f"Population: {col} has float dtype (expected integer)")
         nulls = df[col].isna().sum()
         if nulls > 0:
             warnings.append(f"Population: {col} has {nulls} null value(s)")

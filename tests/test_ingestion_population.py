@@ -177,11 +177,14 @@ class TestPivotPopulationWide:
 
     def test_filters_years_beyond_2026(self) -> None:
         """Years > 2026 are excluded from the output."""
-        filtered = _filter_total_rows(_make_synthetic_xlsx(2, years=[2018, 2026, 2030, 2042]))
+        all_years = [*list(range(2018, 2027)), 2030, 2042]
+        filtered = _filter_total_rows(_make_synthetic_xlsx(2, years=all_years))
         result = _pivot_population_wide(filtered)
         year_cols = [c for c in result.columns if c.startswith("pop_")]
         years = [int(c.split("_")[1]) for c in year_cols]
         assert all(2018 <= y <= 2026 for y in years)
+        assert 2030 not in years
+        assert 2042 not in years
 
     def test_codigo_municipio_is_first_column(self) -> None:
         """codigo_municipio is the first column."""
@@ -194,17 +197,18 @@ class TestPivotPopulationWide:
         """Assert national pop_2022 total is within ±5% of 50M (synthetic)."""
         rng = np.random.default_rng(seed=42)
         n = 100
-        # Build a synthetic dataset where 2022 total is close to 50M
+        # Build a synthetic dataset with all years 2018-2026
         raw_dict: dict = {"MPIO": [], "AÑO": [], "ÁREA GEOGRÁFICA": [], "TOTAL": []}
         for i in range(1, n + 1):
             mpio = f"{i:05d}"
-            raw_dict["MPIO"].extend([mpio] * 3)
-            raw_dict["AÑO"].extend([2022] * 3)
-            raw_dict["ÁREA GEOGRÁFICA"].extend(
-                ["Cabecera Municipal", "Centros Poblados y Rural Disperso", "Total"]
-            )
-            pop = int(rng.uniform(300_000, 700_000))
-            raw_dict["TOTAL"].extend([int(pop * 0.85), int(pop * 0.15), pop])
+            for year in range(2018, 2027):
+                raw_dict["MPIO"].extend([mpio] * 3)
+                raw_dict["AÑO"].extend([year] * 3)
+                raw_dict["ÁREA GEOGRÁFICA"].extend(
+                    ["Cabecera Municipal", "Centros Poblados y Rural Disperso", "Total"]
+                )
+                pop = int(rng.uniform(300_000, 700_000))
+                raw_dict["TOTAL"].extend([int(pop * 0.85), int(pop * 0.15), pop])
         raw = pd.DataFrame(raw_dict)
         filtered = _filter_total_rows(raw)
         result = _pivot_population_wide(filtered)
@@ -338,7 +342,7 @@ class TestValidatePopulation:
 
     def test_valid_data_returns_empty(self) -> None:
         """Valid population DataFrame yields no warnings."""
-        df = _make_valid_population(1122)
+        df = _make_valid_population(1123)
         warnings = validate_population(df)
         assert warnings == []
 
@@ -362,8 +366,8 @@ class TestValidatePopulation:
         warnings = validate_population(df)
         assert any("5" in w for w in warnings)
 
-    def test_fewer_than_1100_rows_warns(self) -> None:
-        """Fewer than 1100 rows triggers a row-count warning."""
+    def test_fewer_than_expected_rows_warns(self) -> None:
+        """Fewer than 1123 rows triggers a row-count warning."""
         df = _make_valid_population(5)
         warnings = validate_population(df)
         assert any("rows" in w for w in warnings)
@@ -399,3 +403,17 @@ class TestValidatePopulation:
             assert df[col].dtype != np.dtype("float64"), (
                 f"{col}: expected non-float dtype, got float64"
             )
+
+    def test_float_population_values_warn(self) -> None:
+        """Float population columns trigger a validation warning."""
+        df = _make_valid_population(5)
+        df["pop_2022"] = df["pop_2022"].astype(float)
+        warnings = validate_population(df)
+        assert any("float" in w for w in warnings), f"Expected float warning, got: {warnings}"
+
+    def test_nan_population_values_warn(self) -> None:
+        """NaN in population columns triggers a validation warning."""
+        df = _make_valid_population(5)
+        df.loc[0, "pop_2020"] = float("nan")
+        warnings = validate_population(df)
+        assert any("null" in w for w in warnings), f"Expected null warning, got: {warnings}"
