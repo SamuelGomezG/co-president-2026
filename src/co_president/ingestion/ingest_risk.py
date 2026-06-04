@@ -377,7 +377,11 @@ def _try_local_moe_pdf() -> pd.DataFrame | None:
         if Path(pdf_path).is_file():
             df = _try_extract_pdf(pdf_path)
             if df is not None and not df.empty:
-                return df
+                df = df.rename(columns={"municipio": "codigo_municipio", "value": "risk_level"})
+                if _is_valid_moe_df(df):
+                    return df
+                logger.warning("Local MOE PDF failed schema validation; falling through")
+                return None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to read local MOE risk PDF: %s", exc)
     return None
@@ -474,7 +478,7 @@ def _try_download_indepaz_pdf() -> pd.DataFrame | None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             pdf_path = Path(tmp_dir) / "indepaz_2022.pdf"
             pdf_path.write_bytes(response.content)
-            return _try_extract_pdf(str(pdf_path))
+            return _parse_single_indepaz_pdf(str(pdf_path))
     except Exception as exc:  # noqa: BLE001
         logger.warning("INDEPAZ PDF download failed: %s", exc)
     return None
@@ -558,11 +562,8 @@ _EXTREME_RISK_CODES: list[str] = [
     "19780",
     "19809",
     "19821",
-    "52001",
     "52612",
-    "52835",
     "52520",
-    "52250",
 ]
 
 # High electoral risk municipalities.
