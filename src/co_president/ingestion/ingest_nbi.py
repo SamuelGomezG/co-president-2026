@@ -56,6 +56,12 @@ def build_nbi_features(data_dir: Path | None = None) -> None:
     Returns:
         ``None``.  Writes ``nbi_2018.csv`` to ``data_dir/fundamentals/``.
 
+    Examples:
+        >>> build_nbi_features()
+        >>> df = pd.read_csv("data/fundamentals/nbi_2018.csv")
+        >>> "nbi_rate" in df.columns
+        True
+
     """
     base = resolve_data_dir(data_dir)
     xlsx_path = base / "raw" / "DANE-NBI" / "CNPV-2018-NBI.xlsx"
@@ -86,6 +92,11 @@ def load_nbi_data(data_dir: Path | None = None) -> pd.DataFrame:
     Raises:
         FileNotFoundError: If ``nbi_2018.csv`` is not found.
 
+    Examples:
+        >>> df = load_nbi_data()
+        >>> "nbi_urban" in df.columns
+        True
+
     """
     base = resolve_data_dir(data_dir)
     path = base / "fundamentals" / "nbi_2018.csv"
@@ -106,6 +117,16 @@ def validate_nbi(df: pd.DataFrame) -> list[str]:
 
     Returns:
         List of warning messages (empty if all checks pass).
+
+    Examples:
+        >>> df = pd.DataFrame({
+        ...     "codigo_municipio": ["11001"],
+        ...     "nbi_rate": [0.032],
+        ...     "nbi_urban": [0.025],
+        ...     "nbi_rural": [0.040],
+        ... })
+        >>> validate_nbi(df)
+        []
 
     """
     warnings: list[str] = []
@@ -193,11 +214,12 @@ def _clean_nbi_data(raw: pd.DataFrame) -> pd.DataFrame:
         ``nbi_rate``, ``nbi_urban``, ``nbi_rural``.
 
     """
-    dept_str = raw[_COL_DEPT_CODE].astype(str).str.strip().str.zfill(2)
-    mpio_str = raw[_COL_MPIO_CODE].astype(str).str.strip().str.zfill(3)
+    # Drop rows with null department/municipality codes before stringifying
+    # to avoid NaN → "nan" → synthetic invalid IDs.
+    raw = raw.dropna(subset=[raw.columns[_COL_DEPT_CODE], raw.columns[_COL_MPIO_CODE]])
+    dept_str = raw.iloc[:, _COL_DEPT_CODE].astype(str).str.strip().str.zfill(2)
+    mpio_str = raw.iloc[:, _COL_MPIO_CODE].astype(str).str.strip().str.zfill(3)
     raw["codigo_municipio"] = dept_str + mpio_str
-
-    raw = raw.dropna(subset=["codigo_municipio"])
 
     # Filter out the TOTAL NACIONAL row (codigo = 00000).
     raw = raw[raw["codigo_municipio"] != "00000"].copy()
