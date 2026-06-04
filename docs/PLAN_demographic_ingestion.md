@@ -304,7 +304,7 @@ The `ipm_<year>_imputed` boolean flags remain mandatory. The imputation strategy
 
 **Module**: `src/co_president/ingestion/ingest_population.py`
 
-**Input**: `data/raw/PPED-AreaMun-2018-2042_VP.xlsx`. Read the "Area_Municipal" sheet, keep `(COD_MPIO, AÑO, Población)`, zero-pad `COD_MPIO` to 5 digits, pivot to wide:
+**Input**: `data/raw/PPED-AreaMun-2018-2042_VP.xlsx`. Read the "PobMunicipalxÁrea" sheet, keep `(MPIO, AÑO, TOTAL)` filtered to `ÁREA GEOGRÁFICA == "Total"`, zero-pad `MPIO` to 5 digits (already 5-digit), pivot to wide:
 
 ```text
 codigo_municipio,pop_2018,pop_2019,pop_2020,pop_2021,pop_2022,pop_2023,pop_2024,pop_2025,pop_2026
