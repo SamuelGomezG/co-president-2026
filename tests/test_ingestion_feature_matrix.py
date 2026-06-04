@@ -184,6 +184,19 @@ def _make_ipm(n: int = 5) -> pd.DataFrame:
     ).astype({"codigo_municipio": str})
 
 
+def _make_population(n: int = 5) -> pd.DataFrame:
+    """Synthetic population projections DataFrame with ``n`` municipalities."""
+    return pd.DataFrame(
+        {
+            "codigo_municipio": [f"{i:05d}" for i in range(1, n + 1)],
+            **{
+                f"pop_{y}": [(i * 100_000 + (y - 2018) * 1_000) for i in range(1, n + 1)]
+                for y in range(2018, 2027)
+            },
+        }
+    ).astype({"codigo_municipio": str})
+
+
 def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
     """Build a complete synthetic component dict for testing."""
     return {
@@ -194,6 +207,7 @@ def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
         "socioeconomic": _make_socioeconomic(),
         "risk": _make_risk(),
         "cnpv": _make_cnpv(),
+        "population": _make_population(n_divipola),
     }
 
 
@@ -206,7 +220,7 @@ class TestLoadAllComponents:
     """``load_all_components`` reads component CSVs from disk."""
 
     def test_returns_dict_with_expected_keys(self, tmp_path: Path) -> None:
-        """Returns dict with all seven component keys."""
+        """Returns dict with all eight component keys."""
         _write_component_files(tmp_path, _make_components())
         result = load_all_components(tmp_path)
         assert set(result) == {
@@ -217,6 +231,7 @@ class TestLoadAllComponents:
             "socioeconomic",
             "risk",
             "cnpv",
+            "population",
         }
 
     def test_all_dataframes_when_files_exist(self, tmp_path: Path) -> None:
@@ -623,6 +638,7 @@ def _write_component_files(data_dir: Path, components: dict[str, pd.DataFrame]) 
         "socioeconomic": "socioeconomic.csv",
         "risk": "risk_factors.csv",
         "cnpv": "cnpv_2018.csv",
+        "population": "population_2018_2026.csv",
     }
     for name, df in components.items():
         filename = filenames[name]

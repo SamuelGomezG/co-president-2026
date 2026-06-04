@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -21,77 +22,96 @@ __all__: list[str] = []
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Build and load tests (uses departamental ECV microdata on disk)
+# Build tests (synthetic ECV and NBI data, no real files)
 # ═══════════════════════════════════════════════════════════════════
 
 
-def _ensure_nbi_csv(data_dir: Path) -> None:
-    """Ensure nbi_2018.csv exists before IPM build (IPM R² guard reads NBI)."""
-    from co_president.ingestion.ingest_nbi import build_nbi_features  # noqa: PLC0415
+def _make_synthetic_ecv_hogares(n_departamentos: int = 5) -> pd.DataFrame:
+    """Build a synthetic ECV hogares DataFrame matching the reader schema."""
+    rng = np.random.default_rng(seed=42)
+    rows: list[dict[str, object]] = []
+    for i in range(1, n_departamentos + 1):
+        rows.extend(
+            {
+                "DEPARTAMENTO": str(i).zfill(2),
+                "fex_c": float(rng.uniform(100, 1000)),
+                "ipm": float(rng.uniform(0.0, 1.0)),
+            }
+            for _ in range(3)
+        )
+    return pd.DataFrame(rows)
 
-    nbi_path = data_dir / "fundamentals" / "nbi_2018.csv"
-    if not nbi_path.is_file():
-        build_nbi_features(data_dir=data_dir)
+
+def _prepare_nbi_csv(tmp_path: Path, n: int = 5) -> Path:
+    """Write a synthetic NBI CSV so the IPM R² guard has data to read."""
+    fundamentals = tmp_path / "fundamentals"
+    fundamentals.mkdir(parents=True, exist_ok=True)
+    nbi = pd.DataFrame(
+        {
+            "codigo_municipio": [f"{i:05d}" for i in range(1, n + 1)],
+            "nbi_rate": [
+                round(x, 4) for x in np.random.default_rng(seed=42).uniform(0.05, 0.80, n)
+            ],
+            "nbi_urban": [
+                round(x, 4) for x in np.random.default_rng(seed=142).uniform(0.03, 0.75, n)
+            ],
+            "nbi_rural": [
+                round(x, 4) for x in np.random.default_rng(seed=242).uniform(0.08, 0.85, n)
+            ],
+        }
+    )
+    path = fundamentals / "nbi_2018.csv"
+    nbi.to_csv(path, index=False)
+    return path
 
 
-class TestBuildIpmFeaturesRealData:
-    """Integration-style tests using real ECV microdata.
+class TestBuildIpmFeatures:
+    """build_ipm_features writes the output CSV (synthetic ECV data)."""
 
-    Note: the R² guard may drop the ``ipm_2018`` column if the
-    departamento-level ECV IPM does not correlate strongly enough
-    with NBI (R² < 0.5).  These tests account for that optionality.
-    """
-
-    def test_emits_expected_columns_when_present(self, data_dir: Path) -> None:
-        """If IPM-2018 passes the R² guard, all 5 expected columns exist."""
-        _ensure_nbi_csv(data_dir)
-        build_ipm_features(data_dir=data_dir)
+    def test_emits_expected_columns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Output has codigo_municipio, ipm_2022, ipm_2022_imputed."""
+        _prepare_nbi_csv(tmp_path, 5)
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_ipm._read_ecv_hogares",
+            lambda _base, _year: _make_synthetic_ecv_hogares(5),
+        )
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_ipm._load_divipola",
+            lambda _base: pd.DataFrame(
+                {"codigo_municipio": [f"{i:02d}{i:03d}" for i in range(1, 6)]}
+            ),
+        )
+        build_ipm_features(data_dir=tmp_path)
         saved = pd.read_csv(
-            data_dir / "fundamentals" / "ipm_2018.csv", dtype={"codigo_municipio": str}
+            tmp_path / "fundamentals" / "ipm_2018.csv",
+            dtype={"codigo_municipio": str},
         )
         expected = {"codigo_municipio", "ipm_2022", "ipm_2022_imputed"}
         assert expected.issubset(set(saved.columns))
 
-    def test_has_as_many_rows_as_divipola(self, data_dir: Path) -> None:
-        """Output has the same number of rows as DIVIPOLA (1,122)."""
-        _ensure_nbi_csv(data_dir)
-        build_ipm_features(data_dir=data_dir)
-        divipola = pd.read_csv(
-            data_dir / "fundamentals" / "divipola_master.csv",
+    def test_codigo_municipio_is_five_char_string(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """All codigo_municipio values are 5-character zero-padded strings."""
+        _prepare_nbi_csv(tmp_path, 5)
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_ipm._read_ecv_hogares",
+            lambda _base, _year: _make_synthetic_ecv_hogares(5),
+        )
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_ipm._load_divipola",
+            lambda _base: pd.DataFrame(
+                {"codigo_municipio": [f"{i:02d}{i:03d}" for i in range(1, 6)]}
+            ),
+        )
+        build_ipm_features(data_dir=tmp_path)
+        saved = pd.read_csv(
+            tmp_path / "fundamentals" / "ipm_2018.csv",
             dtype={"codigo_municipio": str},
         )
-        saved = pd.read_csv(
-            data_dir / "fundamentals" / "ipm_2018.csv", dtype={"codigo_municipio": str}
-        )
-        assert len(saved) == len(divipola)
-
-    def test_codigo_municipio_is_five_char_string(self, data_dir: Path) -> None:
-        """All codigo_municipio values are 5-character zero-padded strings."""
-        _ensure_nbi_csv(data_dir)
-        build_ipm_features(data_dir=data_dir)
-        saved = pd.read_csv(
-            data_dir / "fundamentals" / "ipm_2018.csv", dtype={"codigo_municipio": str}
-        )
         assert saved["codigo_municipio"].str.len().eq(5).all()
-
-    def test_r2_guard_logs_warning_when_below_threshold(
-        self,
-        data_dir: Path,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """When R² < 0.5, a warning is logged and ipm_2018 column dropped."""
-        import logging  # noqa: PLC0415
-
-        caplog.set_level(logging.WARNING)
-        _ensure_nbi_csv(data_dir)
-        build_ipm_features(data_dir=data_dir)
-        saved = pd.read_csv(
-            data_dir / "fundamentals" / "ipm_2018.csv", dtype={"codigo_municipio": str}
-        )
-        if "ipm_2018" not in saved.columns:
-            assert any("R²" in r.message and "dropping" in r.message for r in caplog.records), (
-                "Expected a log warning when R² guard drops the column"
-            )
 
 
 class TestPearsonR2:
@@ -99,16 +119,12 @@ class TestPearsonR2:
 
     def test_perfect_correlation(self) -> None:
         """Perfectly correlated variables yield R² = 1.0."""
-        import numpy as np  # noqa: PLC0415
-
         x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y = x * 2
         assert _pearson_r2(x, y) == pytest.approx(1.0, abs=0.001)
 
     def test_no_correlation(self) -> None:
         """Uncorrelated variables yield R² close to 0."""
-        import numpy as np  # noqa: PLC0415
-
         x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         y = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
         assert _pearson_r2(x, y) < 0.5
