@@ -157,10 +157,17 @@ def build_population_features(data_dir: Path | None = None) -> None:
         data_dir: Root data directory.  If ``None``, resolves via
             ``resolve_data_dir``.
 
+    Returns:
+        None.  The function writes a CSV file as a side effect.
+
     Raises:
         FileNotFoundError: If the PPED Excel file is missing.
         AssertionError: If the national 2022 population total is
             outside the tolerance window.
+        ValueError: If expected years are missing from the source data.
+
+    Examples:
+        >>> build_population_features(data_dir=Path("data"))  # doctest: +SKIP
 
     """
     base = resolve_data_dir(data_dir)
@@ -212,6 +219,11 @@ def load_population_data(data_dir: Path | None = None) -> pd.DataFrame:
     Raises:
         FileNotFoundError: If the population CSV file does not exist.
 
+    Examples:
+        >>> df = load_population_data(data_dir=Path("data"))  # doctest: +SKIP
+        >>> "pop_2022" in df.columns  # doctest: +SKIP
+        True
+
     """
     base = resolve_data_dir(data_dir)
     path = base / "fundamentals" / _OUTPUT_FILENAME
@@ -236,6 +248,14 @@ def validate_population(df: pd.DataFrame) -> list[str]:
 
     Returns:
         List of warning strings.  An empty list means no issues found.
+
+    Raises:
+        ValueError: If ``df`` is not a DataFrame.
+
+    Examples:
+        >>> df = _make_valid_population(5)  # doctest: +SKIP
+        >>> validate_population(df)  # doctest: +SKIP
+        []
 
     """
     warnings: list[str] = []
