@@ -12,7 +12,6 @@ import logging
 from pathlib import Path
 import tempfile
 
-from bs4 import BeautifulSoup
 import pandas as pd
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -23,7 +22,6 @@ __all__ = [
     "build_socioeconomic_matrix",
     "calculate_features",
     "fetch_dane_csv",
-    "fetch_poverty_indicators",
     "scrape_dane_portal_playwright",
     "validate_socioeconomic",
 ]
@@ -125,53 +123,23 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
     return None
 
 
-def fetch_poverty_indicators() -> pd.DataFrame:
-    """Fetch IPM and NBI poverty indicators at the municipal level.
-
-    Attempts a direct download from DANE's IPM page.  Falls back to
-    BeautifulSoup-based link scraping for Excel files.  Returns a
-    hardcoded fallback when both remote approaches fail.
-
-    Returns:
-        DataFrame with ``codigo_municipio``, ``ipm_score``, and
-        ``nbi_rate`` columns.
-
-    """
-    df = fetch_dane_csv(_DANE_IPM_URL)
-    if df is not None and _is_valid_poverty_df(df):
-        return df
-    try:
-        response = _fetch_dane_raw(_DANE_IPM_URL)
-        soup = BeautifulSoup(response.text, "html.parser")
-        excel_links = [str(a.get("href", "")) for a in soup.select("a[href$='.xlsx']")]
-        for link in excel_links:
-            if not link:
-                continue
-            try:
-                excel_df = pd.read_excel(link)  # type: ignore[reportUnknownMemberType]
-                if _is_valid_poverty_df(excel_df):
-                    return excel_df
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to parse IPM Excel from %s: %s", link, exc)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("BeautifulSoup scrape for IPM failed: %s", exc)
-    logger.warning("All remote IPM/NBI fetches failed; using hardcoded fallback")
-    return _ipm_hardcoded_fallback()
-
-
 def calculate_features(
     census_df: pd.DataFrame,
     poverty_df: pd.DataFrame,
     projections_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Normalize census variables and merge with poverty indicators and projections.
+    """Normalize census variables and optionally merge poverty indicators.
+
+    Poverty columns (NBI, IPM) are now handled by dedicated
+    ``ingest_nbi`` / ``ingest_ipm`` pipelines.  The *poverty_df*
+    argument is retained for backward compatibility but is typically
+    an empty DataFrame.
 
     Args:
         census_df: Raw census DataFrame with columns for total population,
             afro-colombian population, indigenous population, rural
             dispersed population, years of schooling, and internet access.
-        poverty_df: DataFrame with ``codigo_municipio``, ``ipm_score``,
-            and ``nbi_rate``.
+        poverty_df: DataFrame with ``codigo_municipio`` (may be empty).
         projections_df: DataFrame with ``codigo_municipio`` and
             ``proyeccion_2022`` (projected 2022 population).
 
@@ -195,16 +163,11 @@ def calculate_features(
         ...     "hogares_con_internet": [500],
         ...     "hogares_totales": [600],
         ... })
-        >>> poverty = pd.DataFrame({
-        ...     "codigo_municipio": ["11001"],
-        ...     "ipm_score": [0.045],
-        ...     "nbi_rate": [0.032],
-        ... })
         >>> proj = pd.DataFrame({
         ...     "codigo_municipio": ["11001"],
         ...     "proyeccion_2022": [7900000],
         ... })
-        >>> result = calculate_features(census, poverty, proj)
+        >>> result = calculate_features(census, pd.DataFrame(), proj)
         >>> "pct_afro_colombian" in result.columns
         True
 
@@ -224,7 +187,11 @@ def calculate_features(
     else:
         result["years_schooling"] = pd.NA
     result["internet_access_rate"] = _safe_ratio(result, "hogares_con_internet", "hogares_totales")
-    result = result.merge(poverty_df, on="codigo_municipio", how="left")
+    if not poverty_df.empty:
+        if "codigo_municipio" not in poverty_df.columns:
+            msg = "poverty_df must contain 'codigo_municipio' column when non-empty"
+            raise KeyError(msg)
+        result = result.merge(poverty_df, on="codigo_municipio", how="left")
     if not projections_df.empty:
         result = result.merge(projections_df, on="codigo_municipio", how="left")
         if "proyeccion_2022" in result.columns:
@@ -248,7 +215,7 @@ def calculate_features(
     return result
 
 
-_CRITICAL_COLUMNS: list[str] = ["ipm_score", "internet_access_rate", "population_2022"]
+_CRITICAL_COLUMNS: list[str] = ["internet_access_rate", "population_2022"]
 
 _VALIDATION_EXPECTED_COLUMNS: set[str] = {
     "codigo_municipio",
@@ -257,8 +224,6 @@ _VALIDATION_EXPECTED_COLUMNS: set[str] = {
     "pct_rural_disperso",
     "years_schooling",
     "internet_access_rate",
-    "ipm_score",
-    "nbi_rate",
     "population_2022",
 }
 
@@ -283,8 +248,6 @@ def validate_socioeconomic(df: pd.DataFrame) -> list[str]:
         ...     "pct_rural_disperso": [0.0],
         ...     "years_schooling": [11.5],
         ...     "internet_access_rate": [0.79],
-        ...     "ipm_score": [0.045],
-        ...     "nbi_rate": [0.032],
         ...     "population_2022": [7_900_000],
         ... })
         >>> validate_socioeconomic(df)
@@ -306,17 +269,9 @@ def validate_socioeconomic(df: pd.DataFrame) -> list[str]:
                 f"{col}: {count} null value{'s' if count > 1 else ''} (out of {len(df)} rows)"
             )
 
-    out_of_range = df["ipm_score"].dropna()
-    if not out_of_range.between(0.0, 1.0).all():
-        warnings.append("ipm_score: found values outside [0.0, 1.0] range")
-
     internet = df["internet_access_rate"].dropna()
     if not internet.between(0.0, 1.0).all():
         warnings.append("internet_access_rate: found values outside [0.0, 1.0] range")
-
-    nbi = df["nbi_rate"].dropna()
-    if not nbi.between(0.0, 1.0).all():
-        warnings.append("nbi_rate: found values outside [0.0, 1.0] range")
 
     pop = df["population_2022"].dropna()
     if not (pop > 0).all():
@@ -342,17 +297,13 @@ def build_socioeconomic_matrix(data_dir: Path | None = None) -> None:
     if data_dir is None:
         data_dir = resolve_data_dir(None)
     census = _fetch_census_fallback()
-    poverty = fetch_poverty_indicators()
+    poverty = pd.DataFrame()
     projections = _fetch_population_projections()
     features = calculate_features(census, poverty, projections)
     validation_warnings = validate_socioeconomic(features)
     # Clip after validation so range checks can fire on raw unclipped values.
     if "internet_access_rate" in features.columns:
         features["internet_access_rate"] = features["internet_access_rate"].clip(0.0, 1.0)
-    if "ipm_score" in features.columns:
-        features["ipm_score"] = features["ipm_score"].clip(0.0, 1.0)
-    if "nbi_rate" in features.columns:
-        features["nbi_rate"] = features["nbi_rate"].clip(0.0, 1.0)
     for warning in validation_warnings:
         logger.warning("Socioeconomic validation: %s", warning)
     target_dir = data_dir / "fundamentals"
@@ -407,12 +358,6 @@ def _safe_ratio(df: pd.DataFrame, numerator: str, denominator: str) -> pd.Series
     num = pd.to_numeric(df[numerator], errors="coerce").fillna(0.0)
     denom = pd.to_numeric(df[denominator], errors="coerce").fillna(0.0)
     return (num / denom.replace(0, pd.NA)).fillna(0.0)
-
-
-def _is_valid_poverty_df(df: pd.DataFrame) -> bool:
-    """Check that a DataFrame has the expected poverty indicator columns."""
-    required = {"codigo_municipio", "ipm_score"}
-    return required.issubset(set(df.columns))
 
 
 def _parse_data_file(response: requests.Response) -> pd.DataFrame | None:
@@ -476,18 +421,6 @@ def _census_hardcoded_fallback() -> pd.DataFrame:
             "hogares_con_internet": 580_000,
             "hogares_totales": 750_000,
         },
-    ]
-    return pd.DataFrame(records)
-
-
-def _ipm_hardcoded_fallback() -> pd.DataFrame:
-    """Return hardcoded IPM data when remote DANE request fails."""
-    records = [
-        {"codigo_municipio": "11001", "ipm_score": 0.045, "nbi_rate": 0.032},
-        {"codigo_municipio": "05001", "ipm_score": 0.125, "nbi_rate": 0.098},
-        {"codigo_municipio": "76001", "ipm_score": 0.098, "nbi_rate": 0.071},
-        {"codigo_municipio": "08001", "ipm_score": 0.185, "nbi_rate": 0.152},
-        {"codigo_municipio": "68001", "ipm_score": 0.210, "nbi_rate": 0.178},
     ]
     return pd.DataFrame(records)
 

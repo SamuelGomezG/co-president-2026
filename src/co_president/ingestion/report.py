@@ -1,8 +1,9 @@
-"""SPEC-15: Fundamental data coverage report and legislative schema audit.
+"""SPEC-15 / SPEC-18: Fundamental data coverage report and legislative schema audit.
 
 Generates ``data/fundamentals/COVERAGE.md`` and verifies CEDAE/MOE
 legislative schema compatibility.  Acts as the gateway for all
-subsequent demographics-ingestion SPECs.
+subsequent demographics-ingestion SPECs.  Extended by SPEC-18 to
+also report NBI and IPM component status.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ _RISK_STUB_THRESHOLD = 15
 _SOURCE_FILE_MAP: dict[str, str] = {
     "DIVIPOLA": "divipola_master.csv",
     "Historical results": "historical_results.csv",
+    "NBI": "nbi_2018.csv",
+    "IPM": "ipm_2018.csv",
     "Socioeconomic": "socioeconomic.csv",
     "Risk": "risk_factors.csv",
 }
@@ -119,6 +122,30 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
             stub_threshold=_RISK_STUB_THRESHOLD,
             row_note=_stub_note("Risk", len(risk_df), _RISK_STUB_THRESHOLD)
             if len(risk_df) <= _RISK_STUB_THRESHOLD
+            else "",
+        )
+    )
+
+    # DANE NBI (processed CSV)
+    nbi_df = _read_safe(fundamentals / "nbi_2018.csv")
+    records.append(
+        _coverage_row(
+            source="NBI",
+            rows_expected=_EXPECTED_MUNICIPALITIES,
+            df=nbi_df,
+            row_note="Primary poverty feature (0% imputation)" if not nbi_df.empty else "",
+        )
+    )
+
+    # IPM (processed CSV)
+    ipm_df = _read_safe(fundamentals / "ipm_2018.csv")
+    records.append(
+        _coverage_row(
+            source="IPM",
+            rows_expected=_EXPECTED_MUNICIPALITIES,
+            df=ipm_df,
+            row_note="Secondary poverty feature (opt-in; R² guard may drop 2018 column)"
+            if not ipm_df.empty
             else "",
         )
     )

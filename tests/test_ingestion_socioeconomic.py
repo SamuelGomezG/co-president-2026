@@ -13,7 +13,6 @@ from co_president.ingestion.ingest_socioeconomic import (
     build_socioeconomic_matrix,
     calculate_features,
     fetch_dane_csv,
-    fetch_poverty_indicators,
     scrape_dane_portal_playwright,
     validate_socioeconomic,
 )
@@ -105,26 +104,13 @@ class TestScrapeDanePortalPlaywright:
         assert "pd.DataFrame | None" in sig.return_annotation
 
 
-class TestFetchPovertyIndicators:
-    """Structural contract for ``fetch_poverty_indicators``."""
-
-    def test_is_callable(self) -> None:
-        """Function is importable and callable."""
-        assert callable(fetch_poverty_indicators)
-
-    def test_return_annotation_is_dataframe(self) -> None:
-        """Return type annotation is ``pd.DataFrame``."""
-        hints = typing.get_type_hints(fetch_poverty_indicators)
-        assert hints["return"] is pd.DataFrame
-
-
 # ═══════════════════════════════════════════════════════════════════
 # Feature computation
 # ═══════════════════════════════════════════════════════════════════
 
 
 class TestCalculateFeatures:
-    """``calculate_features`` normalises census variables and merges with poverty data."""
+    """``calculate_features`` normalises census variables (census-only, no poverty)."""
 
     def test_returns_dataframe(self) -> None:
         """Returns a DataFrame."""
@@ -135,9 +121,9 @@ class TestCalculateFeatures:
         assert isinstance(result, pd.DataFrame)
 
     def test_has_expected_columns(self) -> None:
-        """Output contains all expected socioeconomic columns."""
+        """Output contains all expected socioeconomic columns (census-only, no poverty)."""
         census = _make_census_input()
-        poverty = _make_poverty_input()
+        poverty = pd.DataFrame()
         projections = _make_projections_input()
         result = calculate_features(census, poverty, projections)
         expected = {
@@ -147,11 +133,12 @@ class TestCalculateFeatures:
             "pct_rural_disperso",
             "years_schooling",
             "internet_access_rate",
-            "ipm_score",
-            "nbi_rate",
             "population_2022",
         }
         assert expected.issubset(set(result.columns))
+        # Poverty columns must not leak into census-only output.
+        assert "ipm_score" not in result.columns, "ipm_score leaked into census-only result"
+        assert "nbi_rate" not in result.columns, "nbi_rate leaked into census-only result"
 
     def test_percentages_in_range(self) -> None:
         """All normalised percentages are between 0 and 1."""
@@ -166,14 +153,6 @@ class TestCalculateFeatures:
             "internet_access_rate",
         ):
             assert result[col].between(0, 1).all(), f"{col} out of [0, 1] range"
-
-    def test_ipm_score_in_range(self) -> None:
-        """IPM scores are between 0 and 1."""
-        census = _make_census_input()
-        poverty = _make_poverty_input()
-        projections = _make_projections_input()
-        result = calculate_features(census, poverty, projections)
-        assert result["ipm_score"].between(0, 1).all()
 
     def test_population_2022_positive(self) -> None:
         """Population projections are positive integers."""
@@ -233,8 +212,6 @@ class TestValidateSocioeconomic:
                 "pct_rural_disperso": [0.3] * n,
                 "years_schooling": [8.0] * n,
                 "internet_access_rate": [0.5] * n,
-                "ipm_score": [0.15] * n,
-                "nbi_rate": [0.10] * n,
                 "population_2022": [100_000] * n,
             }
         )
@@ -252,13 +229,6 @@ class TestValidateSocioeconomic:
         assert len(result) >= 1
         assert any("codigo_municipio" in w for w in result)
 
-    def test_null_in_ipm_score_warns(self) -> None:
-        """Null values in ipm_score trigger a warning."""
-        df = self._make_valid_features()
-        df.loc[0, "ipm_score"] = pd.NA
-        result = validate_socioeconomic(df)
-        assert any("ipm_score" in w for w in result)
-
     def test_null_in_internet_access_rate_warns(self) -> None:
         """Null values in internet_access_rate trigger a warning."""
         df = self._make_valid_features()
@@ -272,13 +242,6 @@ class TestValidateSocioeconomic:
         df.loc[0, "population_2022"] = pd.NA
         result = validate_socioeconomic(df)
         assert any("population_2022" in w for w in result)
-
-    def test_ipm_score_out_of_range_warns(self) -> None:
-        """IPM score above 1.0 triggers a warning."""
-        df = self._make_valid_features()
-        df.loc[0, "ipm_score"] = 1.5
-        result = validate_socioeconomic(df)
-        assert any("ipm_score" in w and "range" in w for w in result)
 
     def test_negative_population_warns(self) -> None:
         """Negative population projection triggers a warning."""
@@ -294,35 +257,17 @@ class TestValidateSocioeconomic:
         result = validate_socioeconomic(df)
         assert any("population_2022" in w for w in result)
 
-    def test_nbi_rate_out_of_range_warns(self) -> None:
-        """NBI rate outside [0, 1] triggers a warning."""
-        df = self._make_valid_features()
-        df.loc[0, "nbi_rate"] = 1.5
-        result = validate_socioeconomic(df)
-        assert any("nbi_rate" in w and "range" in w for w in result)
-
     def test_range_warnings_fire_on_raw_unclipped_values(self) -> None:
-        """validate_socioeconomic catches out-of-range values from calculate_features output.
-
-        Before the fix, calculate_features clipped ipm_score and internet_access_rate
-        to [0,1], making the range checks dead code in the pipeline.  After the fix,
-        the raw (unclipped) features reach validate_socioeconomic and the checks fire.
-        """
+        """validate_socioeconomic catches out-of-range rates from calculate_features output."""
         census = _make_census_input()
-        # Cause internet_access_rate > 1.0: hogares_con_internet > hogares_totales
         census.loc[census["codigo_municipio"] == "11001", "hogares_con_internet"] = 3_000_000
 
-        poverty = _make_poverty_input()
-        poverty.loc[poverty["codigo_municipio"] == "11001", "ipm_score"] = 1.5
-
+        poverty = pd.DataFrame()
         projections = _make_projections_input()
 
         features = calculate_features(census, poverty, projections)
         warnings = validate_socioeconomic(features)
 
-        assert any("ipm_score" in w and "range" in w for w in warnings), (
-            "Expected ipm_score out-of-range warning for raw value 1.5"
-        )
         assert any("internet_access_rate" in w and "range" in w for w in warnings), (
             "Expected internet_access_rate out-of-range warning for ratio > 1.0"
         )
@@ -345,16 +290,11 @@ class TestBuildSocioeconomicMatrix:
     def test_creates_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Produces ``socioeconomic.csv`` in the given data directory."""
         census = _make_census_input()
-        poverty = _make_poverty_input()
         projections = _make_projections_input()
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_socioeconomic._fetch_census_fallback",
             lambda: census,
-        )
-        monkeypatch.setattr(
-            "co_president.ingestion.ingest_socioeconomic.fetch_poverty_indicators",
-            lambda: poverty,
         )
         monkeypatch.setattr(
             "co_president.ingestion.ingest_socioeconomic._fetch_population_projections",
@@ -366,18 +306,13 @@ class TestBuildSocioeconomicMatrix:
         assert target.is_file(), f"Expected {target} to exist"
 
     def test_saved_file_columns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The saved CSV contains the expected columns."""
+        """The saved CSV contains the expected columns (census-only, no poverty)."""
         census = _make_census_input()
-        poverty = _make_poverty_input()
         projections = _make_projections_input()
 
         monkeypatch.setattr(
             "co_president.ingestion.ingest_socioeconomic._fetch_census_fallback",
             lambda: census,
-        )
-        monkeypatch.setattr(
-            "co_president.ingestion.ingest_socioeconomic.fetch_poverty_indicators",
-            lambda: poverty,
         )
         monkeypatch.setattr(
             "co_president.ingestion.ingest_socioeconomic._fetch_population_projections",
@@ -393,8 +328,9 @@ class TestBuildSocioeconomicMatrix:
             "pct_rural_disperso",
             "years_schooling",
             "internet_access_rate",
-            "ipm_score",
-            "nbi_rate",
             "population_2022",
         }
         assert expected.issubset(set(saved.columns))
+        # Poverty columns must not leak into census-only output.
+        assert "ipm_score" not in saved.columns, "ipm_score leaked into census-only output"
+        assert "nbi_rate" not in saved.columns, "nbi_rate leaked into census-only output"
