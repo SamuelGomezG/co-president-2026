@@ -135,9 +135,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--component",
         type=str,
-        choices=["sabaneta", "cnpv"],
+        choices=["sabaneta", "cnpv", "nbi", "ipm"],
         default="sabaneta",
-        help="Ingestion component to run (default: sabaneta)",
+        help="Ingestion component to run (default: sabaneta; also: nbi, ipm)",
     )
     ingest_parser.add_argument(
         "--data-dir",
@@ -1172,7 +1172,7 @@ def _cmd_plot(output_dir: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _cmd_ingest(args: argparse.Namespace) -> None:
+def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR0915
     """Execute the ``ingest`` subcommand.
 
     Args:
@@ -1238,6 +1238,48 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
                 logger.warning("CNPV validation: %s", warning)
         except FileNotFoundError:
             logger.info("CNPV features not built — no data found or nothing to aggregate")
+
+    elif args.component == "nbi":
+        from co_president.ingestion.ingest_nbi import (  # noqa: PLC0415
+            build_nbi_features,
+            load_nbi_data,
+            validate_nbi,
+        )
+
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        try:
+            build_nbi_features(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to build NBI features")
+            sys.exit(1)
+
+        try:
+            df = load_nbi_data(data_dir=data_dir)
+            for warning in validate_nbi(df):
+                logger.warning("NBI validation: %s", warning)
+        except FileNotFoundError:
+            logger.info("NBI features not built — no data found or nothing to aggregate")
+
+    elif args.component == "ipm":
+        from co_president.ingestion.ingest_ipm import (  # noqa: PLC0415
+            build_ipm_features,
+            load_ipm_data,
+            validate_ipm,
+        )
+
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        try:
+            build_ipm_features(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to build IPM features")
+            sys.exit(1)
+
+        try:
+            df = load_ipm_data(data_dir=data_dir)
+            for warning in validate_ipm(df):
+                logger.warning("IPM validation: %s", warning)
+        except FileNotFoundError:
+            logger.info("IPM features not built — no data found or nothing to aggregate")
 
     else:
         logger.error("Unsupported ingest component: %r", args.component)

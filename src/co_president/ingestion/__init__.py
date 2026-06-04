@@ -1,4 +1,4 @@
-"""SPEC-12 through SPEC-17: Ingestion pipelines.
+"""SPEC-12 through SPEC-18: Ingestion pipelines.
 
 SPEC-12: Geographic codes (DIVIPOLA) and historical election results
 (2002--2022).
@@ -9,6 +9,7 @@ SPEC-15: Demographic data audit, coverage report, and CEDAE-local
 historical results.
 SPEC-16: Sabaneta Cámara de Representantes fixture and loader.
 SPEC-17: CNPV 2018 census microdata ingest (F8/F9/F11).
+SPEC-18: NBI and IPM poverty indicators ingest.
 """
 
 from co_president.ingestion.build_feature_matrix import (
@@ -23,6 +24,16 @@ from co_president.ingestion.ingest_cnpv import (
     build_cnpv_features,
     load_cnpv_data,
     validate_cnpv,
+)
+from co_president.ingestion.ingest_ipm import (
+    build_ipm_features,
+    load_ipm_data,
+    validate_ipm,
+)
+from co_president.ingestion.ingest_nbi import (
+    build_nbi_features,
+    load_nbi_data,
+    validate_nbi,
 )
 from co_president.ingestion.ingest_sabaneta import (
     build_sabaneta_camara_matrix,
@@ -39,17 +50,23 @@ from co_president.ingestion.report import (
 __all__ = [
     "build_cnpv_features",
     "build_feature_matrix",
+    "build_ipm_features",
+    "build_nbi_features",
     "build_sabaneta_camara_matrix",
     "generate_coverage_markdown",
     "generate_coverage_report",
     "generate_data_dictionary",
     "load_all_components",
     "load_cnpv_data",
+    "load_ipm_data",
+    "load_nbi_data",
     "load_sabaneta_camara",
     "pivot_historical_wide",
     "save_feature_matrix",
     "validate_cnpv",
     "validate_component_health",
+    "validate_ipm",
+    "validate_nbi",
     "validate_sabaneta",
     "verify_legislative_schemas",
     "write_coverage_report",

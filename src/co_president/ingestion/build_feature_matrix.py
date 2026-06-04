@@ -1,10 +1,10 @@
-"""SPEC-14: Municipal feature matrix integration.
+"""SPEC-14: Municipal feature matrix integration (extended by SPEC-18).
 
-Loads all five fundamental components (DIVIPOLA, historical results,
-socioeconomic indicators, risk factors, and CNPV 2018 census data)
-produced by SPEC-12, SPEC-13, and SPEC-17, joins them on
-``codigo_municipio``, and produces a single validated municipal
-feature matrix ready for modeling.
+Loads all seven fundamental components (DIVIPOLA, historical results,
+NBI poverty indicators, IPM poverty indicators, socioeconomic indicators,
+risk factors, and CNPV 2018 census data) produced by SPEC-12, SPEC-13,
+SPEC-17, and SPEC-18, joins them on ``codigo_municipio``, and produces
+a single validated municipal feature matrix ready for modeling.
 """
 
 from __future__ import annotations
@@ -31,10 +31,14 @@ logger = logging.getLogger(__name__)
 _COMPONENT_FILES: dict[str, str] = {
     "divipola": "divipola_master.csv",
     "historical": "historical_results.csv",
+    "nbi": "nbi_2018.csv",
+    "ipm": "ipm_2018.csv",
     "socioeconomic": "socioeconomic.csv",
     "risk": "risk_factors.csv",
     "cnpv": "cnpv_2018.csv",
 }
+
+_OPTIONAL_COMPONENTS: frozenset[str] = frozenset({"ipm"})
 
 # NOTE(SPEC-17): ``cnpv_2018.csv`` shares column names with the
 # ``socioeconomic.csv`` stub (pct_afro_colombian, pct_indigenous, etc.).
@@ -111,6 +115,9 @@ def validate_component_health(
     - Stub detection for ``socioeconomic`` (<= 5 rows) and ``risk`` (<= 15 rows)
     - Placeholder detection for ``historical`` (contains ``codigo_municipio == "000NA"``)
 
+    Optional components (``ipm``) do not produce empty-DataFrame warnings;
+    they are silently tolerated when the file is missing.
+
     When *strict* is ``True``, stub and placeholder conditions raise
     ``ValueError`` instead of returning warning strings.
 
@@ -155,7 +162,8 @@ def _check_component_basics(
 ) -> None:
     """Check for empty DataFrame, missing column, nulls, and duplicates."""
     if df.empty:
-        warnings.append(f"{name}: empty DataFrame (no data loaded)")
+        if name not in _OPTIONAL_COMPONENTS:
+            warnings.append(f"{name}: empty DataFrame (no data loaded)")
         return
 
     if "codigo_municipio" not in df.columns:
@@ -275,7 +283,7 @@ def pivot_historical_wide(historical: pd.DataFrame) -> pd.DataFrame:
 def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     """Build the final municipal feature matrix by joining all components.
 
-    Loads all five fundamental components from disk, pivots historical
+    Loads all seven fundamental components from disk, pivots historical
     results to wide format, and sequentially LEFT-joins them anchored on
     the DIVIPOLA master registry.
 
@@ -306,6 +314,8 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
 
     divipola = components["divipola"]
     historical = components["historical"]
+    nbi = components["nbi"]
+    ipm = components["ipm"]
     socioeconomic = components["socioeconomic"]
     risk = components["risk"]
     cnpv = components["cnpv"]
@@ -319,6 +329,10 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     matrix = divipola.copy()
     if not historical_wide.empty:
         matrix = matrix.merge(historical_wide, on="codigo_municipio", how="left", validate="m:1")
+    if not nbi.empty:
+        matrix = matrix.merge(nbi, on="codigo_municipio", how="left", validate="m:1")
+    if not ipm.empty:
+        matrix = matrix.merge(ipm, on="codigo_municipio", how="left", validate="m:1")
     if not socioeconomic.empty:
         matrix = matrix.merge(socioeconomic, on="codigo_municipio", how="left", validate="m:1")
     if not risk.empty:

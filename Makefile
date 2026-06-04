@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv cnpv
+.PHONY: check fmt fmt-check lint typecheck test test-fast test-model test-model-slow dev sync install clean sec ci download-cnpv cnpv nbi ipm
 
 check: fmt lint typecheck test
 
@@ -67,3 +67,19 @@ cnpv: $(CNPV_OUT)
 
 $(CNPV_OUT): $(CNPV_ZIPS) src/co_president/ingestion/ingest_cnpv.py
 	uv run python -m co_president ingest --component cnpv
+
+NBI_SRC := data/raw/DANE-NBI/CNPV-2018-NBI.xlsx
+NBI_OUT := data/fundamentals/nbi_2018.csv
+
+nbi: $(NBI_OUT)
+
+$(NBI_OUT): $(NBI_SRC) src/co_president/ingestion/ingest_nbi.py
+	uv run python -m co_president ingest --component nbi
+
+IPM_ZIPS := $(wildcard data/raw/IPM-2018/Hogares*.zip data/raw/IPM-2022/hogares*.zip)
+IPM_OUT := data/fundamentals/ipm_2018.csv
+
+ipm: $(IPM_OUT)
+
+$(IPM_OUT): $(IPM_ZIPS) src/co_president/ingestion/ingest_ipm.py
+	uv run python -m co_president ingest --component ipm

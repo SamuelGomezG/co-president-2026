@@ -95,8 +95,6 @@ def _make_socioeconomic() -> pd.DataFrame:
             "pct_rural_disperso": [0.05, 0.85, 0.30, 0.10, 0.60, 0.80],
             "years_schooling": [10.2, 6.5, 8.0, 11.5, 7.2, 5.0],
             "internet_access_rate": [0.78, 0.25, 0.45, 0.85, 0.30, 0.10],
-            "ipm_score": [0.15, 0.68, 0.45, 0.12, 0.55, 0.80],
-            "nbi_rate": [0.10, 0.72, 0.50, 0.08, 0.60, 0.85],
             "population_2022": [2_569_007, 3_456, 15_200, 7_900_000, 28_000, 5_000],
         }
     )
@@ -161,11 +159,38 @@ def _make_cnpv() -> pd.DataFrame:
     )
 
 
+def _make_nbi(n: int = 5) -> pd.DataFrame:
+    """Synthetic NBI feature DataFrame with ``n`` municipalities."""
+    return pd.DataFrame(
+        {
+            "codigo_municipio": [f"{i:05d}" for i in range(1, n + 1)],
+            "nbi_rate": [0.10, 0.72, 0.50, 0.08, 0.60][:n],
+            "nbi_urban": [0.08, 0.68, 0.45, 0.06, 0.55][:n],
+            "nbi_rural": [0.15, 0.78, 0.55, 0.10, 0.65][:n],
+        }
+    ).astype({"codigo_municipio": str})
+
+
+def _make_ipm(n: int = 5) -> pd.DataFrame:
+    """Synthetic IPM feature DataFrame with ``n`` municipalities."""
+    return pd.DataFrame(
+        {
+            "codigo_municipio": [f"{i:05d}" for i in range(1, n + 1)],
+            "ipm_2018": [0.12, 0.55, 0.35, 0.10, 0.45][:n],
+            "ipm_2018_imputed": [True] * n,
+            "ipm_2022": [0.14, 0.50, 0.32, 0.11, 0.42][:n],
+            "ipm_2022_imputed": [True] * n,
+        }
+    ).astype({"codigo_municipio": str})
+
+
 def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
     """Build a complete synthetic component dict for testing."""
     return {
         "divipola": _make_divipola(n_divipola),
         "historical": _make_historical(),
+        "nbi": _make_nbi(n_divipola),
+        "ipm": _make_ipm(n_divipola),
         "socioeconomic": _make_socioeconomic(),
         "risk": _make_risk(),
         "cnpv": _make_cnpv(),
@@ -181,10 +206,18 @@ class TestLoadAllComponents:
     """``load_all_components`` reads component CSVs from disk."""
 
     def test_returns_dict_with_expected_keys(self, tmp_path: Path) -> None:
-        """Returns dict with all five component keys."""
+        """Returns dict with all seven component keys."""
         _write_component_files(tmp_path, _make_components())
         result = load_all_components(tmp_path)
-        assert set(result) == {"divipola", "historical", "socioeconomic", "risk", "cnpv"}
+        assert set(result) == {
+            "divipola",
+            "historical",
+            "nbi",
+            "ipm",
+            "socioeconomic",
+            "risk",
+            "cnpv",
+        }
 
     def test_all_dataframes_when_files_exist(self, tmp_path: Path) -> None:
         """Each component DataFrame contains the expected data."""
@@ -304,6 +337,13 @@ class TestValidateComponentHealth:
         warnings = validate_component_health(components)
         assert any("stub" in w.lower() for w in warnings)
 
+    def test_empty_ipm_does_not_warn(self) -> None:
+        """Empty IPM DataFrame (optional component) produces no warning."""
+        components = _make_components()
+        components["ipm"] = pd.DataFrame()
+        warnings = validate_component_health(components)
+        assert not any("ipm" in w for w in warnings)
+
 
 # ═══════════════════════════════════════════════════════════════════
 # pivot_historical_wide
@@ -390,7 +430,8 @@ class TestBuildFeatureMatrix:
         result = build_feature_matrix(data_dir=tmp_path)
         assert "nombre_municipio" in result.columns
         assert "vote_share_2022_r1_gustavo_petro" in result.columns
-        assert "ipm_score" in result.columns
+        assert "nbi_rate" in result.columns
+        assert "ipm_2018" in result.columns
         assert "risk_level" in result.columns
 
     def test_empty_divipola_returns_empty(self, tmp_path: Path) -> None:
@@ -577,6 +618,8 @@ def _write_component_files(data_dir: Path, components: dict[str, pd.DataFrame]) 
     filenames = {
         "divipola": "divipola_master.csv",
         "historical": "historical_results.csv",
+        "nbi": "nbi_2018.csv",
+        "ipm": "ipm_2018.csv",
         "socioeconomic": "socioeconomic.csv",
         "risk": "risk_factors.csv",
         "cnpv": "cnpv_2018.csv",
