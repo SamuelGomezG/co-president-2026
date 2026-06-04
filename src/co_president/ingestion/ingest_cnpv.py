@@ -139,6 +139,7 @@ _PA1_GRP_ETNIC_NO_INFORMA: int = 9
 _P_SEXO_FEMALE: int = 2
 _P_NIVEL_ANOSR_NO_INFORMA: int = 99
 _H_NRO_DORMIT_NO_INFORMA: int = 99
+_UA_CLASE_RURAL_DISPERSO: int = 3
 # P_TRABAJO codes 0-8 are valid labor statuses; 9 = No Informa (excluded).
 _P_TRABAJO_VALID_CODES: frozenset[float] = frozenset({0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0})
 
@@ -289,7 +290,8 @@ def _aggregate_chunk_f11(chunk: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Rural disperso (UA_CLASE == 3).
-    rural = chunk.loc[chunk["UA_CLASE"].astype(str).str.strip() == "3"]
+    ua_clase = pd.to_numeric(chunk["UA_CLASE"], errors="coerce")
+    rural = chunk.loc[ua_clase == _UA_CLASE_RURAL_DISPERSO]
     grouped_rural = rural.groupby("codigo_municipio").size().to_frame("poblacion_rural_dispersa")
 
     # Years of schooling (exclude 99 = No Informa).
@@ -729,6 +731,16 @@ def build_cnpv_features(data_dir: Path | None = None) -> None:
 
     final = pd.concat(per_dept).groupby(level=0).sum()
     _compute_percentages(final)
+
+    # Post-aggregation validation: Colombia has 1 122 municipalities.
+    expected_municipalities = 1_122
+    if len(final) != expected_municipalities:
+        logger.warning(
+            "CNPV output has %d municipalities; expected %d "
+            "(verify all departmental zips processed)",
+            len(final),
+            expected_municipalities,
+        )
 
     fundamentals_dir = base / "fundamentals"
     fundamentals_dir.mkdir(parents=True, exist_ok=True)

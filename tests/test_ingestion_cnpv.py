@@ -519,7 +519,7 @@ def _create_synthetic_zip(
     tmp_path: Path,
     dept_code: str = "99",
     dept_name: str = "TestDept",
-    num_rows: int = 10,
+    num_rows: int = 5,
 ) -> Path:
     """Create a synthetic nested zip structure mimicking CNPV departmental data.
 
@@ -563,7 +563,7 @@ class TestIterCnpvZip:
 
     def test_yields_aggregated_chunks(self, tmp_path: Path) -> None:
         """iter_cnpv_zip yields DataFrames with correct municipio index."""
-        zip_path = _create_synthetic_zip(tmp_path, num_rows=10)
+        zip_path = _create_synthetic_zip(tmp_path, num_rows=5)
         chunks = list(iter_cnpv_zip(zip_path))
         # Three kinds (F11, F8, F9), each yields one chunk.
         assert len(chunks) == 3
@@ -572,10 +572,11 @@ class TestIterCnpvZip:
 
     def test_f11_chunk_has_population_count(self, tmp_path: Path) -> None:
         """F11 chunk includes poblacion_total matching row count."""
-        zip_path = _create_synthetic_zip(tmp_path, num_rows=25)
+        zip_path = _create_synthetic_zip(tmp_path, num_rows=5)
         chunks = list(iter_cnpv_zip(zip_path))
-        f11_chunk = chunks[0]  # F11 is yielded first
-        assert f11_chunk.loc["99001", "poblacion_total"] == 25
+        # Locate the F11 chunk by its unique column (poblacion_total).
+        f11_chunk = next(c for c in chunks if "poblacion_total" in c.columns)
+        assert f11_chunk.loc["99001", "poblacion_total"] == 5
 
     def test_raises_on_missing_inner_zip(self, tmp_path: Path) -> None:
         """Missing inner _CSV.zip raises FileNotFoundError."""
