@@ -51,6 +51,11 @@ class TestBuildIpmFeaturesRealData:
         )
         expected = {"codigo_municipio", "ipm_2022", "ipm_2022_imputed"}
         assert expected.issubset(set(saved.columns))
+        # When ipm_2018 survives R² guard, ipm_2018_imputed must also be present.
+        if "ipm_2018" in saved.columns:
+            assert "ipm_2018_imputed" in saved.columns, (
+                "ipm_2018 present but ipm_2018_imputed missing"
+            )
 
     def test_has_as_many_rows_as_divipola(self, data_dir: Path) -> None:
         """Output has the same number of rows as DIVIPOLA (1,122)."""
