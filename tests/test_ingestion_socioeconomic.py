@@ -136,6 +136,9 @@ class TestCalculateFeatures:
             "population_2022",
         }
         assert expected.issubset(set(result.columns))
+        # Poverty columns must not leak into census-only output.
+        assert "ipm_score" not in result.columns, "ipm_score leaked into census-only result"
+        assert "nbi_rate" not in result.columns, "nbi_rate leaked into census-only result"
 
     def test_percentages_in_range(self) -> None:
         """All normalised percentages are between 0 and 1."""
@@ -328,3 +331,6 @@ class TestBuildSocioeconomicMatrix:
             "population_2022",
         }
         assert expected.issubset(set(saved.columns))
+        # Poverty columns must not leak into census-only output.
+        assert "ipm_score" not in saved.columns, "ipm_score leaked into census-only output"
+        assert "nbi_rate" not in saved.columns, "nbi_rate leaked into census-only output"
