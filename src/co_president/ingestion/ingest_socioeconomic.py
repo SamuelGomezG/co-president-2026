@@ -187,7 +187,10 @@ def calculate_features(
     else:
         result["years_schooling"] = pd.NA
     result["internet_access_rate"] = _safe_ratio(result, "hogares_con_internet", "hogares_totales")
-    if not poverty_df.empty and "codigo_municipio" in poverty_df.columns:
+    if not poverty_df.empty:
+        if "codigo_municipio" not in poverty_df.columns:
+            msg = "poverty_df must contain 'codigo_municipio' column when non-empty"
+            raise KeyError(msg)
         result = result.merge(poverty_df, on="codigo_municipio", how="left")
     if not projections_df.empty:
         result = result.merge(projections_df, on="codigo_municipio", how="left")
