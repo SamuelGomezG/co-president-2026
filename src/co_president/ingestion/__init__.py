@@ -18,7 +18,11 @@ from co_president.ingestion.build_feature_matrix import (
     save_feature_matrix,
     validate_component_health,
 )
-from co_president.ingestion.ingest_sabaneta import load_sabaneta_camara
+from co_president.ingestion.ingest_sabaneta import (
+    build_sabaneta_camara_matrix,
+    load_sabaneta_camara,
+    validate_sabaneta,
+)
 from co_president.ingestion.report import (
     generate_coverage_markdown,
     generate_coverage_report,
@@ -28,6 +32,7 @@ from co_president.ingestion.report import (
 
 __all__ = [
     "build_feature_matrix",
+    "build_sabaneta_camara_matrix",
     "generate_coverage_markdown",
     "generate_coverage_report",
     "generate_data_dictionary",
@@ -36,6 +41,7 @@ __all__ = [
     "pivot_historical_wide",
     "save_feature_matrix",
     "validate_component_health",
+    "validate_sabaneta",
     "verify_legislative_schemas",
     "write_coverage_report",
 ]

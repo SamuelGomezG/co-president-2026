@@ -139,6 +139,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="sabaneta",
         help="Ingestion component to run (default: sabaneta)",
     )
+    ingest_parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Override the default data directory",
+    )
 
     subparsers.add_parser("config", help="Print current configuration")
 
@@ -1181,13 +1187,21 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
     if args.component == "sabaneta":
         from co_president.ingestion.ingest_sabaneta import (  # noqa: PLC0415
             load_sabaneta_camara,
+            validate_sabaneta,
         )
 
-        df = load_sabaneta_camara()
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        df = load_sabaneta_camara(data_dir=data_dir)
+        for warning in validate_sabaneta(df):
+            logger.warning("Sabaneta validation: %s", warning)
+        min_period = int(df["periodo"].min())
+        max_period = int(df["periodo"].max())
         logger.info(
-            "Sabaneta: loaded %d records across %d periods (2002-2022)",
+            "Sabaneta: loaded %d records across %d periods (%d-%d)",
             len(df),
             df["periodo"].nunique(),
+            min_period,
+            max_period,
         )
     else:
         logger.error("Unsupported ingest component: %r", args.component)

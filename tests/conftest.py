@@ -22,7 +22,7 @@ def data_dir() -> Path:
 
 @pytest.fixture(scope="session")
 def sabaneta_fixture() -> Path:
-    """Path to the Sabaneta gold-standard fixture CSV.
+    """Path to the Sabaneta gold-standard fixture directory.
 
     Returns the directory containing the Sabaneta Camara de Representantes
     fixture file. Session-scoped because the file is read-only and never
