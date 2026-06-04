@@ -16,6 +16,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable  # noqa: TC003  # used in runtime-visible function signature
 from dataclasses import fields
 import logging
 from pathlib import Path
@@ -137,7 +138,10 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         choices=["sabaneta", "cnpv", "nbi", "ipm", "population"],
         default="sabaneta",
-        help="Ingestion component to run (default: sabaneta; also: nbi, ipm, population)",
+        help=(
+            "Ingestion component to run (default: sabaneta; "
+            "choices: sabaneta, cnpv, nbi, ipm, population)"
+        ),
     )
     ingest_parser.add_argument(
         "--data-dir",
@@ -1172,7 +1176,43 @@ def _cmd_plot(output_dir: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR0915
+def _run_ingest_component(  # noqa: PLR0913
+    component_name: str,
+    build_fn: Callable[[Path | None], None],
+    load_fn: Callable[[Path | None], pd.DataFrame],
+    validate_fn: Callable[[pd.DataFrame], list[str]],
+    data_dir: Path | None,
+    build_exceptions: tuple[type[Exception], ...] = (FileNotFoundError, ValueError, OSError),
+) -> None:
+    """Shared build→load→validate orchestration for ingest components.
+
+    Args:
+        component_name: Human-readable name for logging.
+        build_fn: Callable that builds the component features.
+        load_fn: Callable that loads the built features CSV.
+        validate_fn: Callable that validates the loaded DataFrame.
+        data_dir: Root data directory override.
+        build_exceptions: Exception types to catch during build.
+
+    """
+    try:
+        build_fn(data_dir=data_dir)  # type: ignore[reportCallIssue]
+    except build_exceptions:
+        logger.exception("Failed to build %s features", component_name)
+        sys.exit(1)
+
+    try:
+        df = load_fn(data_dir=data_dir)  # type: ignore[reportCallIssue, reportUnknownVariableType]
+        for warning in validate_fn(df):  # type: ignore[reportUnknownArgumentType]
+            logger.warning("%s validation: %s", component_name, warning)
+    except FileNotFoundError:
+        logger.info(
+            "%s features not built — no data found or nothing to aggregate",
+            component_name,
+        )
+
+
+def _cmd_ingest(args: argparse.Namespace) -> None:
     """Execute the ``ingest`` subcommand.
 
     Args:
@@ -1225,19 +1265,13 @@ def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR09
         )
 
         data_dir = Path(args.data_dir) if args.data_dir else None
-        try:
-            build_cnpv_features(data_dir=data_dir)
-        except (FileNotFoundError, ValueError, OSError):
-            logger.exception("Failed to build cnpv features")
-            sys.exit(1)
-
-        # Only load/validate if the build succeeded and wrote output.
-        try:
-            df = load_cnpv_data(data_dir=data_dir)
-            for warning in validate_cnpv(df):
-                logger.warning("CNPV validation: %s", warning)
-        except FileNotFoundError:
-            logger.info("CNPV features not built — no data found or nothing to aggregate")
+        _run_ingest_component(
+            "CNPV",
+            build_cnpv_features,
+            load_cnpv_data,
+            validate_cnpv,
+            data_dir,
+        )
 
     elif args.component == "nbi":
         from co_president.ingestion.ingest_nbi import (  # noqa: PLC0415
@@ -1247,18 +1281,13 @@ def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR09
         )
 
         data_dir = Path(args.data_dir) if args.data_dir else None
-        try:
-            build_nbi_features(data_dir=data_dir)
-        except (FileNotFoundError, ValueError, OSError):
-            logger.exception("Failed to build NBI features")
-            sys.exit(1)
-
-        try:
-            df = load_nbi_data(data_dir=data_dir)
-            for warning in validate_nbi(df):
-                logger.warning("NBI validation: %s", warning)
-        except FileNotFoundError:
-            logger.info("NBI features not built — no data found or nothing to aggregate")
+        _run_ingest_component(
+            "NBI",
+            build_nbi_features,
+            load_nbi_data,
+            validate_nbi,
+            data_dir,
+        )
 
     elif args.component == "ipm":
         from co_president.ingestion.ingest_ipm import (  # noqa: PLC0415
@@ -1268,18 +1297,13 @@ def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR09
         )
 
         data_dir = Path(args.data_dir) if args.data_dir else None
-        try:
-            build_ipm_features(data_dir=data_dir)
-        except (FileNotFoundError, ValueError, OSError):
-            logger.exception("Failed to build IPM features")
-            sys.exit(1)
-
-        try:
-            df = load_ipm_data(data_dir=data_dir)
-            for warning in validate_ipm(df):
-                logger.warning("IPM validation: %s", warning)
-        except FileNotFoundError:
-            logger.info("IPM features not built — no data found or nothing to aggregate")
+        _run_ingest_component(
+            "IPM",
+            build_ipm_features,
+            load_ipm_data,
+            validate_ipm,
+            data_dir,
+        )
 
     elif args.component == "population":
         from co_president.ingestion.ingest_population import (  # noqa: PLC0415
@@ -1289,18 +1313,14 @@ def _cmd_ingest(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR09
         )
 
         data_dir = Path(args.data_dir) if args.data_dir else None
-        try:
-            build_population_features(data_dir=data_dir)
-        except (FileNotFoundError, ValueError, OSError, AssertionError):
-            logger.exception("Failed to build population features")
-            sys.exit(1)
-
-        try:
-            df = load_population_data(data_dir=data_dir)
-            for warning in validate_population(df):
-                logger.warning("Population validation: %s", warning)
-        except FileNotFoundError:
-            logger.info("Population features not built — no data found or nothing to aggregate")
+        _run_ingest_component(
+            "Population",
+            build_population_features,
+            load_population_data,
+            validate_population,
+            data_dir,
+            build_exceptions=(FileNotFoundError, ValueError, OSError, AssertionError),
+        )
 
     else:
         logger.error("Unsupported ingest component: %r", args.component)
