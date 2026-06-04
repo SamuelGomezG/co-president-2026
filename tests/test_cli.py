@@ -509,10 +509,20 @@ def test_cli_parser_ingest_accepts_data_dir() -> None:
     assert args.data_dir == "/tmp/data"  # noqa: S108
 
 
-def test_ingest_command_exits_success() -> None:
+@pytest.mark.integration
+def test_ingest_command_exits_success(sabaneta_fixture: Path) -> None:
     """The ``ingest`` subcommand runs and exits successfully."""
     result = subprocess.run(  # noqa: S603
-        [_PYTHON, "-m", "co_president", "ingest", "--component", "sabaneta"],
+        [
+            _PYTHON,
+            "-m",
+            "co_president",
+            "ingest",
+            "--component",
+            "sabaneta",
+            "--data-dir",
+            str(sabaneta_fixture.parent),
+        ],
         capture_output=True,
         text=True,
         timeout=30,

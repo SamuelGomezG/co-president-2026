@@ -159,16 +159,16 @@ class TestGoldFixture:
 class TestLoadSabanetaCamaraEndToEnd:
     """``load_sabaneta_camara`` returns a valid DataFrame."""
 
-    def test_returns_dataframe(self) -> None:
+    def test_returns_dataframe(self, sabaneta_fixture: Path) -> None:
         """Returns a DataFrame with the expected structure."""
-        df = load_sabaneta_camara()
+        df = load_sabaneta_camara(data_dir=sabaneta_fixture.parent)
         assert isinstance(df, pd.DataFrame)
         assert set(df.columns) == _EXPECTED_COLUMNS
         assert len(df) == 80
 
-    def test_all_votes_positive(self) -> None:
+    def test_all_votes_positive(self, sabaneta_fixture: Path) -> None:
         """All vote totals are non-negative integers."""
-        df = load_sabaneta_camara()
+        df = load_sabaneta_camara(data_dir=sabaneta_fixture.parent)
         assert df["total_votes"].dtype == int
         assert (df["total_votes"] >= 0).all()
 

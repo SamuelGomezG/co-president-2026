@@ -61,13 +61,33 @@ def validate_sabaneta(df: pd.DataFrame) -> list[str]:
     if missing:
         warnings.append(f"Missing columns: {sorted(missing)}")
         return warnings
-    actual_periods = df["periodo"].dropna().astype(int)
+
+    # Safe coercion for periodo — detect malformed values instead of raising.
+    periodo_coerced = pd.to_numeric(df["periodo"], errors="coerce")
+    nan_periods = periodo_coerced.isna()
+    if nan_periods.any():
+        nan_indices = df.index[nan_periods].tolist()
+        warnings.append(
+            f"Malformed periodo values at rows {nan_indices}; "
+            f"values: {df.loc[nan_periods, 'periodo'].tolist()}",
+        )
+    actual_periods = periodo_coerced.dropna().astype(int)
     actual_set = frozenset(actual_periods)
     if actual_set != _EXPECTED_PERIODS:
         warnings.append(
             f"Expected periods {_EXPECTED_PERIODS}, got {actual_set}",
         )
-    if (df["total_votes"] < 0).any():
+
+    # Safe coercion for total_votes — detect malformed values instead of raising.
+    votes_coerced = pd.to_numeric(df["total_votes"], errors="coerce")
+    nan_votes = votes_coerced.isna()
+    if nan_votes.any():
+        nan_indices = df.index[nan_votes].tolist()
+        warnings.append(
+            f"Malformed total_votes values at rows {nan_indices}; "
+            f"values: {df.loc[nan_votes, 'total_votes'].tolist()}",
+        )
+    if (votes_coerced < 0).any():
         warnings.append("Found negative vote totals")
     return warnings
 
@@ -181,6 +201,16 @@ def build_sabaneta_camara_matrix(data_dir: Path | None = None) -> None:
 
     """
     df = load_sabaneta_camara(data_dir)
+    validation_warnings = validate_sabaneta(df)
+    if validation_warnings:
+        for w in validation_warnings:
+            logger.error("Sabaneta validation failed: %s", w)
+        msg = (
+            f"Sabaneta Camara validation failed with {len(validation_warnings)} "
+            f"warning(s); see log for details."
+        )
+        raise ValueError(msg)
+
     target_dir = resolve_data_dir(data_dir) / "fundamentals"
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / "sabaneta_camara.csv"

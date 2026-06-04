@@ -1186,14 +1186,21 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
     if args.component == "sabaneta":
         from co_president.ingestion.ingest_sabaneta import (  # noqa: PLC0415
+            build_sabaneta_camara_matrix,
             load_sabaneta_camara,
             validate_sabaneta,
         )
 
         data_dir = Path(args.data_dir) if args.data_dir else None
-        df = load_sabaneta_camara(data_dir=data_dir)
+        try:
+            df = load_sabaneta_camara(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to load sabaneta camara")
+            sys.exit(1)
+
         for warning in validate_sabaneta(df):
             logger.warning("Sabaneta validation: %s", warning)
+
         min_period = int(df["periodo"].min())
         max_period = int(df["periodo"].max())
         logger.info(
@@ -1203,6 +1210,12 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             min_period,
             max_period,
         )
+
+        try:
+            build_sabaneta_camara_matrix(data_dir=data_dir)
+        except (FileNotFoundError, ValueError, OSError):
+            logger.exception("Failed to build sabaneta camara matrix")
+            sys.exit(1)
     else:
         logger.error("Unsupported ingest component: %r", args.component)
         sys.exit(1)
