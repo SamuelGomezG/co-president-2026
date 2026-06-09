@@ -62,12 +62,16 @@ def _read_population_xlsx(xlsx_path: Path) -> pd.DataFrame:
         msg = f"DANE PPED file not found: {xlsx_path}"
         raise FileNotFoundError(msg)
 
-    return pd.read_excel(  # type: ignore[reportUnknownMemberType, reportCallIssue, reportUnknownVariableType]
+    df = pd.read_excel(  # type: ignore[reportUnknownMemberType, reportCallIssue, reportUnknownVariableType]
         xlsx_path,
         sheet_name=_SHEET_NAME,
         header=7,
         dtype={"MPIO": str},
     )
+    # Drop footer rows that are entirely NaN
+    df = df.dropna(how="all")
+    # Drop footer rows with missing MPIO (some rows have notes in other columns)
+    return df.dropna(subset=["MPIO"])
 
 
 def _filter_total_rows(raw: pd.DataFrame) -> pd.DataFrame:
@@ -84,7 +88,9 @@ def _filter_total_rows(raw: pd.DataFrame) -> pd.DataFrame:
         Filtered DataFrame containing only "Total" rows.
 
     """
-    return raw[raw["ÁREA GEOGRÁFICA"] == "Total"].copy()
+    total = raw[raw["ÁREA GEOGRÁFICA"] == "Total"].copy()
+    # Drop rows with zero or negative population (Chocó 27493, Guainía 94663)
+    return total[total["TOTAL"] > 0].copy()
 
 
 def _pivot_population_wide(filtered: pd.DataFrame) -> pd.DataFrame:
@@ -138,6 +144,12 @@ def _pivot_population_wide(filtered: pd.DataFrame) -> pd.DataFrame:
     pivot = pivot.rename(columns=rename_map)
 
     pivot["codigo_municipio"] = pivot["codigo_municipio"].astype(str).str.strip().str.zfill(5)
+
+    # Forward-fill missing population years (e.g. Chocó 27493, Guainía 94663
+    # have TOTAL=0 for 2020-2026, resulting in NaN after pivoting)
+    pop_cols = [c for c in pivot.columns if c.startswith("pop_")]
+    if pop_cols:
+        pivot[pop_cols] = pivot[pop_cols].ffill(axis=1)
 
     return pivot
 

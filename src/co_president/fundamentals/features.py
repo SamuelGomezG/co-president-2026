@@ -37,13 +37,21 @@ _CNP_CODE_LENGTH = 5
 _ROUND_TWO = 2
 
 # Columns that overlap between the socioeconomic stub (merged first = _x)
-# and the CNPV 2018 census (merged second = _y).  We prefer CNPV.
+# and the real component files merged second (_y).  We prefer the real
+# component data over the 3-row stub.
 _OVERLAPPING_COLUMNS: frozenset[str] = frozenset(
     {
+        # CNPV-over-socioeconomic (CNPV has full 1,122-row coverage)
         "pct_afro_colombian",
         "pct_indigenous",
         "pct_rural_disperso",
         "internet_access_rate",
+        "poblacion_total",
+        "poblacion_afrocolombiana",
+        "poblacion_indigena",
+        "poblacion_rural_dispersa",
+        # NBI-over-socioeconomic (socioeconomic stub has stale nbi_rate)
+        "nbi_rate",
     }
 )
 
@@ -381,6 +389,10 @@ def _filter_valid_historical(historical: pd.DataFrame) -> pd.DataFrame:
 def _compute_turnout(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame:
     """Compute ``historical_turnout_m`` per municipality and merge into *df*.
 
+    Attempts to compute turnout from historical results (``registered_voters``).
+    If ``registered_voters`` is unavailable (all NaN), falls back to MOE Cámara
+    2022 turnout data from ``fundamentals/historical_turnout_moe.csv``.
+
     Args:
         df: Feature matrix DataFrame (must have ``codigo_municipio``).
         historical: Historical results DataFrame.
@@ -397,22 +409,39 @@ def _compute_turnout(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame
         return df
 
     safe_registered = valid["registered_voters"].replace(0, pd.NA)
-    valid["turnout"] = (
-        (valid["total_votes"] / safe_registered).clip(0.0, 1.0)
-        if safe_registered.notna().any()
-        else float("nan")
-    )
 
-    turnout_per_yr = (
-        valid.groupby(["codigo_municipio", "year", "round"])["turnout"].first().reset_index()
-    )
-    turnout_mean = turnout_per_yr.groupby("codigo_municipio")["turnout"].mean()
+    if safe_registered.notna().any():
+        valid["turnout"] = (valid["total_votes"] / safe_registered).clip(0.0, 1.0)
+        turnout_per_yr = (
+            valid.groupby(["codigo_municipio", "year", "round"])["turnout"].first().reset_index()
+        )
+        turnout_mean = turnout_per_yr.groupby("codigo_municipio")["turnout"].mean()
+        return df.merge(
+            turnout_mean.rename("historical_turnout_m").reset_index(),
+            on="codigo_municipio",
+            how="left",
+        )
 
+    logger.warning("registered_voters is all NaN -- falling back to MOE 2022 turnout data")
+    _moe_turnout = _load_fallback_turnout(df)
+    _moe_turnout = _moe_turnout.rename(columns={"turnout": "historical_turnout_m"})
     return df.merge(
-        turnout_mean.rename("historical_turnout_m").reset_index(),
+        _moe_turnout[["codigo_municipio", "historical_turnout_m"]],
         on="codigo_municipio",
-        how="left",
+        how="inner",
     )
+
+
+def _load_fallback_turnout(df: pd.DataFrame) -> pd.DataFrame:
+    """Load MOE-based fallback turnout and align to feature matrix municipalities."""
+    base = resolve_data_dir(None)
+    turnout_path = base / "fundamentals" / "historical_turnout_moe.csv"
+    if turnout_path.is_file():
+        return pd.read_csv(turnout_path, dtype={"codigo_municipio": str}).pipe(
+            lambda f: f[f["codigo_municipio"].isin(df["codigo_municipio"])]
+        )
+    logger.warning("Fallback turnout file not found -- using 0.6 constant")
+    return pd.DataFrame({"codigo_municipio": df["codigo_municipio"], "turnout": 0.6})
 
 
 def _build_historical_column(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame:

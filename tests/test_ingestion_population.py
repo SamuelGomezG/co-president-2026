@@ -90,12 +90,12 @@ class TestReadPopulationXlsx:
         assert df["MPIO"].str.len().eq(5).all()
 
     def test_all_total_rows_have_positive_population(self, data_dir: Path) -> None:
-        """TOTAL column is positive for all ÁREA GEOGRÁFICA == 'Total'."""
+        """After _filter_total_rows, all remaining Total rows have positive population."""
         xlsx_path = data_dir / "raw" / "PPED-AreaMun-2018-2042_VP.xlsx"
         if not xlsx_path.is_file():
             pytest.skip("Real XLSX file not available (CI)")
         df = _read_population_xlsx(xlsx_path)
-        total_rows = df[df["ÁREA GEOGRÁFICA"] == "Total"]
+        total_rows = _filter_total_rows(df)
         assert (total_rows["TOTAL"] > 0).all()
 
 
