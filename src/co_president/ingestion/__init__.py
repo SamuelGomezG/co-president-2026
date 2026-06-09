@@ -26,6 +26,11 @@ from co_president.ingestion.ingest_cnpv import (
     load_cnpv_data,
     validate_cnpv,
 )
+from co_president.ingestion.ingest_fiscal import (
+    build_fiscal_features,
+    load_fiscal_data,
+    validate_fiscal,
+)
 from co_president.ingestion.ingest_ipm import (
     build_ipm_features,
     load_ipm_data,
@@ -56,6 +61,7 @@ from co_president.ingestion.report import (
 __all__ = [
     "build_cnpv_features",
     "build_feature_matrix",
+    "build_fiscal_features",
     "build_ipm_features",
     "build_nbi_features",
     "build_population_features",
@@ -65,6 +71,7 @@ __all__ = [
     "generate_data_dictionary",
     "load_all_components",
     "load_cnpv_data",
+    "load_fiscal_data",
     "load_ipm_data",
     "load_nbi_data",
     "load_population_data",
@@ -73,6 +80,7 @@ __all__ = [
     "save_feature_matrix",
     "validate_cnpv",
     "validate_component_health",
+    "validate_fiscal",
     "validate_ipm",
     "validate_nbi",
     "validate_population",
