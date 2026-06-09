@@ -20,7 +20,7 @@ _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "fundamentals"
 _MATRIX_FIXTURE = _FIXTURE_DIR / "municipal_feature_matrix.csv"
 _HISTORICAL_FIXTURE = _FIXTURE_DIR / "historical_results.csv"
 
-_EXPECTED_MUNICIPALITIES = 1_122
+_EXPECTED_MUNICIPALITIES = 1_142
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -31,13 +31,14 @@ _EXPECTED_MUNICIPALITIES = 1_122
 def _setup_fixture_dir(tmp_path: Path) -> Path:
     """Copy fixture files into ``tmp_path`` mimicking the data directory layout.
 
-    Creates ``processed/municipal_feature_matrix.csv`` (with fiscal autonomy
-    columns added) and ``fundamentals/historical_results.csv`` under
-    *tmp_path*.
+    Creates ``processed/municipal_feature_matrix.csv`` (with ``comuna_nombre``
+    and fiscal autonomy columns added) and ``fundamentals/historical_results.csv``
+    under *tmp_path*.
     """
     processed_dir = tmp_path / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
     matrix = pd.read_csv(_MATRIX_FIXTURE, dtype={"codigo_municipio": str})
+    matrix["comuna_nombre"] = None
     matrix["pct_ingresos_propios"] = 0.5
     matrix["gastos_totales_per_capita"] = 2.0
     matrix["transferencias_per_capita"] = 1.0
@@ -73,6 +74,7 @@ class TestMunicipalFeatures:
         mf = MunicipalFeatures(
             codigo_municipio="05001",
             nombre_municipio="Medellín",
+            comuna_nombre=None,
             departamento="Antioquia",
             region="Andina",
             poblacion_total=2_569_007,
@@ -142,6 +144,7 @@ class TestMunicipalFeatures:
         mf = MunicipalFeatures(
             codigo_municipio="05001",
             nombre_municipio="Test",
+            comuna_nombre=None,
             departamento="Antioquia",
             region=None,
             poblacion_total=100,
@@ -325,7 +328,7 @@ class TestLoadFeatures:
         data_dir = _setup_fixture_dir(tmp_path)
         result = load_features(data_dir=data_dir)
         assert pd.api.types.is_string_dtype(result["codigo_municipio"].dtype)
-        assert (result["codigo_municipio"].str.len() == 5).all()
+        assert result["codigo_municipio"].str.len().isin({5, 7}).all()
 
     def test_int_type_pop_columns(self, tmp_path: Path) -> None:
         """All pop_2018..pop_2026 columns are integer type."""
@@ -359,8 +362,6 @@ _FISCAL_REQUIRED = {
 
 def _real_matrix_has_fiscal(data_dir: Path) -> bool:
     """Check whether the real feature matrix CSV includes fiscal columns."""
-    import pandas as pd  # noqa: PLC0415
-
     matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
     if not matrix_path.is_file():
         return False
@@ -371,8 +372,8 @@ def _real_matrix_has_fiscal(data_dir: Path) -> bool:
 class TestLoadFeaturesRealData:
     """Smoke tests against the real data/processed/ matrix."""
 
-    def test_real_data_returns_1122_rows(self, data_dir: Path) -> None:
-        """load_features() returns exactly 1,122 rows on real data."""
+    def test_real_data_returns_1142_rows(self, data_dir: Path) -> None:
+        """load_features() returns exactly 1,142 rows on real data."""
         matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
         historical_path = data_dir / "fundamentals" / "historical_results.csv"
         if not matrix_path.is_file() or not historical_path.is_file():
@@ -386,7 +387,7 @@ class TestLoadFeaturesRealData:
         assert len(result) == _EXPECTED_MUNICIPALITIES
 
     def test_real_data_historical_turnout_no_nulls(self, data_dir: Path) -> None:
-        """historical_turnout_m is non-NaN for all 1,122 municipalities."""
+        """historical_turnout_m is non-NaN for all municipalities."""
         matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
         historical_path = data_dir / "fundamentals" / "historical_results.csv"
         if not matrix_path.is_file() or not historical_path.is_file():

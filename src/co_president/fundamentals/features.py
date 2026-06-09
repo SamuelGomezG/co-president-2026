@@ -31,11 +31,38 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1_122
+_EXPECTED_MUNICIPALITIES = 1_142
 _NULL_RATE_THRESHOLD = 0.20
 _CNP_CODE_LENGTH = 5
+_BOGOTA_LOCALIDAD_CODE_LENGTH = 7
 _ROUND_TWO = 2
 
+# Bogotá D.C. localidad code to name mapping (DANE DIVIPOLA localidad codes).
+# Codes 01-20 are the official 20 localidades.  Code 99 is the catch-all for
+# polling stations without a localidad assignment (SIN COMUNA).
+_BOGOTA_LOCALIDADES: dict[str, str] = {
+    "01": "Usaquén",
+    "02": "Chapinero",
+    "03": "Santa Fe",
+    "04": "San Cristóbal",
+    "05": "Usme",
+    "06": "Tunjuelito",
+    "07": "Bosa",
+    "08": "Kennedy",
+    "09": "Fontibón",
+    "10": "Engativá",
+    "11": "Suba",
+    "12": "Barrios Unidos",
+    "13": "Teusaquillo",
+    "14": "Los Mártires",
+    "15": "Antonio Nariño",
+    "16": "Puente Aranda",
+    "17": "La Candelaria",
+    "18": "Rafael Uribe Uribe",
+    "19": "Ciudad Bolívar",
+    "20": "Sumapaz",
+    "99": "BOGOTÁ D.C. - SIN COMUNA",
+}
 # Columns that overlap between the socioeconomic stub (merged first = _x)
 # and the real component files merged second (_y).  We prefer the real
 # component data over the 3-row stub.
@@ -52,6 +79,8 @@ _OVERLAPPING_COLUMNS: frozenset[str] = frozenset(
         "poblacion_rural_dispersa",
         # NBI-over-socioeconomic (socioeconomic stub has stale nbi_rate)
         "nbi_rate",
+        # Bogotá localidad name (DIVIPOLA -> comuna_nombre_x, others -> _y)
+        "comuna_nombre",
     }
 )
 
@@ -101,8 +130,12 @@ class MunicipalFeatures:
     tuple of ``HistoricalRecord`` objects (immutable by construction).
 
     Attributes:
-        codigo_municipio: 5-digit DANE municipality code.
+        codigo_municipio: 5-digit DANE municipality code (or 7-digit for
+            Bogotá D.C. localidades, e.g. ``"1100101"`` for Usaquén).
         nombre_municipio: Human-readable municipality name.
+        comuna_nombre: For Bogotá D.C. localidades, the localidad name
+            (e.g. ``"Usaquén"``, ``"Chapinero"``).  ``None`` for all other
+            municipalities.
         departamento: Department name.
         region: Geographic region (Andina, Caribe, Pacifica, Orinoquia,
             Amazonia) or ``None`` if unavailable.
@@ -169,6 +202,7 @@ class MunicipalFeatures:
     # Municipality identifiers
     codigo_municipio: str
     nombre_municipio: str
+    comuna_nombre: str | None
     departamento: str
     region: str | None
 
@@ -641,13 +675,28 @@ def _validate_schema(df: pd.DataFrame) -> None:
 
 
 def _validate_codigo_municipio(df: pd.DataFrame) -> None:
-    """Validate ``codigo_municipio`` uniqueness and length."""
+    """Validate ``codigo_municipio`` uniqueness and length.
+
+    Accepts both 5-digit DANE codes and 7-digit Bogotá localidad codes
+    (e.g. ``"1100101"`` for Usaquén).
+
+    """
     if not df["codigo_municipio"].is_unique:
         msg = "codigo_municipio is not unique"
         raise ValueError(msg)
-    bad_length = int(df["codigo_municipio"].astype(str).str.len().ne(_CNP_CODE_LENGTH).sum())
+    bad_length = int(
+        df["codigo_municipio"]
+        .astype(str)
+        .str.len()
+        .isin({_CNP_CODE_LENGTH, _BOGOTA_LOCALIDAD_CODE_LENGTH})
+        .value_counts()
+        .get(False, 0)
+    )
     if bad_length > 0:
-        msg = f"{bad_length} codigo_municipio value(s) with length != {_CNP_CODE_LENGTH}"
+        msg = (
+            f"{bad_length} codigo_municipio value(s) with length != "
+            f"{_CNP_CODE_LENGTH} or {_BOGOTA_LOCALIDAD_CODE_LENGTH}"
+        )
         raise ValueError(msg)
 
 
@@ -713,7 +762,7 @@ def load_features(data_dir: Path | None = None) -> pd.DataFrame:
     Examples:
         >>> mf = load_features()
         >>> len(mf)
-        1122
+        1142
         >>> mf["nbi_rate"].between(0, 1).all()
         True
 

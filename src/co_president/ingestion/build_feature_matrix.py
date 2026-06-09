@@ -16,6 +16,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from co_president.ingestion.ingest_bogota import (
+    disaggregate_bogota_election_results,
+    disaggregate_bogota_population,
+    get_bogota_localidad_rows,
+)
 from co_president.paths import resolve_data_dir
 
 __all__ = [
@@ -28,6 +33,8 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+_BOGOTA_CODE = "11001"
 
 _COMPONENT_FILES: dict[str, str] = {
     "divipola": "divipola_master.csv",
@@ -308,6 +315,98 @@ def _merge_components(
     return matrix
 
 
+def _replace_bogota_with_localidades(  # noqa: C901
+    components: dict[str, pd.DataFrame],
+    data_dir: Path,
+) -> dict[str, pd.DataFrame]:
+    """Replace Bogotá D.C. municipality row with 21 localidad rows.
+
+    Modifies the DIVIPOLA, historical, and population components:
+    - DIVIPOLA: Bogotá row replaced by 21 localidad rows (7-digit codes)
+    - Historical: Bogotá rows replaced by per-localidad election results
+    - Population: Bogotá row replaced by proportionally split rows
+
+    All other components (NBI, IPM, risk, CNPV, socioeconomic) keep
+    Bogotá's row — localidades inherit Bogotá-wide rates via subsequent
+    merge.
+
+    If the Bogotá MMV/reg-participacion data files are not available
+    (e.g. in test environments), the replacement is skipped entirely and
+    the components are returned unchanged.
+
+    Args:
+        components: Dict of component DataFrames.
+        data_dir: Root data directory (for reading MMV/reg data).
+
+    Returns:
+        Updated components dict.
+
+    """
+    # Probe for Bogotá data files before making any changes.
+    mmv_path_1v = data_dir / "2022-presidential-results" / "MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz"
+    reg_path_1v = data_dir / "2022-presidential-results" / "reg_participacion_vuelta1.csv"
+    if not mmv_path_1v.is_file() or not reg_path_1v.is_file():
+        logger.info(
+            "Bogotá MMV/reg data not found (%s, %s) — skipping localidad disaggregation",
+            mmv_path_1v,
+            reg_path_1v,
+        )
+        return components
+
+    result = dict(components)
+
+    # ── DIVIPOLA ──────────────────────────────────────────────────
+    divipola = result["divipola"]
+    if not divipola.empty and "codigo_municipio" in divipola.columns:
+        non_bogota = divipola[divipola["codigo_municipio"] != _BOGOTA_CODE]
+        localidad_rows = get_bogota_localidad_rows()
+        for col in divipola.columns:
+            if col not in localidad_rows.columns:
+                localidad_rows[col] = None
+        result["divipola"] = pd.concat([non_bogota, localidad_rows], ignore_index=True)
+        logger.info(
+            "DIVIPOLA: replaced Bogotá with %d localidad rows (total %d)",
+            len(localidad_rows),
+            len(result["divipola"]),
+        )
+
+    # ── Historical results ────────────────────────────────────────
+    historical = result["historical"]
+    if not historical.empty and "codigo_municipio" in historical.columns:
+        non_bogota_hist = historical[historical["codigo_municipio"] != _BOGOTA_CODE]
+        try:
+            localidad_hist = disaggregate_bogota_election_results(data_dir)
+        except FileNotFoundError:
+            logger.warning("Bogotá MMV/reg data not found — skipping historical disaggregation")
+            localidad_hist = pd.DataFrame()
+        if not localidad_hist.empty:
+            result["historical"] = pd.concat([non_bogota_hist, localidad_hist], ignore_index=True)
+            logger.info(
+                "Historical: replaced Bogotá rows with %d localidad rows (total %d)",
+                len(localidad_hist),
+                len(result["historical"]),
+            )
+
+    # ── Population projections ────────────────────────────────────
+    population = result["population"]
+    if not population.empty and "codigo_municipio" in population.columns:
+        non_bogota_pop = population[population["codigo_municipio"] != _BOGOTA_CODE]
+        try:
+            localidad_pop = disaggregate_bogota_population(data_dir)
+        except FileNotFoundError:
+            logger.warning("Bogotá MMV/reg data not found — skipping population disaggregation")
+            localidad_pop = pd.DataFrame()
+        if not localidad_pop.empty:
+            result["population"] = pd.concat([non_bogota_pop, localidad_pop], ignore_index=True)
+            logger.info(
+                "Population: replaced Bogotá row with %d localidad rows (total %d)",
+                len(localidad_pop),
+                len(result["population"]),
+            )
+
+    return result
+
+
 def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     """Build the final municipal feature matrix by joining all components.
 
@@ -339,6 +438,8 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     warnings = validate_component_health(components)
     for warning in warnings:
         logger.warning("Component health: %s", warning)
+
+    components = _replace_bogota_with_localidades(components, data_dir)
 
     divipola = components["divipola"]
     historical = components["historical"]
