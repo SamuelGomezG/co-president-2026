@@ -1,0 +1,51 @@
+name: CI - Model Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      model: ${{ steps.filter.outputs.model }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            model:
+              - "src/co_president/model*.py"
+              - "tests/test_model.py"
+              - "pyproject.toml"
+              - "uv.lock"
+
+  model-tests:
+    needs: changes
+    if: needs.changes.outputs.model == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install
+      - run: uv sync --extra dev
+      - run: uv run pytest tests/test_model.py -v -m "not slow"
