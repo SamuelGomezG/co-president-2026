@@ -22,13 +22,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
-        with:
-          python-version: "3.12"
+      - run: uv python install
       - run: uv sync --extra dev
       - run: uv run ruff format --check src/ tests/
       - run: uv run ruff check src/ tests/
       - run: uv run pyright src/
       - run: uv run pytest tests/ -v --ignore=tests/test_model.py --cov=src/co_president --cov-report=term-missing --cov-report=xml
+      - run: uv run pip install --upgrade pip
       - run: uv run pip-audit
       - run: uv run bandit -c pyproject.toml -r src/
 
@@ -40,8 +40,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
-        with:
-          python-version: "3.12"
+      - run: uv python install
       - run: uv sync --extra dev
       - run: uv run pytest tests/test_model.py -v -m "not slow"
       - run: uv run pytest tests/test_model.py -v -m "slow"
