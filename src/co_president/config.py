@@ -35,6 +35,9 @@ __all__ = [
     "ELECTION_DATE_ROUND1",
     "ELECTION_DATE_ROUND2",
     "FIRST_ROUND_CANDIDATES",
+    "HISTORICAL_CANDIDATE_IDEOLOGY",
+    "HISTORICAL_ROUND2_IDEOLOGY",
+    "HISTORICAL_TURNOUT_SOURCE",
     "POLLSTER_RATINGS",
     "TRANSFER_BLANCO_SPLIT",
     "TRANSFER_FAJARDO_HERNANDEZ",
@@ -395,6 +398,40 @@ def get_candidate_column_map() -> dict[str, str]:
     """
     return {key: key for key in FIRST_ROUND_CANDIDATES}
 
+
+# Historical candidate ideology registry for the 2002-2022 elections.
+# Maps election year -> {left candidate key, right candidate key}.
+# Used by ``load_features()`` to construct ``HistoricalRecord`` objects.
+HISTORICAL_CANDIDATE_IDEOLOGY: dict[int, dict[str, str]] = {
+    2002: {"left": "horacio_serpa", "right": "alvaro_uribe"},
+    2006: {"left": "carlos_gaviria", "right": "alvaro_uribe"},
+    2010: {"left": "gustavo_petro", "right": "juan_manuel_santos"},
+    2014: {"left": "clara_lopez", "right": "oscar_ivan_zuluaga"},
+    2018: {"left": "gustavo_petro", "right": "ivan_duque"},
+    2022: {"left": "gustavo_petro", "right": "federico_gutierrez"},
+}
+
+# Round-2 overrides: when the runoff right-wing candidate differs from the
+# round-1 right-wing candidate (e.g. 2022: Rodolfo Hernandez).
+HISTORICAL_ROUND2_IDEOLOGY: dict[int, dict[str, str]] = {
+    2022: {"left": "gustavo_petro", "right": "rodolfo_hernandez"},
+}
+
+# Source definition for historical turnout data.
+# Each entry maps an election year to the primary data source for municipal
+# turnout (registered voters / census) for that year.
+# - 2022: MOE ``censo`` field from ``moe_camara_territorial_2022.csv``
+#   (primary, full municipal coverage).
+# - 2002-2018: Registraduría ``censo_electoral`` field from CEDAE
+#   ``*_presidencia.dta.csv.gz`` files.
+HISTORICAL_TURNOUT_SOURCE: dict[int, str] = {
+    2022: "MOE_2022_censo",
+    2018: "CEDAE_2018_censo_electoral",
+    2014: "CEDAE_2014_censo_electoral",
+    2010: "CEDAE_2010_censo_electoral",
+    2006: "CEDAE_2006_censo_electoral",
+    2002: "CEDAE_2002_censo_electoral",
+}
 
 # Transfer-heuristic constants were calibrated to match the aggregate split
 # across 8 pollsters (~27% to Petro, ~73% to Hernandez). See
