@@ -67,6 +67,7 @@ class TestMunicipalFeatures:
         mf = MunicipalFeatures(
             codigo_municipio="05001",
             nombre_municipio="Medellín",
+            comuna_nombre=None,
             departamento="Antioquia",
             region="Andina",
             poblacion_total=2_569_007,
@@ -132,6 +133,7 @@ class TestMunicipalFeatures:
         mf = MunicipalFeatures(
             codigo_municipio="05001",
             nombre_municipio="Test",
+            comuna_nombre=None,
             departamento="Antioquia",
             region=None,
             poblacion_total=100,
