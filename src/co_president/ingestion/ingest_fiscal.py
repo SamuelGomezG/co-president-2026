@@ -112,8 +112,16 @@ def _safe_str(cell_value: object) -> str:
 def _read_fiscal_zip(zip_path: Path) -> pd.DataFrame:
     """Read TerriData zip, extract ``Hoja01``, filter to target rows.
 
-    Returns a DataFrame with columns ``codigo_municipio``, ``year``,
-    ``indicator``, and ``value`` (parsed to ``float``).
+    Args:
+        zip_path: Path to the TerriData ``.xlsx.zip`` file.
+
+    Returns:
+        DataFrame with columns ``codigo_municipio``, ``year``,
+        ``indicator``, and ``value`` (parsed to ``float``).
+
+    Raises:
+        FileNotFoundError: If ``zip_path`` does not exist.
+        ImportError: If ``openpyxl`` is not installed.
 
     """
     if not zip_path.is_file():
@@ -172,6 +180,19 @@ def _compute_fiscal_features(records_df: pd.DataFrame) -> pd.DataFrame:
     2018--2024.
 
     Department-level aggregate codes (``xxx000``) are dropped.
+    Returns an empty DataFrame when ``records_df`` is empty.
+
+    Args:
+        records_df: Long-format DataFrame with columns
+            ``codigo_municipio``, ``year``, ``indicator``, and
+            ``value``.
+
+    Returns:
+        DataFrame with one row per ``codigo_municipio`` and columns
+        ``pct_ingresos_propios``, ``gastos_totales_per_capita``,
+        ``transferencias_per_capita``, and
+        ``ingresos_tributarios_per_capita``, each averaged over
+        2018--2024.
 
     """
     if records_df.empty:
