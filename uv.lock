@@ -257,7 +257,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.8" },
     { name = "pyarrow", specifier = ">=15.0" },
     { name = "pymc", specifier = ">=5.15" },
-    { name = "pymupdf", specifier = ">=1.23" },
+    { name = "pymupdf", specifier = ">=1.24" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
