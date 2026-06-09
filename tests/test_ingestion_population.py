@@ -96,6 +96,7 @@ class TestReadPopulationXlsx:
             pytest.skip("Real XLSX file not available (CI)")
         df = _read_population_xlsx(xlsx_path)
         total_rows = _filter_total_rows(df)
+        assert not total_rows.empty, "_filter_total_rows returned zero rows"
         assert (total_rows["TOTAL"] > 0).all()
 
 

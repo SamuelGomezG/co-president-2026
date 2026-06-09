@@ -341,23 +341,35 @@ class TestLoadFeaturesRealData:
     def test_real_data_returns_1122_rows(self, data_dir: Path) -> None:
         """load_features() returns exactly 1,122 rows on real data."""
         matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
-        if not matrix_path.is_file():
-            pytest.skip("Feature matrix not built — run build_feature_matrix() first")
+        historical_path = data_dir / "fundamentals" / "historical_results.csv"
+        if not matrix_path.is_file() or not historical_path.is_file():
+            pytest.skip(
+                "Real data not fully built — expected both "
+                "municipal_feature_matrix.csv and fundamentals/historical_results.csv"
+            )
         result = load_features(data_dir=data_dir)
         assert len(result) == _EXPECTED_MUNICIPALITIES
 
     def test_real_data_historical_turnout_no_nulls(self, data_dir: Path) -> None:
         """historical_turnout_m is non-NaN for all 1,122 municipalities."""
         matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
-        if not matrix_path.is_file():
-            pytest.skip("Feature matrix not built")
+        historical_path = data_dir / "fundamentals" / "historical_results.csv"
+        if not matrix_path.is_file() or not historical_path.is_file():
+            pytest.skip(
+                "Real data not fully built — expected both "
+                "municipal_feature_matrix.csv and fundamentals/historical_results.csv"
+            )
         result = load_features(data_dir=data_dir)
         assert result["historical_turnout_m"].notna().all()
 
     def test_real_data_ipm_imputation_rate(self, data_dir: Path) -> None:
         """At least 1,000 municipalities have ipm_2018_imputed=True."""
         matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
-        if not matrix_path.is_file():
-            pytest.skip("Feature matrix not built")
+        historical_path = data_dir / "fundamentals" / "historical_results.csv"
+        if not matrix_path.is_file() or not historical_path.is_file():
+            pytest.skip(
+                "Real data not fully built — expected both "
+                "municipal_feature_matrix.csv and fundamentals/historical_results.csv"
+            )
         result = load_features(data_dir=data_dir)
         assert int(result["ipm_2018_imputed"].sum()) >= 1_000

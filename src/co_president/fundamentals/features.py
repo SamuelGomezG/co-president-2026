@@ -386,7 +386,9 @@ def _filter_valid_historical(historical: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
-def _compute_turnout(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame:
+def _compute_turnout(
+    df: pd.DataFrame, historical: pd.DataFrame, data_dir: Path | None = None
+) -> pd.DataFrame:
     """Compute ``historical_turnout_m`` per municipality and merge into *df*.
 
     Attempts to compute turnout from historical results (``registered_voters``).
@@ -396,6 +398,7 @@ def _compute_turnout(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame
     Args:
         df: Feature matrix DataFrame (must have ``codigo_municipio``).
         historical: Historical results DataFrame.
+        data_dir: Root data directory for fallback turnout file resolution.
 
     Returns:
         The feature matrix with an added ``historical_turnout_m`` column.
@@ -412,9 +415,9 @@ def _compute_turnout(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame
 
     if safe_registered.notna().any():
         valid["turnout"] = (valid["total_votes"] / safe_registered).clip(0.0, 1.0)
-        turnout_per_yr = (
-            valid.groupby(["codigo_municipio", "year", "round"])["turnout"].first().reset_index()
-        )
+        # Collapse rounds into a single per-year turnout to avoid
+        # double-weighting election years with runoffs (e.g., 2022).
+        turnout_per_yr = valid.groupby(["codigo_municipio", "year"])["turnout"].mean().reset_index()
         turnout_mean = turnout_per_yr.groupby("codigo_municipio")["turnout"].mean()
         return df.merge(
             turnout_mean.rename("historical_turnout_m").reset_index(),
@@ -423,18 +426,26 @@ def _compute_turnout(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame
         )
 
     logger.warning("registered_voters is all NaN -- falling back to MOE 2022 turnout data")
-    _moe_turnout = _load_fallback_turnout(df)
+    _moe_turnout = _load_fallback_turnout(df, data_dir=data_dir)
     _moe_turnout = _moe_turnout.rename(columns={"turnout": "historical_turnout_m"})
-    return df.merge(
+    result = df.merge(
         _moe_turnout[["codigo_municipio", "historical_turnout_m"]],
         on="codigo_municipio",
-        how="inner",
+        how="left",
     )
+    if result["historical_turnout_m"].isna().any():
+        missing_count = int(result["historical_turnout_m"].isna().sum())
+        logger.warning(
+            "%d municipalities missing from fallback turnout -- filling with 0.6",
+            missing_count,
+        )
+        result["historical_turnout_m"] = result["historical_turnout_m"].fillna(0.6)
+    return result
 
 
-def _load_fallback_turnout(df: pd.DataFrame) -> pd.DataFrame:
+def _load_fallback_turnout(df: pd.DataFrame, data_dir: Path | None = None) -> pd.DataFrame:
     """Load MOE-based fallback turnout and align to feature matrix municipalities."""
-    base = resolve_data_dir(None)
+    base = resolve_data_dir(data_dir)
     turnout_path = base / "fundamentals" / "historical_turnout_moe.csv"
     if turnout_path.is_file():
         return pd.read_csv(turnout_path, dtype={"codigo_municipio": str}).pipe(
@@ -482,8 +493,9 @@ def _build_historical_column(df: pd.DataFrame, historical: pd.DataFrame) -> pd.D
         first_row = group.iloc[0]
         safe_reg = first_row["registered_voters"]
         safe_total = first_row["total_votes"]
-        if safe_reg and safe_reg > 0:
-            abstention = max(0.0, 1.0 - (safe_total / safe_reg))
+        if safe_reg and safe_reg > 0 and pd.notna(safe_total):
+            ratio = safe_total / safe_reg
+            abstention = max(0.0, 1.0 - ratio) if pd.notna(ratio) else float("nan")
         else:
             abstention = float("nan")
 
@@ -546,7 +558,11 @@ def _coerce_bool_columns(df: pd.DataFrame) -> None:
     ]
     for col in bool_cols:
         if col in df.columns and not pd.api.types.is_bool_dtype(df[col]):
-            df[col] = df[col].astype(str).str.strip().str.lower().map(_BOOL_MAP).astype(bool)
+            mapped = df[col].astype(str).str.strip().str.lower().map(_BOOL_MAP)
+            nan_count = int(mapped.isna().sum())
+            if nan_count > 0:
+                logger.warning("%d unmapped values in %s — coercing to False", nan_count, col)
+            df[col] = mapped.fillna(value=False).astype(bool)
 
 
 def _coerce_population_columns(df: pd.DataFrame) -> None:
@@ -601,6 +617,11 @@ def _validate_schema(df: pd.DataFrame) -> None:
     missing_pop = [c for c in pop_cols if c not in df.columns]
     if missing_pop:
         msg = f"Missing population columns: {missing_pop}"
+        raise ValueError(msg)
+
+    null_pop = {c: int(df[c].isna().sum()) for c in pop_cols if df[c].isna().any()}
+    if null_pop:
+        msg = f"Population columns contain nulls: {null_pop}"
         raise ValueError(msg)
 
     _validate_null_rate(df, scalar_fields)
@@ -695,10 +716,23 @@ def load_features(data_dir: Path | None = None) -> pd.DataFrame:
     df = _coerce_types(df)
     logger.debug("Coerced column types")
 
+    # Drop municipalities with no population data (e.g. 27086 Belén de Bajirá
+    # which exists in DIVIPOLA but has no DANE PPED projections).
+    pop_cols = [f"pop_{y}" for y in range(2018, 2027)]
+    available_pop = [c for c in pop_cols if c in df.columns]
+    if available_pop:
+        before = len(df)
+        df = df.dropna(subset=available_pop, how="all")
+        dropped = before - len(df)
+        if dropped > 0:
+            logger.warning(
+                "Dropped %d municipality/municipalities with no population data", dropped
+            )
+
     historical = _load_historical_results(base)
     logger.info("Loaded historical results: %d rows", len(historical))
 
-    df = _compute_turnout(df, historical)
+    df = _compute_turnout(df, historical, data_dir=data_dir)
     logger.debug("Computed historical_turnout_m")
 
     df = _build_historical_column(df, historical)
