@@ -31,12 +31,18 @@ _EXPECTED_MUNICIPALITIES = 1_122
 def _setup_fixture_dir(tmp_path: Path) -> Path:
     """Copy fixture files into ``tmp_path`` mimicking the data directory layout.
 
-    Creates ``processed/municipal_feature_matrix.csv`` and
-    ``fundamentals/historical_results.csv`` under *tmp_path*.
+    Creates ``processed/municipal_feature_matrix.csv`` (with fiscal autonomy
+    columns added) and ``fundamentals/historical_results.csv`` under
+    *tmp_path*.
     """
     processed_dir = tmp_path / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy(str(_MATRIX_FIXTURE), str(processed_dir / "municipal_feature_matrix.csv"))
+    matrix = pd.read_csv(_MATRIX_FIXTURE, dtype={"codigo_municipio": str})
+    matrix["pct_ingresos_propios"] = 0.5
+    matrix["gastos_totales_per_capita"] = 2.0
+    matrix["transferencias_per_capita"] = 1.0
+    matrix["ingresos_tributarios_per_capita"] = 0.8
+    matrix.to_csv(processed_dir / "municipal_feature_matrix.csv", index=False)
 
     fundamentals_dir = tmp_path / "fundamentals"
     fundamentals_dir.mkdir(parents=True, exist_ok=True)
@@ -102,6 +108,10 @@ class TestMunicipalFeatures:
             pop_2024=2_560_000,
             pop_2025=2_570_000,
             pop_2026=2_580_000,
+            pct_ingresos_propios=0.65,
+            gastos_totales_per_capita=2.5,
+            transferencias_per_capita=0.8,
+            ingresos_tributarios_per_capita=1.2,
             risk_level="medium",
             is_pdet=False,
             armed_group_presence=False,
@@ -167,6 +177,10 @@ class TestMunicipalFeatures:
             pop_2024=106_000,
             pop_2025=107_000,
             pop_2026=108_000,
+            pct_ingresos_propios=0.60,
+            gastos_totales_per_capita=2.0,
+            transferencias_per_capita=0.9,
+            ingresos_tributarios_per_capita=1.0,
             risk_level="low",
             is_pdet=False,
             armed_group_presence=False,
