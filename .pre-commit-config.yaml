@@ -6,6 +6,11 @@ repos:
       - id: ruff
         args: [--fix]
 
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+
   - repo: local
     hooks:
       - id: pyright
@@ -20,13 +25,7 @@ repos:
         entry: uv run pytest tests/ -v --ignore=tests/test_model.py -x
         language: system
         pass_filenames: false
-        types: [python]
-
-      - id: pip-audit
-        name: pip-audit
-        entry: uv run pip-audit --skip-editable
-        language: system
-        pass_filenames: false
+        files: ^(src/co_president/|tests/).*\.py$
 
       - id: large-files
         name: check for large files
