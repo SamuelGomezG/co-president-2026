@@ -62,6 +62,25 @@ make sec          # Runs pip-audit + bandit
 
 Also available: `pre-commit run --all-files` for pre-push validation.
 
+**Pre-commit hooks** are now gated by file type to avoid wasted runs:
+- `pytest-fast` only triggers when `src/co_president/` or `tests/` files are staged.
+- `detect-private-key` catches secrets locally before CI.
+- `pip-audit` has been moved to dedicated CI (too slow for local dev).
+
+### CI Workflow Architecture
+
+GitHub Actions are split into specialized workflows that run **in parallel**, gated by path filters. `ci.yml` is legacy and will be removed after one merge cycle.
+
+| Workflow | When it runs | Required check? | Typical time |
+|---|---|---|---|
+| `ci-fast.yml` — lint, typecheck, unit tests | push/PR touching `src/`, `tests/`, `pyproject.toml`, `uv.lock` | **Required** | ~1–2 min |
+| `ci-model.yml` — fast MCMC (graph + prior predictive) | push/PR touching model files or tests | **Required** when triggered | ~2–3 min |
+| `ci-quality.yml` — pip-audit + bandit | push/PR touching code (and weekly cron for new CVEs) | **Required** | ~1–2 min |
+| `slow-tests.yml` — slow MCMC (convergence + sanity) | Nightly + manual dispatch | Not required | ~10+ min |
+| `pr-title.yml` — semantic PR title check | PR title edits | **Required** | ~<10s |
+
+All three `ci-*.yml` workflows run **independently in parallel** — no `needs:` chains. Total wall-clock on a PR is the maximum of the three (~2–3 min).
+
 ### One-test shortcuts
 ```bash
 uv run pytest tests/test_config.py -v                # Single file
