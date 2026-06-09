@@ -45,6 +45,7 @@ _COMPONENT_FILES: dict[str, str] = {
     "risk": "risk_factors.csv",
     "cnpv": "cnpv_2018.csv",
     "population": "population_2018_2026.csv",
+    "fiscal": "fiscal.csv",
 }
 
 _OPTIONAL_COMPONENTS: frozenset[str] = frozenset({"ipm"})
@@ -448,6 +449,7 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
     risk = components["risk"]
     cnpv = components["cnpv"]
     population = components["population"]
+    fiscal = components["fiscal"]
 
     if divipola.empty:
         logger.error("DIVIPOLA component is empty — cannot anchor feature matrix")
@@ -466,6 +468,7 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
             ("risk", risk),
             ("cnpv", cnpv),
             ("population", population),
+            ("fiscal", fiscal),
         ],
     )
 

@@ -31,12 +31,19 @@ _EXPECTED_MUNICIPALITIES = 1_142
 def _setup_fixture_dir(tmp_path: Path) -> Path:
     """Copy fixture files into ``tmp_path`` mimicking the data directory layout.
 
-    Creates ``processed/municipal_feature_matrix.csv`` and
-    ``fundamentals/historical_results.csv`` under *tmp_path*.
+    Creates ``processed/municipal_feature_matrix.csv`` (with ``comuna_nombre``
+    and fiscal autonomy columns added) and ``fundamentals/historical_results.csv``
+    under *tmp_path*.
     """
     processed_dir = tmp_path / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy(str(_MATRIX_FIXTURE), str(processed_dir / "municipal_feature_matrix.csv"))
+    matrix = pd.read_csv(_MATRIX_FIXTURE, dtype={"codigo_municipio": str})
+    matrix["comuna_nombre"] = None
+    matrix["pct_ingresos_propios"] = 0.5
+    matrix["gastos_totales_per_capita"] = 2.0
+    matrix["transferencias_per_capita"] = 1.0
+    matrix["ingresos_tributarios_per_capita"] = 0.8
+    matrix.to_csv(processed_dir / "municipal_feature_matrix.csv", index=False)
 
     fundamentals_dir = tmp_path / "fundamentals"
     fundamentals_dir.mkdir(parents=True, exist_ok=True)
@@ -103,6 +110,10 @@ class TestMunicipalFeatures:
             pop_2024=2_560_000,
             pop_2025=2_570_000,
             pop_2026=2_580_000,
+            pct_ingresos_propios=0.65,
+            gastos_totales_per_capita=2.5,
+            transferencias_per_capita=0.8,
+            ingresos_tributarios_per_capita=1.2,
             risk_level="medium",
             is_pdet=False,
             armed_group_presence=False,
@@ -169,6 +180,10 @@ class TestMunicipalFeatures:
             pop_2024=106_000,
             pop_2025=107_000,
             pop_2026=108_000,
+            pct_ingresos_propios=0.60,
+            gastos_totales_per_capita=2.0,
+            transferencias_per_capita=0.9,
+            ingresos_tributarios_per_capita=1.0,
             risk_level="low",
             is_pdet=False,
             armed_group_presence=False,
@@ -337,6 +352,23 @@ class TestLoadFeatures:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+_FISCAL_REQUIRED = {
+    "pct_ingresos_propios",
+    "gastos_totales_per_capita",
+    "transferencias_per_capita",
+    "ingresos_tributarios_per_capita",
+}
+
+
+def _real_matrix_has_fiscal(data_dir: Path) -> bool:
+    """Check whether the real feature matrix CSV includes fiscal columns."""
+    matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
+    if not matrix_path.is_file():
+        return False
+    cols = set(pd.read_csv(matrix_path, nrows=1).columns)
+    return _FISCAL_REQUIRED.issubset(cols)
+
+
 class TestLoadFeaturesRealData:
     """Smoke tests against the real data/processed/ matrix."""
 
@@ -349,6 +381,8 @@ class TestLoadFeaturesRealData:
                 "Real data not fully built — expected both "
                 "municipal_feature_matrix.csv and fundamentals/historical_results.csv"
             )
+        if not _real_matrix_has_fiscal(data_dir):
+            pytest.skip("Real matrix missing fiscal cols — run build_fiscal_features")
         result = load_features(data_dir=data_dir)
         assert len(result) == _EXPECTED_MUNICIPALITIES
 
@@ -361,6 +395,8 @@ class TestLoadFeaturesRealData:
                 "Real data not fully built — expected both "
                 "municipal_feature_matrix.csv and fundamentals/historical_results.csv"
             )
+        if not _real_matrix_has_fiscal(data_dir):
+            pytest.skip("Real matrix missing fiscal cols — run build_fiscal_features")
         result = load_features(data_dir=data_dir)
         assert result["historical_turnout_m"].notna().all()
 
@@ -373,5 +409,7 @@ class TestLoadFeaturesRealData:
                 "Real data not fully built — expected both "
                 "municipal_feature_matrix.csv and fundamentals/historical_results.csv"
             )
+        if not _real_matrix_has_fiscal(data_dir):
+            pytest.skip("Real matrix missing fiscal cols — run build_fiscal_features")
         result = load_features(data_dir=data_dir)
         assert int(result["ipm_2018_imputed"].sum()) >= 1_000

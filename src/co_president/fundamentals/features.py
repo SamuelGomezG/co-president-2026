@@ -63,7 +63,6 @@ _BOGOTA_LOCALIDADES: dict[str, str] = {
     "20": "Sumapaz",
     "99": "BOGOTÁ D.C. - SIN COMUNA",
 }
-
 # Columns that overlap between the socioeconomic stub (merged first = _x)
 # and the real component files merged second (_y).  We prefer the real
 # component data over the 3-row stub.
@@ -80,7 +79,7 @@ _OVERLAPPING_COLUMNS: frozenset[str] = frozenset(
         "poblacion_rural_dispersa",
         # NBI-over-socioeconomic (socioeconomic stub has stale nbi_rate)
         "nbi_rate",
-        # Bogotá localidad name (DIVIPOLA → comuna_nombre_x, others → _y)
+        # Bogotá localidad name (DIVIPOLA -> comuna_nombre_x, others -> _y)
         "comuna_nombre",
     }
 )
@@ -180,6 +179,13 @@ class MunicipalFeatures:
         pop_2025: Projected population for 2025.
         pop_2026: Projected population for 2026.
 
+        -- Fiscal autonomy (TerriData, multi-year avg 2018--2024) --
+        pct_ingresos_propios: proportion of current income from own
+            resources (tax + non-tax) over total current income (0-1).
+        gastos_totales_per_capita: Total expenditure per capita (COP).
+        transferencias_per_capita: Transfers per capita (COP).
+        ingresos_tributarios_per_capita: Tax revenue per capita (COP).
+
         -- Risk --
         risk_level: MOE electoral risk classification.
         is_pdet: Whether the municipality is a PDET priority area.
@@ -238,6 +244,12 @@ class MunicipalFeatures:
     pop_2024: int
     pop_2025: int
     pop_2026: int
+
+    # Fiscal autonomy
+    pct_ingresos_propios: float
+    gastos_totales_per_capita: float
+    transferencias_per_capita: float
+    ingresos_tributarios_per_capita: float
 
     # Risk
     risk_level: Literal["extreme", "high", "medium", "low"] | None
@@ -667,6 +679,7 @@ def _validate_codigo_municipio(df: pd.DataFrame) -> None:
 
     Accepts both 5-digit DANE codes and 7-digit Bogotá localidad codes
     (e.g. ``"1100101"`` for Usaquén).
+
     """
     if not df["codigo_municipio"].is_unique:
         msg = "codigo_municipio is not unique"

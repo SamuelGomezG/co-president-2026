@@ -197,6 +197,22 @@ def _make_population(n: int = 5) -> pd.DataFrame:
     ).astype({"codigo_municipio": str})
 
 
+def _make_fiscal(n: int = 5) -> pd.DataFrame:
+    """Synthetic fiscal autonomy DataFrame with ``n`` municipalities."""
+    import numpy as np  # noqa: PLC0415
+
+    rng = np.random.default_rng(seed=42)
+    return pd.DataFrame(
+        {
+            "codigo_municipio": [f"{i:05d}" for i in range(1, n + 1)],
+            "pct_ingresos_propios": [round(rng.uniform(0.1, 0.8), 4) for _ in range(n)],
+            "gastos_totales_per_capita": [round(rng.uniform(0.5, 5.0), 4) for _ in range(n)],
+            "transferencias_per_capita": [round(rng.uniform(0.2, 3.0), 4) for _ in range(n)],
+            "ingresos_tributarios_per_capita": [round(rng.uniform(0.1, 1.5), 4) for _ in range(n)],
+        }
+    ).astype({"codigo_municipio": str})
+
+
 def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
     """Build a complete synthetic component dict for testing."""
     return {
@@ -208,6 +224,7 @@ def _make_components(n_divipola: int = 5) -> dict[str, pd.DataFrame]:
         "risk": _make_risk(),
         "cnpv": _make_cnpv(),
         "population": _make_population(n_divipola),
+        "fiscal": _make_fiscal(n_divipola),
     }
 
 
@@ -220,7 +237,7 @@ class TestLoadAllComponents:
     """``load_all_components`` reads component CSVs from disk."""
 
     def test_returns_dict_with_expected_keys(self, tmp_path: Path) -> None:
-        """Returns dict with all eight component keys."""
+        """Returns dict with all nine component keys."""
         _write_component_files(tmp_path, _make_components())
         result = load_all_components(tmp_path)
         assert set(result) == {
@@ -232,6 +249,7 @@ class TestLoadAllComponents:
             "risk",
             "cnpv",
             "population",
+            "fiscal",
         }
 
     def test_all_dataframes_when_files_exist(self, tmp_path: Path) -> None:
@@ -639,6 +657,7 @@ def _write_component_files(data_dir: Path, components: dict[str, pd.DataFrame]) 
         "risk": "risk_factors.csv",
         "cnpv": "cnpv_2018.csv",
         "population": "population_2018_2026.csv",
+        "fiscal": "fiscal.csv",
     }
     for name, df in components.items():
         filename = filenames[name]
