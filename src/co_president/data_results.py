@@ -261,8 +261,7 @@ def _read_mmv(path: Path) -> pd.DataFrame:
         path,
         encoding="latin-1",
         sep=";",
-        low_memory=False,
-        dtype=None,
+        engine="pyarrow",
     )
     required_cols = {"CANNOMBRE", "PARNOMBRE", "VOTOS"}
     missing = required_cols - set(df.columns)
@@ -279,7 +278,7 @@ def _read_moe(path: Path) -> pd.DataFrame:
         ValueError: If the file is missing required columns.
 
     """
-    df = pd.read_csv(path, encoding="utf-8")
+    df = pd.read_csv(path, encoding="utf-8", engine="pyarrow")
     required_cols = {"nomparti", "votos"}
     missing = required_cols - set(df.columns)
     if missing:
