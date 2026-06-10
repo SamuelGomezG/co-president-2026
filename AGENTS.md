@@ -29,11 +29,17 @@ main                    ← Only merged when the full pipeline is working
 ### First-time setup
 
 ```bash
+make setup         # Sync dependencies + install local package (one command)
+```
+
+`make setup` is shorthand for `make sync && make install`. If you prefer to run them separately:
+
+```bash
 make sync          # Install runtime + dev dependencies (does NOT install local package)
 make install       # Install co-president in editable mode (REQUIRED after make sync)
 ```
 
-**`make sync` installs runtime + dev extras (pytest, ruff, pyright) but NOT the local package.** You need both commands above, in that order.
+**`make sync` installs runtime + dev extras (pytest, ruff, pyright) but NOT the local package.** You need both commands above, in that order (or just `make setup`).
 
 ### Quality gates — required before EVERY commit
 
@@ -47,11 +53,22 @@ Individual gates:
 ```bash
 make fmt          # ruff format src/ tests/
 make lint         # ruff check src/ tests/        (ALL rules, zero tolerance)
+make lint-fix     # Auto-fix lint issues (unused imports, refactors, etc.)
 make typecheck    # pyright src/                   (strict mode, zero errors)
 make test         # pytest tests/ -v               (all tests must pass)
 make test-fast    # Skip slow MCMC model tests
 make test-model   # Fast model tests only (graph + prior predictive)
 make test-model-slow  # Slow MCMC tests only (convergence + sanity)
+```
+
+Discover all targets:
+```bash
+make help         # Print available targets with descriptions
+```
+
+Data ingestion:
+```bash
+make fundamentals # Ingest all fundamental datasets (cnpv + nbi + ipm + population)
 ```
 
 ### Security scanning
