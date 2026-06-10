@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import shutil
 
@@ -11,7 +12,9 @@ import pytest
 from co_president.fundamentals.features import (
     HistoricalRecord,
     MunicipalFeatures,
+    clr,
     load_features,
+    logit,
 )
 
 __all__: list[str] = []
@@ -214,6 +217,209 @@ class TestMunicipalFeatures:
         assert isinstance(mf.historical, tuple)
         assert len(mf.historical) == 2
         assert mf.historical[0].year == 2022
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Compositional data helpers (SPEC-21c)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestCLR:
+    """Tests for ``clr()`` centred log-ratio transform."""
+
+    def test_sums_to_zero(self) -> None:
+        """CLR output sums to zero (Aitchison property)."""
+        compositions = [
+            (0.1, 0.2, 0.3, 0.4),
+            (0.25, 0.25, 0.25, 0.25),
+            (0.5, 0.3, 0.2),
+            (0.01, 0.99),
+            (0.3, 0.7),
+        ]
+        for comp in compositions:
+            out = clr(comp)
+            assert abs(sum(out)) < 1e-12, f"CLR({comp}) sums to {sum(out)}"
+
+    def test_symmetric_binary(self) -> None:
+        """CLR((0.3, 0.7)) produces symmetric values (clr[0] == -clr[1])."""
+        out = clr((0.3, 0.7))
+        assert abs(out[0] - (-out[1])) < 1e-12
+
+    def test_logit_equivalence(self) -> None:
+        """For D=2, CLR(p, 1-p)[0] == 0.5 * logit(p)."""
+        for p in (0.05, 0.15, 0.30, 0.50, 0.85, 0.95):
+            out = clr((p, 1.0 - p))
+            expected = 0.5 * logit(p)
+            assert abs(out[0] - expected) < 1e-12, f"Failed for p={p}"
+
+    def test_clr_shares_on_binary_record(self) -> None:
+        """HistoricalRecord.clr_shares() returns CLR of (left, right)."""
+        hr = HistoricalRecord(
+            year=2022,
+            round=2,
+            left_candidate="gustavo_petro",
+            right_candidate="rodolfo_hernandez",
+            left_share=0.55,
+            right_share=0.45,
+            abstention_rate=0.30,
+        )
+        clr_left, clr_right = hr.clr_shares()
+        assert abs(clr_left + clr_right) < 1e-12
+        expected = 0.5 * logit(0.55 / 1.0)
+        assert abs(clr_left - expected) < 1e-12
+
+    def test_clr_shares_normalises_sum(self) -> None:
+        """clr_shares() normalises left+right to sum to 1 before CLR."""
+        hr = HistoricalRecord(
+            year=2022,
+            round=1,
+            left_candidate="gustavo_petro",
+            right_candidate="rodolfo_hernandez",
+            left_share=0.40,
+            right_share=0.28,
+            abstention_rate=0.20,
+        )
+        out = hr.clr_shares()
+        # Verify CLR property
+        assert abs(sum(out)) < 1e-12
+        # Verify normalization: CLR[0] should equal 0.5 * logit(normalised_left)
+        normalised_left = 0.40 / (0.40 + 0.28)
+        expected = 0.5 * logit(normalised_left)
+        assert abs(out[0] - expected) < 1e-12, (
+            f"clr_shares did not normalise: got {out[0]}, expected {expected}"
+        )
+
+    def test_raises_on_empty(self) -> None:
+        """CLR of empty tuple raises ValueError."""
+        with pytest.raises(ValueError, match="Composition"):
+            clr(())
+
+    def test_raises_on_zero_total(self) -> None:
+        """CLR of all-zero composition raises ValueError."""
+        with pytest.raises(ValueError, match="Composition"):
+            clr((0.0, 0.0))
+
+    def test_raises_on_negative(self) -> None:
+        """CLR of composition with negative part raises ValueError."""
+        with pytest.raises(ValueError, match="negative"):
+            clr((-0.1, 0.5, 0.6))
+
+    def test_raises_on_nan(self) -> None:
+        """CLR of composition with NaN raises ValueError."""
+        with pytest.raises(ValueError, match="not finite"):
+            clr((float("nan"), 0.5))
+
+    def test_raises_on_infinity(self) -> None:
+        """CLR of composition with infinity raises ValueError."""
+        with pytest.raises(ValueError, match="not finite"):
+            clr((float("inf"), 0.5))
+
+    def test_raises_on_negative_residual(self) -> None:
+        """CLR of 3-part composition with negative residual raises ValueError.
+
+        Simulates the scenario where nbi_urban + nbi_rural > 1.
+        """
+        with pytest.raises(ValueError, match="negative"):
+            clr((0.6, 0.5, -0.1))
+
+
+class TestLogit:
+    """Tests for ``logit()`` log-odds transform."""
+
+    def test_logit_half(self) -> None:
+        """logit(0.5) == 0."""
+        assert logit(0.5) == 0.0
+
+    def test_logit_symmetric(self) -> None:
+        """logit(p) == -logit(1-p)."""
+        for p in (0.1, 0.2, 0.4, 0.8, 0.99):
+            assert abs(logit(p) - (-logit(1.0 - p))) < 1e-12
+
+    def test_logit_clamps_zero(self) -> None:
+        """logit(0) returns a finite value (clamped)."""
+        val = logit(0.0)
+        assert math.isfinite(val)
+
+    def test_logit_clamps_one(self) -> None:
+        """logit(1) returns a finite value (clamped)."""
+        val = logit(1.0)
+        assert math.isfinite(val)
+
+
+class TestCLRPoverty:
+    """Tests for ``MunicipalFeatures`` compositional helpers."""
+
+    def _make_mf(self, nbi_rate: float, nbi_urban: float, nbi_rural: float) -> MunicipalFeatures:
+        return MunicipalFeatures(
+            codigo_municipio="05001",
+            nombre_municipio="Test",
+            comuna_nombre=None,
+            departamento="Antioquia",
+            region=None,
+            poblacion_total=100,
+            poblacion_afrocolombiana=10,
+            poblacion_indigena=5,
+            poblacion_rural_dispersa=2,
+            pct_afro_colombian=0.10,
+            pct_indigenous=0.05,
+            pct_rural_disperso=0.02,
+            years_schooling_promedio=10.0,
+            pct_school_attendance=0.85,
+            internet_access_rate=0.70,
+            labor_force_participation_rate=0.65,
+            pct_female=0.51,
+            rooms_per_household=3.0,
+            persons_per_household=3.5,
+            pct_age_18_29=0.30,
+            pct_age_30_54=0.40,
+            pct_age_55_plus=0.30,
+            nbi_rate=nbi_rate,
+            nbi_urban=nbi_urban,
+            nbi_rural=nbi_rural,
+            ipm_2018=0.12,
+            ipm_2018_imputed=True,
+            ipm_2022=0.14,
+            ipm_2022_imputed=True,
+            pop_2018=100_000,
+            pop_2019=101_000,
+            pop_2020=102_000,
+            pop_2021=103_000,
+            pop_2022=104_000,
+            pop_2023=105_000,
+            pop_2024=106_000,
+            pop_2025=107_000,
+            pop_2026=108_000,
+            pct_ingresos_propios=0.60,
+            gastos_totales_per_capita=2.0,
+            transferencias_per_capita=0.9,
+            ingresos_tributarios_per_capita=1.0,
+            risk_level="low",
+            is_pdet=False,
+            armed_group_presence=False,
+            coca_hectares=0.0,
+            high_risk_flag=False,
+            historical=(),
+            historical_turnout_m=0.70,
+        )
+
+    def test_clr_poverty_sums_to_zero(self) -> None:
+        """clr_poverty() output sums to zero."""
+        for rate in (0.05, 0.15, 0.30, 0.50, 0.80):
+            mf = self._make_mf(rate, 0.1, 0.2)
+            out = mf.clr_poverty()
+            assert abs(sum(out)) < 1e-12
+
+    def test_clr_poverty_symmetric(self) -> None:
+        """clr_poverty()[0] == -clr_poverty()[1]."""
+        mf = self._make_mf(0.15, 0.1, 0.2)
+        out = mf.clr_poverty()
+        assert abs(out[0] + out[1]) < 1e-12
+
+    def test_clr_nbi_areas_sums_to_zero(self) -> None:
+        """clr_nbi_areas() output sums to zero."""
+        mf = self._make_mf(0.15, 0.08, 0.22)
+        out = mf.clr_nbi_areas()
+        assert abs(sum(out)) < 1e-12
 
 
 # ═══════════════════════════════════════════════════════════════════════

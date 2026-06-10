@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields
 import logging
-from typing import TYPE_CHECKING, Literal
+import math
+from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
 
@@ -26,7 +27,9 @@ if TYPE_CHECKING:
 __all__ = [
     "HistoricalRecord",
     "MunicipalFeatures",
+    "clr",
     "load_features",
+    "logit",
 ]
 
 logger = logging.getLogger(__name__)
@@ -36,6 +39,7 @@ _NULL_RATE_THRESHOLD = 0.20
 _CNP_CODE_LENGTH = 5
 _BOGOTA_LOCALIDAD_CODE_LENGTH = 7
 _ROUND_TWO = 2
+_EPSILON = 1e-10
 
 # Bogotá D.C. localidad code to name mapping (DANE DIVIPOLA localidad codes).
 # Codes 01-20 are the official 20 localidades.  Code 99 is the catch-all for
@@ -101,6 +105,11 @@ class HistoricalRecord:
     Captures the left/right candidate vote shares and abstention rate for
     one election round (e.g. 2022 round 1) in one municipality.
 
+    ``left_share`` and ``right_share`` form a 2-part composition (they
+    represent the vote shares of the two dominant ideological blocs).  Use
+    ``clr_shares()`` to obtain their centred log-ratio transform before
+    feeding them into a regression (see SPEC-21c).
+
     Attributes:
         year: Election year (e.g. 2002, 2006, ..., 2022).
         round: Election round (1 or 2).
@@ -119,6 +128,33 @@ class HistoricalRecord:
     left_share: float
     right_share: float
     abstention_rate: float
+
+    def clr_shares(self) -> tuple[float, float]:
+        """CLR of the ``(left_share, right_share)`` binary composition.
+
+        Normalises the two shares to sum to 1 and applies the centred
+        log-ratio transform.  For the binary (D=2) case the result
+        satisfies:
+
+        - ``clr_left + clr_right == 0``
+        - ``clr_left = 0.5 * logit(normalised_left_share)``
+
+        Returns:
+            A 2-tuple ``(clr_left, clr_right)``.
+
+        Raises:
+            ValueError: If either share is negative, non-finite, or both
+                are zero (propagated from :func:`clr`).
+
+        Examples:
+            >>> hr = HistoricalRecord(2022, 2, "petro", "hernandez",
+            ...                       0.55, 0.45, 0.30)
+            >>> left, right = hr.clr_shares()
+            >>> abs(left + right) < 1e-12
+            True
+
+        """
+        return cast("tuple[float, float]", clr((self.left_share, self.right_share)))
 
 
 @dataclass(frozen=True)
@@ -197,6 +233,23 @@ class MunicipalFeatures:
         historical: Tuple of per-election HistoricalRecord objects.
         historical_turnout_m: Mean municipal turnout across available years (0-1).
 
+    .. rubric:: Compositional feature groups
+
+    The following groups contain compositional data (parts of a whole) and
+    should be log-ratio transformed before entering a linear regression:
+
+    * **Historical vote shares** (``HistoricalRecord.left_share``,
+      ``.right_share``) — 2-part simplex for the left/right pair.
+      Use ``HistoricalRecord.clr_shares()`` → CLR reduces to
+      ``0.5 * logit(normalised_left_share)`` for D=2.
+    * **Multi-candidate first-round shares** (future) — apply full K-part
+      CLR via ``clr()`` when the full candidate vector is available.
+    * **Poverty composition** (``nbi_rate``, ``1 - nbi_rate``) — binary
+      poverty / non-poverty simplex.  Use ``clr_poverty()``.
+    * **NBI area composition** (``nbi_urban``, ``nbi_rural``,
+      ``1 - nbi_urban - nbi_rural``) — 3-part simplex when all three NBI
+      values are present.  Available via ``clr_nbi_areas()``.
+
     """
 
     # Municipality identifiers
@@ -261,6 +314,178 @@ class MunicipalFeatures:
     # Historical
     historical: tuple[HistoricalRecord, ...]
     historical_turnout_m: float
+
+    # ── Compositional data helpers (SPEC-21c) ────────────────────────
+
+    def clr_poverty(self) -> tuple[float, float]:
+        """CLR of the ``(nbi_rate, 1 - nbi_rate)`` poverty composition.
+
+        ``nbi_rate`` represents the proportion of households with unmet
+        basic needs, making the pair ``(nbi_rate, 1 - nbi_rate)`` a
+        binary composition (poverty / non-poverty simplex).
+
+        Returns:
+            A 2-tuple ``(clr_nbi, clr_non_nbi)``.
+
+        Raises:
+            ValueError: If ``nbi_rate`` is negative, non-finite, or
+                exactly 1.0 (propagated from :func:`clr`).
+
+        Examples:
+            >>> mf = MunicipalFeatures(
+            ...     codigo_municipio="05001", nombre_municipio="Test",
+            ...     comuna_nombre=None, departamento="Antioquia", region=None,
+            ...     poblacion_total=100, poblacion_afrocolombiana=10,
+            ...     poblacion_indigena=5, poblacion_rural_dispersa=2,
+            ...     pct_afro_colombian=0.10, pct_indigenous=0.05,
+            ...     pct_rural_disperso=0.02, years_schooling_promedio=10.0,
+            ...     pct_school_attendance=0.85, internet_access_rate=0.70,
+            ...     labor_force_participation_rate=0.65, pct_female=0.51,
+            ...     rooms_per_household=3.0, persons_per_household=3.5,
+            ...     pct_age_18_29=0.30, pct_age_30_54=0.40,
+            ...     pct_age_55_plus=0.30, nbi_rate=0.15, nbi_urban=0.08,
+            ...     nbi_rural=0.22, ipm_2018=0.12, ipm_2018_imputed=True,
+            ...     ipm_2022=0.14, ipm_2022_imputed=True,
+            ...     pop_2018=100_000, pop_2019=101_000, pop_2020=102_000,
+            ...     pop_2021=103_000, pop_2022=104_000, pop_2023=105_000,
+            ...     pop_2024=106_000, pop_2025=107_000, pop_2026=108_000,
+            ...     pct_ingresos_propios=0.60, gastos_totales_per_capita=2.0,
+            ...     transferencias_per_capita=0.9,
+            ...     ingresos_tributarios_per_capita=1.0, risk_level="low",
+            ...     is_pdet=False, armed_group_presence=False,
+            ...     coca_hectares=0.0, high_risk_flag=False, historical=(),
+            ...     historical_turnout_m=0.70,
+            ... )
+            >>> clr_nbi, clr_non_nbi = mf.clr_poverty()
+            >>> abs(clr_nbi + clr_non_nbi) < 1e-12
+            True
+
+        """
+        return cast("tuple[float, float]", clr((self.nbi_rate, 1.0 - self.nbi_rate)))
+
+    def clr_nbi_areas(self) -> tuple[float, float, float]:
+        """CLR of the ``(nbi_urban, nbi_rural, residual)`` 3-part composition.
+
+        When all three NBI values are present, ``(nbi_urban, nbi_rural,
+        1 - nbi_urban - nbi_rural)`` forms a 3-part simplex (urban
+        poverty / rural poverty / no-poverty areas).
+
+        Returns:
+            A 3-tuple ``(clr_urban, clr_rural, clr_non_nbi)``.
+
+        Raises:
+            ValueError: If any NBI value is negative, non-finite, or if
+                ``nbi_urban + nbi_rural > 1`` producing a negative residual
+                (propagated from :func:`clr`).
+
+        Examples:
+            >>> mf = MunicipalFeatures(
+            ...     codigo_municipio="05001", nombre_municipio="Test",
+            ...     comuna_nombre=None, departamento="Antioquia", region=None,
+            ...     poblacion_total=100, poblacion_afrocolombiana=10,
+            ...     poblacion_indigena=5, poblacion_rural_dispersa=2,
+            ...     pct_afro_colombian=0.10, pct_indigenous=0.05,
+            ...     pct_rural_disperso=0.02, years_schooling_promedio=10.0,
+            ...     pct_school_attendance=0.85, internet_access_rate=0.70,
+            ...     labor_force_participation_rate=0.65, pct_female=0.51,
+            ...     rooms_per_household=3.0, persons_per_household=3.5,
+            ...     pct_age_18_29=0.30, pct_age_30_54=0.40,
+            ...     pct_age_55_plus=0.30, nbi_rate=0.15, nbi_urban=0.08,
+            ...     nbi_rural=0.22, ipm_2018=0.12, ipm_2018_imputed=True,
+            ...     ipm_2022=0.14, ipm_2022_imputed=True,
+            ...     pop_2018=100_000, pop_2019=101_000, pop_2020=102_000,
+            ...     pop_2021=103_000, pop_2022=104_000, pop_2023=105_000,
+            ...     pop_2024=106_000, pop_2025=107_000, pop_2026=108_000,
+            ...     pct_ingresos_propios=0.60, gastos_totales_per_capita=2.0,
+            ...     transferencias_per_capita=0.9,
+            ...     ingresos_tributarios_per_capita=1.0, risk_level="low",
+            ...     is_pdet=False, armed_group_presence=False,
+            ...     coca_hectares=0.0, high_risk_flag=False, historical=(),
+            ...     historical_turnout_m=0.70,
+            ... )
+            >>> clr_u, clr_r, clr_n = mf.clr_nbi_areas()
+            >>> abs(clr_u + clr_r + clr_n) < 1e-12
+            True
+
+        """
+        residual = 1.0 - self.nbi_urban - self.nbi_rural
+        return cast("tuple[float, float, float]", clr((self.nbi_urban, self.nbi_rural, residual)))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Compositional data helpers (SPEC-21c)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def logit(p: float) -> float:
+    """Logit (log-odds) transform, clamped away from 0/1 to avoid infinities.
+
+    Args:
+        p: Probability or proportion in ``[0, 1]``.
+
+    Returns:
+        ``log(p / (1 - p))``, with *p* clamped to
+        ``[_EPSILON, 1 - _EPSILON]``.
+
+    Raises:
+        This function never raises.  Inputs at 0.0 and 1.0 are clamped to
+        the safe interval to keep the result finite.
+
+    Examples:
+        >>> logit(0.5)
+        0.0
+        >>> logit(0.75)
+        1.0986122886681098
+        >>> math.isfinite(logit(0.0))
+        True
+        >>> math.isfinite(logit(1.0))
+        True
+
+    """
+    p = max(min(p, 1.0 - _EPSILON), _EPSILON)
+    return math.log(p / (1.0 - p))
+
+
+def clr(shares: tuple[float, ...]) -> tuple[float, ...]:
+    """Centred log-ratio transform for a composition (Aitchison, 1982).
+
+    Computes ``clr(x_i) = log(x_i / g(x))`` where ``g(x)`` is the geometric
+    mean of the composition.  The elements of the result always sum to zero.
+
+    Args:
+        shares: Compositional values.  Must all be non-negative and sum to a
+            positive number.
+
+    Returns:
+        CLR-transformed shares (same length as input).
+
+    Raises:
+        ValueError: If the input is empty, contains non-finite or negative
+            values, or has zero total.
+
+    Example:
+        >>> clr((0.3, 0.7))
+        ...  # doctest: +SKIP
+        (-0.423648..., 0.423648...)
+
+    """
+    if not shares:
+        msg = "Composition must be non-empty"
+        raise ValueError(msg)
+    for i, s in enumerate(shares):
+        if not math.isfinite(s):
+            msg = f"Composition part at index {i} is not finite: {s}"
+            raise ValueError(msg)
+        if s < 0:
+            msg = f"Composition part at index {i} is negative: {s}"
+            raise ValueError(msg)
+    total = sum(shares)
+    if total <= 0.0:
+        msg = f"Composition must sum to a positive value, got sum={total}"
+        raise ValueError(msg)
+    normalized = tuple(max(min(s / total, 1.0 - _EPSILON), _EPSILON) for s in shares)
+    log_geom = sum(math.log(v) for v in normalized) / len(normalized)
+    return tuple(math.log(v) - log_geom for v in normalized)
 
 
 # ═══════════════════════════════════════════════════════════════════════
