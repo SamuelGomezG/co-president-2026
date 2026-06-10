@@ -20,6 +20,8 @@ from co_president.config import (
 )
 
 if TYPE_CHECKING:
+    from xarray import DataTree
+
     from co_president.config import ModelConfig
     from co_president.data import RoundResult
 
@@ -279,7 +281,7 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
     return model
 
 
-def sample_round1(model: pm.Model, config: ModelConfig) -> az.InferenceData:
+def sample_round1(model: pm.Model, config: ModelConfig) -> DataTree:
     """Sample posterior draws from a built first-round model via NUTS.
 
     Runs MCMC sampling with the hyperparameters specified in *config*.
@@ -295,7 +297,7 @@ def sample_round1(model: pm.Model, config: ModelConfig) -> az.InferenceData:
             initialization or execution.
 
     Returns:
-        az.InferenceData: Posterior and sampling stats only. Posterior
+        DataTree: Posterior and sampling stats only. Posterior
         predictive samples require ``pm.sample_posterior_predictive``.
 
     Examples:
@@ -451,7 +453,7 @@ class Round1Forecast:
 
 
 def forecast_round1(
-    idata: az.InferenceData,
+    idata: DataTree,
     candidates: list[str],
 ) -> Round1Forecast:
     """Compute first-round forecast from posterior samples.
@@ -536,7 +538,7 @@ def forecast_round1(
 
 
 def simulate_elections(
-    idata: az.InferenceData,
+    idata: DataTree,
     candidates: list[str],
     n_simulations: int = 10000,
 ) -> pd.DataFrame:

@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from datetime import date
 
-    import arviz as az  # type: ignore[reportMissingTypeStubs]
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
+    from xarray import DataTree
 
 from co_president.config import (
     CONSULTATION_DATE,
@@ -447,13 +447,13 @@ def _load_and_validate() -> tuple[CleanPolls, RoundResult, RoundResult]:
     return clean_polls, results_r1, results_r2
 
 
-def _log_and_save_trace(idata: az.InferenceData, path: Path) -> None:
+def _log_and_save_trace(idata: DataTree, path: Path) -> None:
     """Log and save an InferenceData to a netCDF file."""
     logger.info("Saving trace to %s", path)
     idata.to_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
 
 
-def _check_convergence(idata: az.InferenceData, label: str) -> None:
+def _check_convergence(idata: DataTree, label: str) -> None:
     """Check R-hat convergence and log a warning if it exceeds threshold."""
     import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
 
@@ -480,7 +480,7 @@ def _find_pairing(matrix: RunoffMatrix, pair: tuple[str, str]) -> PairingForecas
 
 
 def _compute_runoff_matrix(  # noqa: PLR0913
-    idata_r1: az.InferenceData,
+    idata_r1: DataTree,
     round1_forecast: Round1Forecast,
     results_r1: RoundResult,
     results_r2: RoundResult,
@@ -914,7 +914,7 @@ def _cmd_run(args: argparse.Namespace) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _load_trace_or_exit(path: Path, label: str) -> az.InferenceData:
+def _load_trace_or_exit(path: Path, label: str) -> DataTree:
     """Load an InferenceData from a netCDF file or exit with error.
 
     Args:

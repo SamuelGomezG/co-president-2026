@@ -28,7 +28,7 @@ from co_president.config import (
 from co_president.fundamentals.features import clr
 
 if TYPE_CHECKING:
-    import arviz as az  # type: ignore[reportMissingTypeStubs]
+    from xarray import DataTree
 
     from co_president.config import ModelConfig
     from co_president.data import RoundResult
@@ -423,7 +423,7 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
 def sample_municipal_model(
     model: pm.Model,
     config: ModelConfig,
-) -> az.InferenceData:
+) -> DataTree:
     """Sample posterior draws from a built municipal model via NUTS.
 
     Args:
@@ -431,7 +431,7 @@ def sample_municipal_model(
         config: Model hyperparameters (draws, tune, chains, etc.).
 
     Returns:
-        ``az.InferenceData`` with posterior and sampling stats.
+        ``DataTree`` with posterior and sampling stats.
 
     """
     with model:
