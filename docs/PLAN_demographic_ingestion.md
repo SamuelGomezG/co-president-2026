@@ -498,14 +498,18 @@ This is the **core change** for the user's requirement (B): fit national polls a
 │  Layer A — MUNICIPAL PRIOR (always uses fundamentals)              │
 │  For each municipio m and each candidate k:                        │
 │    logit(p_mk) = α_k                                              │
-│               + β_historical[k]  ·  left_share_2018_m              │
+│               + β_historical[k]  ·  clr_left_share_2018_m          │
 │               + β_ethnicity[k]   ·  pct_afro_colombian_m           │
-│               + β_poverty[k]     ·  nbi_rate_m          (NBI, not IPM) │
+│               + β_poverty[k]     ·  clr_nbi_rate_m     (SPEC-21c)  │
 │               + β_rural[k]       ·  pct_rural_disperso_m           │
 │               + β_education[k]   ·  years_schooling_m              │
 │               + β_risk[k]        ·  high_risk_flag_m               │
 │    + sigma_m[k] · mu_m_raw[m, k]   (non-centered)                  │
 │                                                                   │
+│  Compositional features are log-ratio transformed before entering   │
+│  the linear predictor (SPEC-21c):                                   │
+│  • clr_left_share_2018_m = HistoricalRecord.clr_shares()[0]         │
+│  • clr_nbi_rate_m       = MunicipalFeatures.clr_poverty()[0]       │
 │  NBI is primary (0 % imputed, complete municipal coverage).       │
 │  IPM_2018 is a secondary optional feature, flagged as imputed.     │
 └────────────────────────────────────────────────────────────────────┘
