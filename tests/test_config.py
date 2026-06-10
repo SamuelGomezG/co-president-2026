@@ -87,7 +87,6 @@ class TestModelConfig:
         assert cfg.consultation_prior_strength == 0.5
         assert cfg.fundamentals_mode == "prior_only"
         assert cfg.beta_coefficient_prior_sigma == 0.5
-        assert cfg.use_horseshoe_prior is False
         assert cfg.sigma_m_prior == 0.3
         assert cfg.pool_alpha == 0.95
         assert cfg.enable_population_weighting is True
@@ -117,11 +116,6 @@ class TestModelConfig:
         """Verify custom beta_coefficient_prior_sigma."""
         cfg = ModelConfig(beta_coefficient_prior_sigma=1.0)
         assert cfg.beta_coefficient_prior_sigma == 1.0
-
-    def test_use_horseshoe_prior_enabled(self) -> None:
-        """Verify horseshoe prior can be enabled."""
-        cfg = ModelConfig(use_horseshoe_prior=True)
-        assert cfg.use_horseshoe_prior is True
 
     def test_sigma_m_prior_custom(self) -> None:
         """Verify custom sigma_m_prior."""

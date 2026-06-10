@@ -93,7 +93,6 @@ class ModelConfig:
         consultation_prior_strength_override: Candidate-specific override.
         fundamentals_mode: Municipal model mode (off/prior_only/joint).
         beta_coefficient_prior_sigma: Std dev for beta coefficient priors.
-        use_horseshoe_prior: Enable horseshoe prior for beta coefficients.
         sigma_m_prior: HalfNormal sigma for municipal random-effect scale.
         pool_alpha: Global shrinkage on non-centered mu_m_raw.
         enable_population_weighting: Turnout-weighted effective population.
@@ -117,7 +116,6 @@ class ModelConfig:
     # SPEC-22: Municipal hierarchical model
     fundamentals_mode: Literal["off", "prior_only", "joint"] = "prior_only"
     beta_coefficient_prior_sigma: float = 0.5
-    use_horseshoe_prior: bool = False
     sigma_m_prior: float = 0.3
     pool_alpha: float = 0.95
     enable_population_weighting: bool = True

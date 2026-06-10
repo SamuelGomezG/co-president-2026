@@ -1,14 +1,14 @@
-"""SPEC-22: 3-layer Dirichlet-Multinomial municipal hierarchical model.
+"""SPEC-22: 3-layer logistic-normal / Dirichlet-Multinomial municipal hierarchical model.
 
 Architecture
 ------------
-Layer A — Municipal prior:
+Layer A — Municipal prior (logistic-normal):
     logit(p_mk) = alpha_k + Σ beta_g[k] · z_feature_g_m + sigma_m[k] · mu_m_raw[m, k]
 
-Layer B — National poll likelihood:
+Layer B — National poll likelihood (Dirichlet-Multinomial):
     p_natl_n = Σ_m (w_m · softmax(logit_p_mk))  where w = turnout-weighted pop
 
-Layer C — Election rollup likelihood (optional):
+Layer C — Election rollup likelihood (Dirichlet-Multinomial, optional):
     Same turnout-weighted rollup applied to election-day result.
 """
 
@@ -44,7 +44,6 @@ __all__ = [
 ]
 
 _EPSILON = 1e-10
-_EPS_SHRINK = 1e-8
 _EXTRACT_YEAR = 2022
 _EXTRACT_ROUND = 1
 
@@ -68,7 +67,7 @@ def compute_effective_pop(pop: np.ndarray, turnout: np.ndarray) -> np.ndarray:
         turnout: Historical turnout rate per municipality (M,) in [0, 1].
 
     Returns:
-        Effective population array (M,) with the same dtype as *pop*.
+        Effective population array (M,) with dtype float64.
 
     Examples:
         >>> compute_effective_pop(np.array([100, 200]), np.array([0.5, 0.8]))
@@ -113,7 +112,7 @@ def _clr_nbi_array(nbi: np.ndarray) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def build_municipal_model(  # noqa: C901, PLR0915
+def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
     features: pd.DataFrame,
     polls: pd.DataFrame,
     results: RoundResult | None,
@@ -145,8 +144,34 @@ def build_municipal_model(  # noqa: C901, PLR0915
     polls = polls.copy()
 
     # ── Validate inputs ───────────────────────────────────────────────
+    _required_columns = (
+        "codigo_municipio",
+        "pop_2022",
+        "historical_turnout_m",
+        "pct_afro_colombian",
+        "nbi_rate",
+        "pct_rural_disperso",
+        "years_schooling_promedio",
+        "high_risk_flag",
+        "historical",
+    )
+    _missing = [col for col in _required_columns if col not in features.columns]
+    if _missing:
+        msg = f"features is missing required columns: {_missing}. Run `make fundamentals` first."
+        raise ValueError(msg)
+
     if len(features) < 2:  # noqa: PLR2004
         msg = f"features must have at least 2 municipalities, got {len(features)}"
+        raise ValueError(msg)
+
+    if len(polls) == 0:
+        msg = "polls DataFrame is empty"
+        raise ValueError(msg)
+
+    _required_poll_cols = ("fecha", "encuestadora", "muestra")
+    _missing_poll = [c for c in _required_poll_cols if c not in polls.columns]
+    if _missing_poll:
+        msg = f"polls is missing required columns: {_missing_poll}"
         raise ValueError(msg)
 
     # Candidate keys from DataFrame columns
@@ -291,7 +316,9 @@ def build_municipal_model(  # noqa: C901, PLR0915
 
         # Non-centered municipal-level random effects
         sigma_m = pm.HalfNormal("sigma_m", sigma=config.sigma_m_prior, shape=n_candidates)  # type: ignore
-        mu_m_raw = pm.Normal("mu_m_raw", mu=0, sigma=1.0, shape=(n_municipalities, n_candidates))  # type: ignore
+        mu_m_raw = pm.Normal(  # type: ignore
+            "mu_m_raw", mu=0, sigma=config.pool_alpha, shape=(n_municipalities, n_candidates)
+        )
 
         # Linear predictor: logit(p_mk) = alpha_k + Σ beta_g[k] · z_m + sigma_m[k] · mu_raw[m,k]
         logit_p = (  # type: ignore
