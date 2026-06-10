@@ -36,7 +36,7 @@ jobs:
               - "pyproject.toml"
               - "uv.lock"
 
-  pip-audit:
+  security:
     needs: changes
     if: |
       github.event_name == 'schedule' ||
@@ -55,22 +55,5 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run pip install --upgrade pip
       - run: uv run pip-audit
-
-  bandit:
-    needs: changes
-    if: |
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - run: uv python install
-      - run: uv sync --extra dev
-      - run: uv run bandit -c pyproject.toml -r src/
+      - if: always()
+        run: uv run bandit -c pyproject.toml -r src/
