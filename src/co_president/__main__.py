@@ -149,6 +149,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override the default data directory",
     )
 
+    forecast_parser = subparsers.add_parser(
+        "forecast",
+        help="Run the forecast with the municipal hierarchical model",
+    )
+    forecast_parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["off", "prior_only", "joint"],
+        default="prior_only",
+        help=(
+            "Model mode: 'off' = national polling-only (SPEC-06), "
+            "'prior_only' = municipal fundamentals prior (default), "
+            "'joint' = full hierarchical"
+        ),
+    )
+    forecast_parser.add_argument(
+        "--year",
+        type=int,
+        default=2022,
+        help="Election year (default: 2022)",
+    )
+
     subparsers.add_parser("config", help="Print current configuration")
 
     return parser
@@ -1218,6 +1240,27 @@ def _run_ingest_component(  # noqa: PLR0913
         )
 
 
+def _cmd_forecast(args: argparse.Namespace) -> None:
+    """Execute the ``forecast`` subcommand.
+
+    Sets up the ``ModelConfig`` with the requested ``fundamentals_mode``.
+    For full model execution (data loading + MCMC), use ``run`` with
+    ``--config-override`` instead::
+
+        python -m co_president run --config-override fundamentals_mode=prior_only
+
+    Args:
+        args: Parsed CLI arguments.
+
+    """
+    config = ModelConfig(fundamentals_mode=args.mode)
+    print(
+        f"Forecast configured: mode={config.fundamentals_mode!r}, year={args.year}. "
+        f"Run ``python -m co_president run --config-override "
+        f"fundamentals_mode={args.mode}`` to execute.",
+    )
+
+
 def _cmd_ingest(args: argparse.Namespace) -> None:
     """Execute the ``ingest`` subcommand.
 
@@ -1358,6 +1401,8 @@ def main() -> None:
             _cmd_download_cedae(args)
         elif args.command == "plot":
             _cmd_plot(args.output_dir)
+        elif args.command == "forecast":
+            _cmd_forecast(args)
         else:
             parser.print_help()
             sys.exit(1)
