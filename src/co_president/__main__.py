@@ -149,6 +149,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override the default data directory",
     )
 
+    forecast_parser = subparsers.add_parser(
+        "forecast",
+        help="Configure the municipal hierarchical forecast (use 'run' to execute)",
+    )
+    forecast_parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["off", "prior_only", "joint"],
+        default="prior_only",
+        help=(
+            "Model mode: 'off' = national polling-only (SPEC-06), "
+            "'prior_only' = municipal fundamentals prior (default), "
+            "'joint' = full hierarchical"
+        ),
+    )
+
     subparsers.add_parser("config", help="Print current configuration")
 
     return parser
@@ -775,6 +791,79 @@ def _print_run_summary_table(  # noqa: PLR0913
     _print_separator()
 
 
+def _run_pipeline_municipal(
+    clean_polls: CleanPolls,
+    results_r1: RoundResult,
+    config: ModelConfig,
+    results_dir: Path,
+) -> None:
+    """Run the municipal hierarchical model pipeline (SPEC-22).
+
+    Loads the municipal feature matrix, builds the 3-layer hierarchical
+    model, draws posterior samples, saves the trace, and prints a
+    national-level posterior summary.
+
+    Args:
+        clean_polls: ``CleanPolls`` with ``round1`` poll DataFrame.
+        results_r1: Round 1 ``RoundResult`` for backtesting (Layer C).
+        config: Model hyperparameters including ``fundamentals_mode``.
+        results_dir: Directory to save ``municipal_trace.nc``.
+
+    """
+    import numpy as np  # noqa: PLC0415
+
+    from co_president.fundamentals.features import load_features  # noqa: PLC0415
+    import co_president.model_municipal as mm  # noqa: PLC0415
+
+    # ── Load features ──────────────────────────────────────────────────
+    logger.info("Loading municipal feature matrix...")
+    try:
+        features = load_features()
+    except (FileNotFoundError, ValueError, OSError):
+        logger.exception("Failed to load municipal features")
+        return
+
+    # ── Build model ────────────────────────────────────────────────────
+    logger.info("Building municipal hierarchical model...")
+    model = mm.build_municipal_model(features, clean_polls.round1, results_r1, config)
+
+    # ── Sample ─────────────────────────────────────────────────────────
+    logger.info(
+        "Sampling municipal model (%d draws x %d chains)...",
+        config.mcmc_draws,
+        config.mcmc_chains,
+    )
+    idata = mm.sample_municipal_model(model, config)
+    _log_and_save_trace(idata, results_dir / "municipal_trace.nc")
+
+    # ── Print summary ──────────────────────────────────────────────────
+    _print_separator()
+    print("  CO-PRESIDENT 2026 — Municipal Hierarchical Forecast")
+    _print_separator()
+
+    candidate_keys = sorted(
+        set(FIRST_ROUND_CANDIDATES) & set(clean_polls.round1.columns),
+    )
+    display_names = {key: c.display_name for key, c in FIRST_ROUND_CANDIDATES.items()}
+
+    p_natl = idata.posterior["p_natl"].to_numpy()
+    means = p_natl.mean(axis=(0, 1))
+    ci_low = np.percentile(p_natl, 2.5, axis=(0, 1))
+    ci_high = np.percentile(p_natl, 97.5, axis=(0, 1))
+
+    print()
+    print(f"  NATIONAL-LEVEL POSTERIOR (mode={config.fundamentals_mode!r})")
+    print(f"  {'Candidate':25s} {'Mean':>8s} {'95% CI':>18s}")
+    print(f"  {'-' * 25} {'-' * 8} {'-' * 18}")
+    for i, key in enumerate(candidate_keys):
+        name = display_names.get(key, key)
+        ci_str = f"[{ci_low[i] * 100:5.1f}%, {ci_high[i] * 100:5.1f}%]"
+        print(f"  {name:25s} {_format_pct(means[i]):>8s} {ci_str:>18s}")
+    _print_separator()
+
+    _check_convergence(idata, "Municipal")
+
+
 def _cmd_run(args: argparse.Namespace) -> None:
     """Execute the ``run`` subcommand.
 
@@ -812,7 +901,10 @@ def _cmd_run(args: argparse.Namespace) -> None:
         _print_no_sample_table(clean_polls, results_r1, round1_candidates)
         return
 
-    _run_pipeline_mcmc(clean_polls, results_r1, results_r2, config, results_dir)
+    if config.fundamentals_mode in ("prior_only", "joint"):
+        _run_pipeline_municipal(clean_polls, results_r1, config, results_dir)
+    else:
+        _run_pipeline_mcmc(clean_polls, results_r1, results_r2, config, results_dir)
 
     logger.info("Pipeline complete. Results saved to %s/", results_dir)
 
@@ -1218,6 +1310,27 @@ def _run_ingest_component(  # noqa: PLR0913
         )
 
 
+def _cmd_forecast(args: argparse.Namespace) -> None:
+    """Execute the ``forecast`` subcommand.
+
+    Sets up the ``ModelConfig`` with the requested ``fundamentals_mode``.
+    For full model execution (data loading + MCMC), use ``run`` with
+    ``--config-override`` instead::
+
+        python -m co_president run --config-override fundamentals_mode=prior_only
+
+    Args:
+        args: Parsed CLI arguments.
+
+    """
+    config = ModelConfig(fundamentals_mode=args.mode)
+    print(
+        f"Forecast configured: mode={config.fundamentals_mode!r}. "
+        f"Run ``python -m co_president run --config-override "
+        f"fundamentals_mode={args.mode}`` to execute.",
+    )
+
+
 def _cmd_ingest(args: argparse.Namespace) -> None:
     """Execute the ``ingest`` subcommand.
 
@@ -1358,6 +1471,8 @@ def main() -> None:
             _cmd_download_cedae(args)
         elif args.command == "plot":
             _cmd_plot(args.output_dir)
+        elif args.command == "forecast":
+            _cmd_forecast(args)
         else:
             parser.print_help()
             sys.exit(1)

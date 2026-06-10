@@ -89,12 +89,13 @@ class ModelConfig:
         target_accept: NUTS target acceptance rate.
         seed: RNG seed for reproducibility.
         time_decay_half_life_days: Days for poll weight to halve.
-    consultation_prior_strength: Sigma for Normal prior on theta[T-1].
-        Used as a fallback when computed or overridden values are unavailable.
-    consultation_prior_strength_override: Candidate-specific override of
-        ``consultation_prior_strength``. Keys are candidate keys, values
-        are standard-deviation strengths. When provided, these take
-        precedence over computed strengths from ``data_polls``.
+        consultation_prior_strength: Sigma for Normal prior on theta[T-1].
+        consultation_prior_strength_override: Candidate-specific override.
+        fundamentals_mode: Municipal model mode (off/prior_only/joint).
+        beta_coefficient_prior_sigma: Std dev for beta coefficient priors.
+        sigma_m_prior: HalfNormal sigma for municipal random-effect scale.
+        pool_alpha: Global shrinkage on non-centered mu_m_raw.
+        enable_population_weighting: Turnout-weighted effective population.
 
     """
 
@@ -111,6 +112,13 @@ class ModelConfig:
     time_decay_half_life_days: float = 30.0
     consultation_prior_strength: float = 0.5
     consultation_prior_strength_override: dict[str, float] | None = None
+
+    # SPEC-22: Municipal hierarchical model
+    fundamentals_mode: Literal["off", "prior_only", "joint"] = "prior_only"
+    beta_coefficient_prior_sigma: float = 0.5
+    sigma_m_prior: float = 0.3
+    pool_alpha: float = 0.95
+    enable_population_weighting: bool = True
 
     @property
     def computed_consultation_prior_strengths(self) -> dict[str, float]:

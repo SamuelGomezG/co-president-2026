@@ -71,7 +71,7 @@ class TestModelConfig:
     """Tests for the ModelConfig frozen dataclass."""
 
     def test_default_values(self) -> None:
-        """Verify all 12 ModelConfig defaults match the spec."""
+        """Verify all ModelConfig defaults match the spec."""
         cfg = ModelConfig()
         assert cfg.random_walk_sigma_prior == 0.5
         assert cfg.concentration_poll_prior_mean == 5.0
@@ -85,12 +85,52 @@ class TestModelConfig:
         assert cfg.seed == 332211
         assert cfg.time_decay_half_life_days == 30.0
         assert cfg.consultation_prior_strength == 0.5
+        assert cfg.fundamentals_mode == "prior_only"
+        assert cfg.beta_coefficient_prior_sigma == 0.5
+        assert cfg.sigma_m_prior == 0.3
+        assert cfg.pool_alpha == 0.95
+        assert cfg.enable_population_weighting is True
 
     def test_custom_values(self) -> None:
         """Verify ModelConfig accepts overrides for specific fields."""
         cfg = ModelConfig(mcmc_draws=1000, mcmc_chains=2)
         assert cfg.mcmc_draws == 1000
         assert cfg.mcmc_chains == 2
+
+    def test_fundamentals_mode_off(self) -> None:
+        """Verify fundamentals_mode can be set to 'off'."""
+        cfg = ModelConfig(fundamentals_mode="off")
+        assert cfg.fundamentals_mode == "off"
+
+    def test_fundamentals_mode_joint(self) -> None:
+        """Verify fundamentals_mode can be set to 'joint'."""
+        cfg = ModelConfig(fundamentals_mode="joint")
+        assert cfg.fundamentals_mode == "joint"
+
+    def test_fundamentals_mode_prior_only_default(self) -> None:
+        """Verify fundamentals_mode defaults to 'prior_only'."""
+        cfg = ModelConfig()
+        assert cfg.fundamentals_mode == "prior_only"
+
+    def test_beta_coefficient_prior_sigma_custom(self) -> None:
+        """Verify custom beta_coefficient_prior_sigma."""
+        cfg = ModelConfig(beta_coefficient_prior_sigma=1.0)
+        assert cfg.beta_coefficient_prior_sigma == 1.0
+
+    def test_sigma_m_prior_custom(self) -> None:
+        """Verify custom sigma_m_prior."""
+        cfg = ModelConfig(sigma_m_prior=0.5)
+        assert cfg.sigma_m_prior == 0.5
+
+    def test_pool_alpha_custom(self) -> None:
+        """Verify custom pool_alpha."""
+        cfg = ModelConfig(pool_alpha=0.8)
+        assert cfg.pool_alpha == 0.8
+
+    def test_enable_population_weighting_disabled(self) -> None:
+        """Verify population weighting can be disabled."""
+        cfg = ModelConfig(enable_population_weighting=False)
+        assert cfg.enable_population_weighting is False
 
     def test_immutability(self) -> None:
         """Verify frozen dataclass rejects attribute assignment."""
