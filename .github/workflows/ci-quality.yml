@@ -38,22 +38,46 @@ jobs:
 
   security:
     needs: changes
-    if: |
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      needs.changes.outputs.code == 'true'
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      - run: uv python install
-      - run: uv sync --extra dev
-      - run: uv run pip install --upgrade pip
-      - run: uv run pip-audit
-      - if: always()
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
+        run: uv python install
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
+        run: uv sync --extra dev
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
+        run: uv run pip install --upgrade pip
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
+        run: uv run pip-audit
+      - if: |
+          github.event_name == 'schedule' ||
+          github.event_name == 'workflow_dispatch' ||
+          needs.changes.outputs.code == 'true'
         run: uv run bandit -c pyproject.toml -r src/
