@@ -23,11 +23,10 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Any
 
-import arviz as az  # type: ignore[reportMissingTypeStubs]
-
 if TYPE_CHECKING:
     from datetime import date
 
+    import arviz as az  # type: ignore[reportMissingTypeStubs]
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
 
 from co_president.config import (
@@ -440,6 +439,8 @@ def _log_and_save_trace(idata: az.InferenceData, path: Path) -> None:
 
 def _check_convergence(idata: az.InferenceData, label: str) -> None:
     """Check R-hat convergence and log a warning if it exceeds threshold."""
+    import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
+
     try:
         summary = az.summary(idata)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
         max_rhat = summary["r_hat"].max()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
@@ -832,6 +833,8 @@ def _load_trace_or_exit(path: Path, label: str) -> az.InferenceData:
         Loaded InferenceData.
 
     """
+    import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
+
     try:
         return az.from_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
     except (OSError, ValueError) as e:
@@ -894,12 +897,14 @@ def _print_r2_validation(
     print(f"    Win prob {candidate_b}: {runoff_forecast.prob_b_wins * 100:.1f}%")
 
 
-def _cmd_validate() -> None:
+def _cmd_validate() -> None:  # noqa: PLR0915
     """Load saved ``InferenceData`` from ``results/`` and print validation."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
 
     from co_president.data import load_canonical_results  # noqa: PLC0415
     from co_president.model_round1 import (  # noqa: PLC0415
@@ -1049,6 +1054,7 @@ def _plot_calibration(
         trace_dir: Directory containing the saved round 1 trace file.
 
     """
+    import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
     import matplotlib.pyplot as plt  # noqa: PLC0415
 
     from co_president.plotting import plot_calibration  # noqa: PLC0415

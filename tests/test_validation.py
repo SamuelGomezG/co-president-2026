@@ -1065,10 +1065,10 @@ class TestSensitivityNsNr:
         )
 
         with (
-            patch("co_president.validation.build_round1_model") as mock_build,
-            patch("co_president.validation.sample_round1") as mock_sample,
+            patch("co_president.model_round1.build_round1_model") as mock_build,
+            patch("co_president.model_round1.sample_round1") as mock_sample,
             patch(
-                "co_president.validation.forecast_round1",
+                "co_president.model_round1.forecast_round1",
                 return_value=baseline,
             ) as mock_forecast,
         ):
@@ -1191,10 +1191,10 @@ class TestSensitivityNsNr:
         )
 
         with (
-            patch("co_president.validation.build_round1_model") as mock_build,
-            patch("co_president.validation.sample_round1") as mock_sample,
+            patch("co_president.model_round1.build_round1_model") as mock_build,
+            patch("co_president.model_round1.sample_round1") as mock_sample,
             patch(
-                "co_president.validation.forecast_round1",
+                "co_president.model_round1.forecast_round1",
                 return_value=shifted,
             ) as mock_forecast,
         ):
@@ -1252,10 +1252,10 @@ class TestSensitivityNsNr:
         )
 
         with (
-            patch("co_president.validation.build_round1_model") as mock_build,
-            patch("co_president.validation.sample_round1") as mock_sample,
+            patch("co_president.model_round1.build_round1_model") as mock_build,
+            patch("co_president.model_round1.sample_round1") as mock_sample,
             patch(
-                "co_president.validation.forecast_round1",
+                "co_president.model_round1.forecast_round1",
                 return_value=baseline,
             ) as mock_forecast,
         ):
@@ -1374,10 +1374,10 @@ class TestSensitivityNsNr:
         )
 
         with (
-            patch("co_president.validation.build_round1_model") as mock_build,
-            patch("co_president.validation.sample_round1") as mock_sample,
+            patch("co_president.model_round1.build_round1_model") as mock_build,
+            patch("co_president.model_round1.sample_round1") as mock_sample,
             patch(
-                "co_president.validation.forecast_round1",
+                "co_president.model_round1.forecast_round1",
                 return_value=shifted,
             ) as mock_forecast,
         ):

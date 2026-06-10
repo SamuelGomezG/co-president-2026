@@ -20,18 +20,13 @@ import pandas as pd
 if TYPE_CHECKING:
     from co_president.config import ModelConfig
     from co_president.data import CleanPolls, RoundResult
+    from co_president.model_round1 import Round1Forecast
     from co_president.model_runoff_simple import RunoffForecast
 
 from co_president.config import (
     CONSULTATION_DATE,
     ELECTION_DATE_ROUND1,
     FIRST_ROUND_CANDIDATES,
-)
-from co_president.model_round1 import (
-    Round1Forecast,
-    build_round1_model,
-    forecast_round1,
-    sample_round1,
 )
 
 logger = logging.getLogger(__name__)
@@ -319,6 +314,12 @@ def rolling_forecast(
             continue
 
         try:
+            from co_president.model_round1 import (  # noqa: PLC0415
+                build_round1_model,
+                forecast_round1,
+                sample_round1,
+            )
+
             model = build_round1_model(snapshot_df, results=None, config=config)
             idata = sample_round1(model, config)
             forecast = forecast_round1(idata, candidate_keys)
@@ -487,6 +488,12 @@ def sensitivity_ns_nr(
     candidate_keys = [c.candidate_key for c in baseline_forecast.candidates]
 
     # Build and sample the sensitive model
+    from co_president.model_round1 import (  # noqa: PLC0415
+        build_round1_model,
+        forecast_round1,
+        sample_round1,
+    )
+
     sensitive_model = build_round1_model(sensitive_polls, results, config)
     sensitive_idata = sample_round1(sensitive_model, config)
     sensitive_forecast = forecast_round1(sensitive_idata, candidate_keys)
@@ -554,6 +561,8 @@ def load_rolling_snapshots(
     snapshots: list[tuple[date, Round1Forecast]] = []
     for filepath in sorted(path.glob("snapshot_*.json")):
         with filepath.open() as f:
+            from co_president.model_round1 import Round1Forecast  # noqa: PLC0415
+
             forecast = Round1Forecast.from_json(f.read())
         # Extract date from filename: "snapshot_2022-05-15.json"
         stem = filepath.stem  # "snapshot_2022-05-15"
