@@ -269,7 +269,7 @@ class TestCLR:
         assert abs(clr_left - expected) < 1e-12
 
     def test_clr_shares_normalises_sum(self) -> None:
-        """clr_shares() normalises left+right to sum to 1."""
+        """clr_shares() normalises left+right to sum to 1 before CLR."""
         hr = HistoricalRecord(
             year=2022,
             round=1,
@@ -280,7 +280,14 @@ class TestCLR:
             abstention_rate=0.20,
         )
         out = hr.clr_shares()
+        # Verify CLR property
         assert abs(sum(out)) < 1e-12
+        # Verify normalization: CLR[0] should equal 0.5 * logit(normalised_left)
+        normalised_left = 0.40 / (0.40 + 0.28)
+        expected = 0.5 * logit(normalised_left)
+        assert abs(out[0] - expected) < 1e-12, (
+            f"clr_shares did not normalise: got {out[0]}, expected {expected}"
+        )
 
     def test_raises_on_empty(self) -> None:
         """CLR of empty tuple raises ValueError."""
@@ -291,6 +298,29 @@ class TestCLR:
         """CLR of all-zero composition raises ValueError."""
         with pytest.raises(ValueError, match="Composition"):
             clr((0.0, 0.0))
+
+    def test_raises_on_negative(self) -> None:
+        """CLR of composition with negative part raises ValueError."""
+        with pytest.raises(ValueError, match="negative"):
+            clr((-0.1, 0.5, 0.6))
+
+    def test_raises_on_nan(self) -> None:
+        """CLR of composition with NaN raises ValueError."""
+        with pytest.raises(ValueError, match="not finite"):
+            clr((float("nan"), 0.5))
+
+    def test_raises_on_infinity(self) -> None:
+        """CLR of composition with infinity raises ValueError."""
+        with pytest.raises(ValueError, match="not finite"):
+            clr((float("inf"), 0.5))
+
+    def test_raises_on_negative_residual(self) -> None:
+        """CLR of 3-part composition with negative residual raises ValueError.
+
+        Simulates the scenario where nbi_urban + nbi_rural > 1.
+        """
+        with pytest.raises(ValueError, match="negative"):
+            clr((0.6, 0.5, -0.1))
 
 
 class TestLogit:
