@@ -36,34 +36,46 @@ jobs:
 
   lint-typecheck:
     needs: changes
-    if: needs.changes.outputs.python == 'true'
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - if: needs.changes.outputs.python == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - if: needs.changes.outputs.python == 'true'
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      - run: uv python install
-      - run: uv sync --extra dev
-      - run: uv run ruff format --check src/ tests/
-      - run: uv run ruff check src/ tests/
-      - run: uv run pyright src/
+      - if: needs.changes.outputs.python == 'true'
+        run: uv python install
+      - if: needs.changes.outputs.python == 'true'
+        run: uv sync --extra dev
+      - if: needs.changes.outputs.python == 'true'
+        run: uv run ruff format --check src/ tests/
+      - if: needs.changes.outputs.python == 'true'
+        run: uv run ruff check src/ tests/
+      - if: needs.changes.outputs.python == 'true'
+        run: uv run pyright src/
 
   unit-tests:
     needs: changes
-    if: needs.changes.outputs.python == 'true'
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - if: needs.changes.outputs.python == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - if: needs.changes.outputs.python == 'true'
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      - run: uv python install
-      - run: uv sync --extra dev
-      - run: uv run pytest tests/ -v --ignore=tests/test_model.py --cov=src/co_president --cov-report=term-missing --cov-report=xml
+      - if: needs.changes.outputs.python == 'true'
+        run: uv python install
+      - if: needs.changes.outputs.python == 'true'
+        run: uv sync --extra dev
+      - if: needs.changes.outputs.python == 'true'
+        run: uv run pytest tests/ -v --ignore=tests/test_model.py --cov=src/co_president --cov-report=term-missing --cov-report=xml
