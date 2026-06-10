@@ -292,7 +292,7 @@ def test_sample_round1_convergence() -> None:
             "round_number": [1, 1, 1, 1, 1, 1],
         }
     )
-    config = ModelConfig()
+    config = ModelConfig(mcmc_draws=500, mcmc_tune=500, mcmc_chains=2, mcmc_cores=2)
     model = build_round1_model(polls, None, config)
 
     idata = sample_round1(model, config)

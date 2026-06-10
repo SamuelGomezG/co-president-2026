@@ -50,58 +50,49 @@ def test_main_has_entry_point() -> None:
 _PYTHON = sys.executable
 
 
-def test_config_command_prints_keys() -> None:
+def test_config_command_prints_keys(capsys: pytest.CaptureFixture[str]) -> None:
     """``co_president config`` must print configuration keys."""
-    result = subprocess.run(  # noqa: S603
-        [_PYTHON, "-m", "co_president", "config"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0
-    # Should contain candidate names
+    from co_president.__main__ import _run_config  # noqa: PLC0415
+
+    _run_config()
+    captured = capsys.readouterr()
+    output = captured.out
     for candidate_key in ("gustavo_petro", "rodolfo_hernandez", "federico_gutierrez"):
-        assert candidate_key in result.stdout, (
-            f"Expected candidate key '{candidate_key}' in config output, stdout:\n{result.stdout}"
+        assert candidate_key in output, (
+            f"Expected candidate key '{candidate_key}' in config output, stdout:\n{output}"
         )
-    # Should contain election dates
-    assert "2022-05-29" in result.stdout
-    assert "2022-06-19" in result.stdout
-    # Should contain pollster ratings section
-    assert "Invamer" in result.stdout
+    assert "2022-05-29" in output
+    assert "2022-06-19" in output
+    assert "Invamer" in output
 
 
-def test_aggregate_command_exits_success() -> None:
+def test_aggregate_command_exits_success(capsys: pytest.CaptureFixture[str]) -> None:
     """``co_president aggregate`` must exit with code 0."""
-    result = subprocess.run(  # noqa: S603
-        [_PYTHON, "-m", "co_president", "aggregate"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0, (
-        f"aggregate command failed with code {result.returncode}, stderr:\n{result.stderr}"
-    )
-    # Should print weighted averages
-    assert "Petro" in result.stdout or "petro" in result.stdout.lower()
+    from co_president.__main__ import _run_aggregate  # noqa: PLC0415
+
+    try:
+        _run_aggregate()
+    except SystemExit as e:
+        pytest.fail(f"aggregate command exited with code {e.code}")
+    captured = capsys.readouterr()
+    output = captured.out
+    assert "Petro" in output or "petro" in output.lower()
 
 
-def test_run_no_sample_exits_success() -> None:
+def test_run_no_sample_exits_success(capsys: pytest.CaptureFixture[str]) -> None:
     """``co_president run --no-sample`` must exit with code 0."""
-    result = subprocess.run(  # noqa: S603
-        [_PYTHON, "-m", "co_president", "run", "--no-sample"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0, (
-        f"run --no-sample failed with code {result.returncode}, stderr:\n{result.stderr}"
-    )
-    # The no-sample output should contain a summary table header
-    assert "CO-PRESIDENT" in result.stdout.upper() or "FIRST ROUND" in result.stdout.upper()
+    import argparse  # noqa: PLC0415
+
+    from co_president.__main__ import _cmd_run  # noqa: PLC0415
+
+    args = argparse.Namespace(no_sample=True, config_override=[])
+    try:
+        _cmd_run(args)
+    except SystemExit as e:
+        pytest.fail(f"run --no-sample exited with code {e.code}")
+    captured = capsys.readouterr()
+    output = captured.out
+    assert "CO-PRESIDENT" in output.upper() or "FIRST ROUND" in output.upper()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -110,28 +101,25 @@ def test_run_no_sample_exits_success() -> None:
 
 
 @pytest.mark.integration
-def test_validate_command_prints_error_when_no_trace(tmp_path: Path) -> None:
+def test_validate_command_prints_error_when_no_trace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """``co_president validate`` must print error when trace is missing."""
-    # Verify the module-level check path logic
     results_dir = tmp_path / "results"
     results_dir.mkdir()
     round1_path = results_dir / "round1_trace.nc"
     assert not round1_path.is_file(), "Precondition: no trace file should exist"
 
-    # Run validate via subprocess in the isolated tmp_path
-    result = subprocess.run(  # noqa: S603
-        [_PYTHON, "-m", "co_president", "validate"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 1, (
-        f"validate expected exit code 1 without trace, got {result.returncode}, "
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    assert "trace not found" in result.stdout.lower() or "trace not found" in result.stderr.lower()
+    monkeypatch.chdir(tmp_path)
+    from co_president.__main__ import _cmd_validate  # noqa: PLC0415
+
+    with pytest.raises(SystemExit) as exc:
+        _cmd_validate()
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "trace not found" in captured.out.lower()
 
 
 def _make_minimal_snapshot_json(path: Path, date_str: str) -> None:
@@ -512,23 +500,15 @@ def test_cli_parser_ingest_accepts_data_dir() -> None:
 @pytest.mark.integration
 def test_ingest_command_exits_success(sabaneta_fixture: Path) -> None:
     """The ``ingest`` subcommand runs and exits successfully."""
-    result = subprocess.run(  # noqa: S603
-        [
-            _PYTHON,
-            "-m",
-            "co_president",
-            "ingest",
-            "--component",
-            "sabaneta",
-            "--data-dir",
-            str(sabaneta_fixture.parent),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0, f"stderr: {result.stderr}"
+    import argparse  # noqa: PLC0415
+
+    from co_president.__main__ import _cmd_ingest  # noqa: PLC0415
+
+    args = argparse.Namespace(component="sabaneta", data_dir=str(sabaneta_fixture.parent))
+    try:
+        _cmd_ingest(args)
+    except SystemExit as e:
+        pytest.fail(f"ingest command exited with code {e.code}")
 
 
 # ═══════════════════════════════════════════════════════════════════════

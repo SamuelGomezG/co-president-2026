@@ -76,26 +76,26 @@ def _make_valid_population(n: int = 5) -> pd.DataFrame:
 class TestReadPopulationXlsx:
     """_read_population_xlsx reads the DANE PPED Excel file."""
 
-    def test_reads_real_file(self, data_dir: Path) -> None:
-        """Returns a non-empty DataFrame with expected columns from the real XLSX."""
+    @pytest.fixture(scope="class")
+    def _xlsx_df(self, data_dir: Path) -> pd.DataFrame:
+        """Read the real XLSX once per test class."""
         xlsx_path = data_dir / "raw" / "PPED-AreaMun-2018-2042_VP.xlsx"
         if not xlsx_path.is_file():
             pytest.skip("Real XLSX file not available (CI)")
-        df = _read_population_xlsx(xlsx_path)
-        assert not df.empty
-        expected = {"MPIO", "AÑO", "ÁREA GEOGRÁFICA", "TOTAL"}
-        assert expected.issubset(set(df.columns))
-        assert df["AÑO"].min() >= 2018
-        assert df["AÑO"].max() <= 2042
-        assert df["MPIO"].str.len().eq(5).all()
+        return _read_population_xlsx(xlsx_path)
 
-    def test_all_total_rows_have_positive_population(self, data_dir: Path) -> None:
+    def test_reads_real_file(self, _xlsx_df: pd.DataFrame) -> None:  # noqa: PT019
+        """Returns a non-empty DataFrame with expected columns from the real XLSX."""
+        assert not _xlsx_df.empty
+        expected = {"MPIO", "AÑO", "ÁREA GEOGRÁFICA", "TOTAL"}
+        assert expected.issubset(set(_xlsx_df.columns))
+        assert _xlsx_df["AÑO"].min() >= 2018
+        assert _xlsx_df["AÑO"].max() <= 2042
+        assert _xlsx_df["MPIO"].str.len().eq(5).all()
+
+    def test_all_total_rows_have_positive_population(self, _xlsx_df: pd.DataFrame) -> None:  # noqa: PT019
         """After _filter_total_rows, all remaining Total rows have positive population."""
-        xlsx_path = data_dir / "raw" / "PPED-AreaMun-2018-2042_VP.xlsx"
-        if not xlsx_path.is_file():
-            pytest.skip("Real XLSX file not available (CI)")
-        df = _read_population_xlsx(xlsx_path)
-        total_rows = _filter_total_rows(df)
+        total_rows = _filter_total_rows(_xlsx_df)
         assert not total_rows.empty, "_filter_total_rows returned zero rows"
         assert (total_rows["TOTAL"] > 0).all()
 

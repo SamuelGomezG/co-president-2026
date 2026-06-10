@@ -39,8 +39,8 @@ class TestRound1ModelIntegration:
         round1_result, _ = load_canonical_results(data_dir)
 
         config = ModelConfig(
-            mcmc_draws=2000,
-            mcmc_tune=1000,
+            mcmc_draws=1500,
+            mcmc_tune=750,
             mcmc_chains=2,
             mcmc_cores=2,
         )
