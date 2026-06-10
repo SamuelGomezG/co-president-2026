@@ -39,8 +39,8 @@ from co_president.model_runoff_simple import (
 )
 
 if TYPE_CHECKING:
-    import arviz as az  # type: ignore[reportMissingTypeStubs]
     import pandas as pd
+    from xarray import DataTree
 
     from co_president.config import ModelConfig
 
@@ -94,7 +94,7 @@ def _get_candidate_order() -> list[str]:
 
 
 def compute_top_two_probabilities(
-    round1_idata: az.InferenceData,
+    round1_idata: DataTree,
     candidates: list[str],
 ) -> dict[tuple[str, str], float]:
     """Compute probability of each ordered top-two pairing from posterior.
@@ -326,7 +326,7 @@ def _filter_polls_for_pairing(
 def _run_runoff_model_for_pairing(
     polls: pd.DataFrame,
     round1_result: RoundResult,
-    round1_idata: az.InferenceData,
+    round1_idata: DataTree,
     config: ModelConfig,
     pairing: tuple[str, str],
 ) -> tuple[float, float]:
@@ -378,7 +378,7 @@ def _run_runoff_model_for_pairing(
 
 
 def estimate_runoff_matrix(
-    round1_idata: az.InferenceData,
+    round1_idata: DataTree,
     results: tuple[RoundResult, RoundResult],
     round2_polls: pd.DataFrame | None,
     config: ModelConfig,

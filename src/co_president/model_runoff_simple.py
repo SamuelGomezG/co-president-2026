@@ -26,6 +26,8 @@ from co_president.config import (
 )
 
 if TYPE_CHECKING:
+    from xarray import DataTree
+
     from co_president.config import ModelConfig
     from co_president.data import RoundResult
 
@@ -69,7 +71,7 @@ class RunoffForecast:
 def build_runoff_simple_model(  # noqa: PLR0915
     polls: pd.DataFrame,
     results: RoundResult,
-    round1_idata: az.InferenceData | None,
+    round1_idata: DataTree | None,
     config: ModelConfig,
 ) -> pm.Model:
     """Build the PyMC model graph for the runoff (K=3).
@@ -272,7 +274,7 @@ def build_runoff_simple_model(  # noqa: PLR0915
     return model
 
 
-def sample_runoff(model: pm.Model, config: ModelConfig) -> az.InferenceData:
+def sample_runoff(model: pm.Model, config: ModelConfig) -> DataTree:
     """Sample posterior draws from a built runoff model via NUTS.
 
     Args:
@@ -280,7 +282,7 @@ def sample_runoff(model: pm.Model, config: ModelConfig) -> az.InferenceData:
         config: Model hyperparameters (draws, tune, chains, etc.).
 
     Returns:
-        az.InferenceData: Posterior and sampling stats.
+        DataTree: Posterior and sampling stats.
 
     Raises:
         RuntimeError: If NUTS sampling fails to initialise or diverges.
@@ -302,7 +304,7 @@ def sample_runoff(model: pm.Model, config: ModelConfig) -> az.InferenceData:
 
 
 def forecast_runoff_simple(
-    idata: az.InferenceData,
+    idata: DataTree,
     candidate_a: str,
     candidate_b: str,
 ) -> RunoffForecast:
