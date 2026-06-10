@@ -50,6 +50,7 @@ make check
 This runs `fmt` → `lint` → `typecheck` → `test` in sequence. **The formatter (`ruff format`) runs first and may modify files in place.** Re-inspect after `make check` before committing.
 
 Individual gates:
+
 ```bash
 make fmt          # ruff format src/ tests/
 make lint         # ruff check src/ tests/        (ALL rules, zero tolerance)
@@ -62,11 +63,13 @@ make test-model-slow  # Slow MCMC tests only (convergence + sanity)
 ```
 
 Discover all targets:
+
 ```bash
 make help         # Print available targets with descriptions
 ```
 
 Data ingestion:
+
 ```bash
 make fundamentals # Ingest all fundamental datasets (cnpv + nbi + ipm + population)
 ```
@@ -99,6 +102,7 @@ GitHub Actions are split into specialized workflows that run **in parallel**, ga
 All three `ci-*.yml` workflows run **independently in parallel** — no `needs:` chains. Total wall-clock on a PR is the maximum of the three (~2–3 min).
 
 ### One-test shortcuts
+
 ```bash
 uv run pytest tests/test_config.py -v                # Single file
 uv run pytest tests/test_config.py::test_project_exists -v  # Single test

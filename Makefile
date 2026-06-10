@@ -3,8 +3,8 @@
         dev sync install setup clean sec ci download-cnpv fundamentals cnpv nbi ipm population
 
 help: ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 check: fmt lint typecheck test  ## Run all quality gates (fmt → lint → typecheck → test)
 
@@ -54,7 +54,9 @@ sync:  ## Install runtime + dev dependencies (uv sync)
 install:  ## Install co-president in editable mode
 	@uv pip install -e .
 
-setup: sync install  ## First-time setup: sync dependencies + install local package
+setup:  ## First-time setup: sync dependencies + install local package
+	@$(MAKE) sync
+	@$(MAKE) install
 
 clean:  ## Remove all caches, build artifacts, and coverage data
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
