@@ -135,11 +135,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument(
         "--component",
         type=str,
-        choices=["sabaneta", "cnpv", "nbi", "ipm", "population"],
+        choices=["sabaneta", "cnpv", "nbi", "ipm", "population", "ecp"],
         default="sabaneta",
         help=(
             "Ingestion component to run (default: sabaneta; "
-            "choices: sabaneta, cnpv, nbi, ipm, population)"
+            "choices: sabaneta, cnpv, nbi, ipm, population, ecp)"
         ),
     )
     ingest_parser.add_argument(
@@ -1439,6 +1439,23 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             validate_population,
             data_dir,
             build_exceptions=(FileNotFoundError, ValueError, OSError, AssertionError),
+        )
+
+    elif args.component == "ecp":
+        from co_president.ingestion.ingest_ecp import (  # noqa: PLC0415
+            build_ecp_features,
+            load_ecp_data,
+            validate_ecp,
+        )
+
+        data_dir = Path(args.data_dir) if args.data_dir else None
+        _run_ingest_component(
+            "ECP",
+            build_ecp_features,
+            load_ecp_data,
+            validate_ecp,
+            data_dir,
+            build_exceptions=(FileNotFoundError, ValueError, OSError),
         )
 
     else:
