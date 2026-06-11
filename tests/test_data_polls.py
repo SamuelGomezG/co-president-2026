@@ -30,6 +30,7 @@ from co_president.data_polls import (
     fix_invamer_date,
     get_computed_consultation_prior_strengths,
     infer_round_number,
+    load_as_coa_polls,
     load_raw_consultas,
     load_raw_polls,
     map_consultation_name_to_key,
@@ -1380,3 +1381,200 @@ def test_computed_prior_strengths_not_called_during_import() -> None:
 
 # NOTE: TestComputedPriorStrengthsLazyEval has been moved to
 # tests/integration/test_data_polls_integration.py
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SPEC-25: AS/COA Poll Source Integration
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestLoadAsCoaPolls:
+    """Tests for the load_as_coa_polls function (SPEC-25)."""
+
+    def test_returns_cleanpolls_instance(self, data_dir: Path) -> None:
+        """Verify load_as_coa_polls returns a CleanPolls instance."""
+        result = load_as_coa_polls(data_dir)
+        assert isinstance(result, CleanPolls)
+
+    def test_round1_has_six_rows(self, data_dir: Path) -> None:
+        """Verify round 1 has exactly 6 rows."""
+        result = load_as_coa_polls(data_dir)
+        assert len(result.round1) == 6
+
+    def test_round2_has_three_rows(self, data_dir: Path) -> None:
+        """Verify round 2 has exactly 3 rows."""
+        result = load_as_coa_polls(data_dir)
+        assert len(result.round2) == 3
+
+    def test_candidate_columns_mapped(self, data_dir: Path) -> None:
+        """Verify candidate column mapping is correct."""
+        result = load_as_coa_polls(data_dir)
+        expected_r1 = {
+            "gustavo_petro",
+            "federico_gutierrez",
+            "rodolfo_hernandez",
+            "sergio_fajardo",
+            "ingrid_betancourt",
+            "otros",
+            "blanco",
+        }
+        assert expected_r1.issubset(result.round1.columns)
+        expected_r2 = {"gustavo_petro", "rodolfo_hernandez", "blanco"}
+        assert expected_r2.issubset(result.round2.columns)
+
+    def test_ns_nr_zero_after_normalization(self, data_dir: Path) -> None:
+        """Verify ns_nr is 0 after normalization (redistributed)."""
+        result = load_as_coa_polls(data_dir)
+        assert (result.round1["ns_nr"] == 0.0).all()
+        assert (result.round2["ns_nr"] == 0.0).all()
+
+    def test_encuestadora_is_agregado(self, data_dir: Path) -> None:
+        """Verify encuestadora is 'AGREGADO' for all rows."""
+        result = load_as_coa_polls(data_dir)
+        assert (result.round1["encuestadora"] == "AGREGADO").all()
+        assert (result.round2["encuestadora"] == "AGREGADO").all()
+
+    def test_ninguno_not_present_as_column(self, data_dir: Path) -> None:
+        """Verify ninguno column is handled and not present in result."""
+        result = load_as_coa_polls(data_dir)
+        assert "ninguno" not in result.round1.columns
+
+    def test_petro_share_exceeds_30_pct_round1(self, data_dir: Path) -> None:
+        """Verify Petro's share is > 30% in all round 1 rows (sanity)."""
+        result = load_as_coa_polls(data_dir)
+        assert (result.round1["gustavo_petro"] > 30.0).all()
+
+    def test_runoff_petro_share_between_45_and_55(self, data_dir: Path) -> None:
+        """Verify Petro runoff share ~50% (sanity check)."""
+        result = load_as_coa_polls(data_dir)
+        assert (result.round2["gustavo_petro"] > 45.0).all()
+        assert (result.round2["gustavo_petro"] < 55.0).all()
+
+    def test_transfer_matrix_not_loaded(self, data_dir: Path) -> None:
+        """Verify transfer_matrix.csv is NOT loaded by this function."""
+        result = load_as_coa_polls(data_dir)
+        assert "transfer_matrix" not in result.round1.columns
+        assert "transfer_matrix" not in result.round2.columns
+
+    def test_round_dates_span_expected_range(self, data_dir: Path) -> None:
+        """Verify round 1 dates span 2022-03-18 to 2022-05-19."""
+        result = load_as_coa_polls(data_dir)
+        r1_dates = result.round1["fecha"].min(), result.round1["fecha"].max()
+        assert r1_dates[0] == pd.Timestamp("2022-03-18")
+        assert r1_dates[1] == pd.Timestamp("2022-05-19")
+
+    def test_runoff_dates_span_expected_range(self, data_dir: Path) -> None:
+        """Verify round 2 dates span 2022-06-03 to 2022-06-11."""
+        result = load_as_coa_polls(data_dir)
+        r2_dates = result.round2["fecha"].min(), result.round2["fecha"].max()
+        assert r2_dates[0] == pd.Timestamp("2022-06-03")
+        assert r2_dates[1] == pd.Timestamp("2022-06-11")
+
+
+class TestCleanPollsAgregadoBypass:
+    """Tests for CleanPolls pollster validation bypass with AGREGADO."""
+
+    @pytest.fixture
+    def agregado_round1(self) -> pd.DataFrame:
+        """Provide a round1 DataFrame with only AGREGADO pollster."""
+        return pd.DataFrame(
+            {
+                "encuestadora": ["AGREGADO"] * 6,
+                "round_number": [1] * 6,
+                "gustavo_petro": [40.0] * 6,
+                "federico_gutierrez": [25.0] * 6,
+                "rodolfo_hernandez": [30.0] * 6,
+                "sergio_fajardo": [5.0] * 6,
+            }
+        )
+
+    @pytest.fixture
+    def agregado_round2(self) -> pd.DataFrame:
+        """Provide a round2 DataFrame with only AGREGADO pollster."""
+        return pd.DataFrame(
+            {
+                "encuestadora": ["AGREGADO"] * 3,
+                "round_number": [2] * 3,
+                "gustavo_petro": [50.0] * 3,
+                "rodolfo_hernandez": [45.0] * 3,
+                "blanco": [5.0] * 3,
+            }
+        )
+
+    def test_agregado_only_round1_passes(self, agregado_round1: pd.DataFrame) -> None:
+        """Verify round1 with only AGREGADO passes validation."""
+        r2 = pd.DataFrame(
+            {
+                "encuestadora": ["AGREGADO", "CNC"],
+                "round_number": [2, 2],
+                "gustavo_petro": [50.0, 52.0],
+            }
+        )
+        cp = CleanPolls(
+            round1=agregado_round1, round2=r2, consultation=[], all_polls=agregado_round1
+        )
+        assert cp is not None
+
+    def test_agregado_only_round2_passes(self, agregado_round2: pd.DataFrame) -> None:
+        """Verify round2 with only AGREGADO passes validation."""
+        r1 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer", "Guarumo", "YanHaas", "CELAG"],
+                "round_number": [1] * 5,
+                "gustavo_petro": [40.0] * 5,
+            }
+        )
+        cp = CleanPolls(
+            round1=r1, round2=agregado_round2, consultation=[], all_polls=agregado_round2
+        )
+        assert cp is not None
+
+    def test_agregado_both_rounds_passes(
+        self, agregado_round1: pd.DataFrame, agregado_round2: pd.DataFrame
+    ) -> None:
+        """Verify both rounds with only AGREGADO passes validation."""
+        cp = CleanPolls(
+            round1=agregado_round1,
+            round2=agregado_round2,
+            consultation=[],
+            all_polls=pd.concat([agregado_round1, agregado_round2], ignore_index=True),
+        )
+        assert cp is not None
+
+    def test_non_agregado_round1_still_fails(self) -> None:
+        """Verify non-AGREGADO round1 with < 5 pollsters still fails."""
+        r1 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer", "Guarumo"],
+                "round_number": [1] * 3,
+                "gustavo_petro": [40.0] * 3,
+            }
+        )
+        r2 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer"],
+                "round_number": [2] * 2,
+                "gustavo_petro": [50.0, 52.0],
+            }
+        )
+        with pytest.raises(ValueError, match="5"):
+            CleanPolls(round1=r1, round2=r2, consultation=[], all_polls=r1)
+
+    def test_non_agregado_round2_still_fails(self) -> None:
+        """Verify non-AGREGADO round2 with < 2 pollsters still fails."""
+        r1 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC", "Invamer", "Guarumo", "YanHaas", "CELAG"],
+                "round_number": [1] * 5,
+                "gustavo_petro": [40.0] * 5,
+            }
+        )
+        r2 = pd.DataFrame(
+            {
+                "encuestadora": ["CNC"],
+                "round_number": [2],
+                "gustavo_petro": [50.0],
+            }
+        )
+        with pytest.raises(ValueError, match="2"):
+            CleanPolls(round1=r1, round2=r2, consultation=[], all_polls=r1)
