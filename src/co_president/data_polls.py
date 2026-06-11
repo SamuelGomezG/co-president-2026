@@ -82,12 +82,15 @@ _SHARE_COLS_EXCLUDED = frozenset(
         "municipios",
         "ns_nr",
         "round_number",
+        "ambito",
     )
 )
 """Frozen set of metadata column names excluded from undecided redistribution.
 
 ``round_number`` is not in the raw CSV; it is added by ``infer_round_number``
-and excluded from share normalization."""
+and excluded from share normalization. ``ambito`` is preserved from AS/COA
+data (SPEC-25) as provenance metadata.
+"""
 
 
 def _is_agregado_only(df: pd.DataFrame, n_unique: int) -> bool:
@@ -1085,6 +1088,24 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
         A validated ``CleanPolls`` container with AS/COA data and an
         empty ``consultation`` list.
 
+    Raises:
+        FileNotFoundError: If ``round1.csv`` or ``runoff.csv`` are missing
+            from the ``as_coa/`` data directory.
+        ValueError: If normalized shares fail validation (sum deviates
+            from ``100.0 +/- 1.0``) or if pollster diversity check fails
+            (bypassed for ``"AGREGADO"``-only data).
+
+    Examples:
+        >>> cp = load_as_coa_polls()
+        >>> isinstance(cp, CleanPolls)
+        True
+        >>> len(cp.round1)
+        6
+        >>> len(cp.round2)
+        3
+        >>> cp.consultation
+        []
+
     """
     resolved = resolve_data_dir(data_dir)
     as_coa_dir = resolved / "2022-polls" / "as_coa"
@@ -1114,13 +1135,12 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     r1 = r1.rename(columns=_round1_col_map)
     # Merge ninguno ("none") into ns_nr as an undecided/abstention signal
     r1["ns_nr"] = r1["ns_nr"].fillna(0.0) + r1["ninguno"].fillna(0.0)
-    r1 = r1.drop(columns=["fuente", "ambito", "ninguno"])
+    r1 = r1.drop(columns=["ninguno"])
     r1["encuestadora"] = _AGREGADO_POLLSTER
 
     # ── Load round 2 ──
     r2 = pd.read_csv(as_coa_dir / "runoff.csv")
     r2 = r2.rename(columns=_round2_col_map)
-    r2 = r2.drop(columns=["fuente", "ambito"])
     r2["encuestadora"] = _AGREGADO_POLLSTER
 
     # ── Combine and process ──
@@ -1142,6 +1162,11 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     r1_keys = [c.key for c in get_active_candidates(1)]
     combined = retain_active_candidates(combined, r1_keys)
     combined = infer_round_number(combined)
+
+    # Backfill round_number and forced_choice into all_polls snapshot
+    # (consistent with load_and_clean_all API)
+    all_polls["round_number"] = combined["round_number"]
+    all_polls["forced_choice"] = _detect_forced_choice(combined)
 
     # Split by round
     mask_r1 = combined["round_number"] == 1
