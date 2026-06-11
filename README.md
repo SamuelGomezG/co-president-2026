@@ -157,8 +157,8 @@ The `.gitignore` ignores the uncompressed CSVs to prevent accidental re-commits.
 git clone https://github.com/<your-org>/co-president-2026
 cd co-president-2026
 
-# Create virtualenv and install dependencies
-uv sync
+# Install dependencies and the local package (editable)
+make setup
 
 # Verify installation
 uv run python -c "import co_president; print(co_president.__version__)"
@@ -189,14 +189,15 @@ uv run python -m co_president plot --output-dir results/
 # Show current configuration
 uv run python -m co_president config
 
-# Ingest fundamental data components
-uv run python -m co_president ingest
+# Ingest fundamental data components (default: sabaneta; use --component for others)
+uv run python -m co_president ingest                  # sabaneta (default)
+uv run python -m co_president ingest --component cnpv # specific component
 
 # 2026 forecast mode
-uv run python -m co_president forecast --mode prior-only
+uv run python -m co_president forecast --mode prior_only
 
 # Override config from the command line
-uv run python -m co_president run --config-override data_dir=/path/to/data
+uv run python -m co_president run --config-override seed=42
 ```
 
 The `run` command produces a summary table:
@@ -235,8 +236,8 @@ The `run` command produces a summary table:
 | `aggregate` | Baseline weighted polling average only |
 | `validate` | Re-run validation on saved model output |
 | `plot` | Generate all figures (forecast evolution, calibration, error) |
-| `ingest` | Ingest fundamental data components (divipola, historical, cnpv, etc.) |
-| `forecast` | 2026 forecast mode with `--mode off / prior-only / joint` |
+| `ingest` | Ingest fundamental data components (default: sabaneta; use `--component` for others) |
+| `forecast` | 2026 forecast mode with `--mode off / prior_only / joint` |
 | `config` | Print current configuration (candidates, dates, pollster ratings) |
 | `--config-override` | Override config keys from the command line (`KEY=VALUE`) |
 
@@ -327,7 +328,7 @@ Tests mirror the source tree one-to-one: `src/co_president/config.py` → `tests
 ```bash
 git clone https://github.com/<your-org>/co-president-2026
 cd co-president-2026
-uv sync
+make setup
 
 # Quick check that everything is wired correctly
 uv run ruff check src/ tests/
@@ -430,7 +431,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contribution guide. Key po
 2. Follow the TDD cycle (RED → GREEN → REFACTOR).
 3. Run `make check` before every commit (fmt + lint + typecheck + test).
 4. Run CodeRabbit (`cr`) before every commit — never commit without a passing review.
-5. Use semantic commit format: `type(SPEC-XX): description`.
+5. Use semantic commit format: `feat(SPEC-XX):`, `test(SPEC-XX):`, `fix(SPEC-XX):`, or `chore:` only.
 
 ---
 

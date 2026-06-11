@@ -15,7 +15,7 @@ make check              # fmt → lint → typecheck → test (all must pass bef
 2. **Specs**: Every change must tie to a SPEC from `MVP_SPECS_GUIDE.md` or `ENHANCEMENT_ROADMAP.md`. If behavior isn't in a SPEC, it's out of scope.
 3. **TDD cycle**: Write a failing test → minimum code to pass → refactor → `make check` → commit.
 4. **CodeRabbit**: Run `cr` before every commit. Do not commit without a passing review.
-5. **Commit format**: `type(scope): description` — types: `feat`, `fix`, `test`, `docs`, `refactor`, `chore`, `data`, `ci`, `sec`. Scope is typically `SPEC-XX`.
+5. **Commit format**: `feat(SPEC-XX): description`, `test(SPEC-XX): description`, `fix(SPEC-XX): description`, or `chore: description` (non-scope changes). No other commit types are allowed. See `AGENTS.md` §7.
 
 ## Code Conventions
 

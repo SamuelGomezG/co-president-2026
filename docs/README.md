@@ -7,7 +7,7 @@ This directory indexes all active documentation for `co-president-2026`.
 | Document | Scope | Status |
 |----------|-------|--------|
 | `../MVP_SPECS_GUIDE.md` | SPEC-01 to SPEC-11 (MVP): Bayesian national polling model | **Authoritative** (frozen) |
-| `../ENHANCEMENT_ROADMAP.md` | SPEC-12 to SPEC-29 (post-MVP): Municipal hierarchical model roadmap | **Active** |
+| `../ENHANCEMENT_ROADMAP.md` | SPEC-12 through SPEC-14 (Phases 1-3) + Future Phases 4-5: Municipal hierarchical model roadmap | **Active** |
 | `PLAN_demographic_ingestion.md` | SPEC-15 to SPEC-30: 12-day demographic data ingestion plan | **Active** |
 | `PLAN_cne_2026_ingestion.md` | SPEC-31 to SPEC-36: CNE microdata integration for 2026 forecast | **Active** |
 | `specs/STATUS.md` | Every SPEC (01-36) with implementation status | **Active** |

@@ -5,7 +5,7 @@ full pipeline, generating reports, and producing plots.
 
 Commands:
     run             Run the full pipeline (or ``--no-sample`` for baseline only)
-    validate        Load saved ``InferenceData`` and print validation metrics
+    validate        Load saved ``DataTree`` and print validation metrics
     aggregate       Print baseline weighted polling averages (SPEC-05)
     plot            Generate all visualization plots
     ingest          Run ingestion pipeline for a component (SPEC-16)
@@ -92,7 +92,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "validate",
-        help="Load saved InferenceData and print validation metrics",
+        help="Load saved DataTree and print validation metrics",
     )
 
     subparsers.add_parser(
@@ -448,7 +448,7 @@ def _load_and_validate() -> tuple[CleanPolls, RoundResult, RoundResult]:
 
 
 def _log_and_save_trace(idata: DataTree, path: Path) -> None:
-    """Log and save an InferenceData to a netCDF file."""
+    """Log and save a DataTree to a netCDF file."""
     logger.info("Saving trace to %s", path)
     idata.to_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
 
@@ -491,7 +491,7 @@ def _compute_runoff_matrix(  # noqa: PLR0913
     """Estimate the runoff matrix, log top pairings, and save as JSON.
 
     Args:
-        idata_r1: Round 1 posterior ``InferenceData``.
+        idata_r1: Round 1 posterior ``DataTree``.
         round1_forecast: Round 1 forecast with ``prob_win_outright`` per candidate.
         results_r1: Round 1 ``RoundResult``.
         results_r2: Round 2 ``RoundResult``.
@@ -915,14 +915,14 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
 
 def _load_trace_or_exit(path: Path, label: str) -> DataTree:
-    """Load an InferenceData from a netCDF file or exit with error.
+    """Load a DataTree from a netCDF file or exit with error.
 
     Args:
         path: Path to the .nc file.
         label: Human-readable name for error messages.
 
     Returns:
-        Loaded InferenceData.
+        Loaded DataTree.
 
     """
     import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
