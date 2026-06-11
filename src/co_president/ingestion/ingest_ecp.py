@@ -237,12 +237,21 @@ def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
         logger.debug("ECP %d: no REGION column in housing table", year)
         return None
 
+    before = len(housing)
     housing["region_code"] = pd.to_numeric(housing[_REGION_COLUMN], errors="coerce")
     housing = housing.dropna(subset=["region_code"])
+    if len(housing) < before:
+        logger.debug("ECP %d: dropped %d rows with non-numeric REGION", year, before - len(housing))
 
     if _WEIGHT_COLUMN not in housing.columns:
         logger.debug("ECP %d: no FEX_P in housing table", year)
         return None
+
+    # Coerce FEX_P from string (dtype=str in _read_csv_from_zip) to numeric.
+    # Without this, weighted_n sum() produces string concatenation and
+    # _weighted_groupby raises TypeError in np.average.
+    housing[_WEIGHT_COLUMN] = pd.to_numeric(housing[_WEIGHT_COLUMN], errors="coerce")
+    housing = housing.dropna(subset=[_WEIGHT_COLUMN])
 
     module_indices: dict[str, pd.Series] = {}
 
@@ -257,12 +266,12 @@ def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
     result = pd.DataFrame({"region_code": housing["region_code"].unique().astype(int)})
 
     for construct, series in module_indices.items():
-        merged_series = series.rename(construct).reset_index()
+        merged_series = series.rename(f"{construct}_index").reset_index()
         merged_series["region_code"] = merged_series["region_code"].astype(int)
         result = result.merge(merged_series, on="region_code", how="left")
 
     for col in module_indices:
-        _min_max_normalise(result, col)
+        _min_max_normalise(result, f"{col}_index")
 
     weighted_n = housing.groupby("region_code")[_WEIGHT_COLUMN].sum().reset_index()
     weighted_n["region_code"] = weighted_n["region_code"].astype(int)
