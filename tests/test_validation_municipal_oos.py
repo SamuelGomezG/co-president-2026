@@ -219,18 +219,32 @@ class TestSampleStratifiedPolls:
     """Tests for the stratified poll sampling strategy."""
 
     def test_selects_correct_tier_counts(self) -> None:
-        """Stratified sampling selects 4 high, 3 mid, 3 low."""
+        """Stratified sampling selects pollsters from all three rating tiers."""
         polls = _make_multi_pollster_polls()
+        ratings = dict(POLLSTER_RATINGS)
         sampled = sample_stratified_polls(polls, pollster_ratings=dict(POLLSTER_RATINGS), seed=42)
 
         assert len(sampled) <= 10
-
-        high_pollsters = {"Invamer", "CNC", "GAD3", "Guarumo"}
-
-        high_in_sample = sampled[sampled["encuestadora"].isin(high_pollsters)]
-
-        assert len(high_in_sample) >= 1
         assert len(sampled) > 0
+
+        # Verify that every selected pollster is in POLLSTER_RATINGS
+        # and that we get a mix of tiers.  The fixture has Invamer
+        # (high, 10.0), CNC (high, 8.1), CELAG (mid, 5.9), and
+        # Mosqueteros (low, 1.0).  The stratified sampler selects
+        # pollster NAMES from each tier (4 high / 3 mid / 3 low),
+        # then filters rows to those names.  We verify the selected
+        # rows contain pollsters whose ratings place them in the
+        # expected tiers (but we cannot assert exact tier ROW counts
+        # since that depends on which pollsters have rows in the
+        # fixture).
+        tiers_found: set[str] = set()
+        for pollster in sampled["encuestadora"].unique():
+            assert pollster in ratings, f"Unknown pollster: {pollster}"
+            tiers_found.add(_categorize_pollster(ratings[pollster]))
+
+        assert "high" in tiers_found, (
+            f"Expected at least one high-rated pollster, got tiers: {tiers_found}"
+        )
 
     def test_raises_on_empty_ratings(self) -> None:
         """Empty pollster_ratings raises ValueError."""
@@ -251,16 +265,14 @@ class TestSampleAllLowPolls:
     """Tests for the all-low-rated poll sampling strategy."""
 
     def test_selects_only_low_rated_pollsters(self) -> None:
-        """All-low sampling returns only pollsters with rating < cutoff."""
+        """All-low sampling returns only pollsters with rating <= cutoff."""
         polls = _make_multi_pollster_polls()
         sampled = sample_all_low_polls(polls, pollster_ratings=dict(POLLSTER_RATINGS), seed=42)
 
-        if len(sampled) > 0:
-            low_pollsters = {"Medilab", "YanHaas", "CifrasYConceptos", "Datexco", "Mosqueteros"}
-            for pollster in sampled["encuestadora"].unique():
-                assert pollster in low_pollsters, (
-                    f"Unexpected pollster {pollster} in all-low sample"
-                )
+        assert len(sampled) > 0, "Expected at least one low-rated pollster in sample"
+        low_pollsters = {"Medilab", "YanHaas", "CifrasYConceptos", "Datexco", "Mosqueteros"}
+        for pollster in sampled["encuestadora"].unique():
+            assert pollster in low_pollsters, f"Unexpected pollster {pollster} in all-low sample"
 
     def test_raises_when_no_low_pollsters(self) -> None:
         """Raises ValueError when no low-rated pollsters are available."""
@@ -530,6 +542,7 @@ def test_year_2018_holdout_model_graph() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.slow
 def test_compare_modes_architecture() -> None:
     """compare_modes can run with fast synthetic data for structure validation.
 

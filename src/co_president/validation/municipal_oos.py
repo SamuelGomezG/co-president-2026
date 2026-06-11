@@ -51,8 +51,8 @@ _MAX_POLLS_2022 = 10
 # Number of bootstrap runs for sensitivity checks.
 _BOOTSTRAP_RUNS = 20
 
-# MAE threshold for top-3 candidates in leave-2022-out (percentage points).
-_MAE_PP_THRESHOLD = 5.0
+# MAE threshold for top-3 candidates in leave-2022-out (decimal, 0.05 = 5 pp).
+_MAE_PP_THRESHOLD = 0.05
 
 # Diff threshold for compare_modes (percentage points, decimal).
 _MODE_DIFF_THRESHOLD = 0.01
@@ -152,7 +152,7 @@ def sample_all_low_polls(
 ) -> pd.DataFrame:
     """Sample polls using only low-rated pollsters.
 
-    Selects pollsters with ``POLLSTER_RATINGS`` values below
+    Selects pollsters with ``POLLSTER_RATINGS`` values at or below
     ``_LOW_RATING_CUTOFF`` (default 4.0).  Stresses the model with the
     worst-quality trackers.
 
@@ -173,9 +173,9 @@ def sample_all_low_polls(
         dict(POLLSTER_RATINGS) if pollster_ratings is None else pollster_ratings
     )
 
-    low_pollsters = [name for name, rating in _ratings.items() if rating < _LOW_RATING_CUTOFF]
+    low_pollsters = [name for name, rating in _ratings.items() if rating <= _LOW_RATING_CUTOFF]
     if not low_pollsters:
-        msg = f"no pollsters found with rating < {_LOW_RATING_CUTOFF}; cannot sample all_low polls"
+        msg = f"no pollsters found with rating <= {_LOW_RATING_CUTOFF}; cannot sample all_low polls"
         raise ValueError(msg)
 
     sampled = polls.loc[polls["encuestadora"].isin(low_pollsters), :].copy()
@@ -475,7 +475,13 @@ def leave_2022_out(  # noqa: PLR0913
         results_2022: Actual 2022 round 1 results.
         config: Model hyperparameters.
         sampling_strategy: One of ``"stratified"`` (default),
-            ``"all_low"``, or ``"bootstrap"``.
+            ``"all_low"``, or ``"bootstrap"``.  Note: ``"bootstrap"``
+            is a pass-through that passes ``polls_2022`` through
+            unchanged.  Bootstrap resampling is not handled inline
+            because :func:`sample_bootstrap_polls` returns a list of
+            DataFrames (one per run).  For actual resampling, call
+            :func:`sample_bootstrap_polls` externally and loop over
+            the returned samples.
         pollster_ratings: Optional ratings dict; defaults to
             :data:`co_president.config.POLLSTER_RATINGS`.
         seed: Random seed for reproducibility.
@@ -497,6 +503,13 @@ def leave_2022_out(  # noqa: PLR0913
         raise ValueError(msg)
 
     if sampling_strategy == "bootstrap":
+        # Bootstrap runs are not handled inline because
+        # sample_bootstrap_polls() returns a list of DataFrames
+        # (one per run).  To use bootstrap, call
+        # sample_bootstrap_polls() externally and run
+        # leave_2022_out per sample.  Currently this branch
+        # passes polls_2022 through unchanged as a convenience
+        # for users who want to bypass sampling entirely.
         _polls = polls_2022
     elif sampling_strategy == "all_low":
         _polls = sample_all_low_polls(polls_2022, pollster_ratings=pollster_ratings, seed=seed)
@@ -545,13 +558,14 @@ def leave_2022_out(  # noqa: PLR0913
     for e in top3_errors:
         if float(e["abs_error"]) > _MAE_PP_THRESHOLD:
             logger.warning(
-                "leave_2022_out: candidate %s abs_error=%.2f pp exceeds 5 pp threshold",
+                "leave_2022_out: candidate %s abs_error=%.4f exceeds %.0f pp threshold",
                 e["candidate"],
-                e["abs_error"],
+                float(e["abs_error"]),
+                _MAE_PP_THRESHOLD * 100,
             )
 
     logger.info(
-        "leave_2022_out: R²=%.4f, MAE=%.4f pp (strategy=%s, n_polls=%d)",
+        "leave_2022_out: R²=%.4f, MAE=%.4f (strategy=%s, n_polls=%d)",
         r2,
         mae,
         sampling_strategy,
