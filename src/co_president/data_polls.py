@@ -42,6 +42,7 @@ __all__ = [
     "get_computed_consultation_prior_strengths",
     "infer_round_number",
     "load_and_clean_all",
+    "load_as_coa_polls",
     "load_raw_consultas",
     "load_raw_polls",
     "map_consultation_name_to_key",
@@ -55,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 
 _ROUND_TWO = 2  # second (runoff) round identifier
+
+_AGREGADO_POLLSTER = "AGREGADO"  # AS/COA aggregate pollster identifier
 
 _MIN_ROUND1_POLLSTERS = 5
 _MIN_ROUND2_POLLSTERS = 2
@@ -85,6 +88,25 @@ _SHARE_COLS_EXCLUDED = frozenset(
 
 ``round_number`` is not in the raw CSV; it is added by ``infer_round_number``
 and excluded from share normalization."""
+
+
+def _is_agregado_only(df: pd.DataFrame, n_unique: int) -> bool:
+    """Check if all pollsters in a DataFrame are the AS/COA aggregate.
+
+    Used by :meth:`CleanPolls.__post_init__` to bypass the minimum pollster
+    diversity check when the data source is the AS/COA aggregate poll tracker
+    (SPEC-25), which provides a single ``"AGREGADO"`` pollster.
+
+    Args:
+        df: A DataFrame with an ``encuestadora`` column.
+        n_unique: The number of unique pollsters in ``df``.
+
+    Returns:
+        ``True`` if there is exactly one unique pollster and it is
+        ``"AGREGADO"``.
+
+    """
+    return bool(n_unique == 1 and (df["encuestadora"] == _AGREGADO_POLLSTER).all())
 
 
 def _col_has_value(row: pd.Series, col: str) -> bool:
@@ -237,10 +259,14 @@ class CleanPolls:
         round1_pollsters = self.round1["encuestadora"].nunique()
         round2_pollsters = self.round2["encuestadora"].nunique()
 
-        if round1_pollsters < _MIN_ROUND1_POLLSTERS:
+        if round1_pollsters < _MIN_ROUND1_POLLSTERS and not _is_agregado_only(
+            self.round1, round1_pollsters
+        ):
             msg = f"Round 1 needs >= {_MIN_ROUND1_POLLSTERS} pollsters, got {round1_pollsters}"
             raise ValueError(msg)
-        if round2_pollsters < _MIN_ROUND2_POLLSTERS:
+        if round2_pollsters < _MIN_ROUND2_POLLSTERS and not _is_agregado_only(
+            self.round2, round2_pollsters
+        ):
             msg = f"Round 2 needs >= {_MIN_ROUND2_POLLSTERS} pollsters, got {round2_pollsters}"
             raise ValueError(msg)
 
@@ -1028,6 +1054,129 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
             n_before - n_after,
         )
     return deduped
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SPEC-25: AS/COA Poll Source Integration
+# ═══════════════════════════════════════════════════════════════════
+
+
+def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
+    """Load AS/COA 2022 Colombian presidential poll tracker (SPEC-25).
+
+    Reads ``round1.csv`` and ``runoff.csv`` from
+    ``data/2022-polls/as_coa/`` as a third independent poll source. The
+    data is an aggregate (``encuestadora="AGREGADO"``) with no per-pollster
+    metadata, sample sizes, or margins of error.
+
+    Applies the standard cleaning pipeline:
+    ``normalize_undecided`` (redistributes ``ns_nr`` and ``ninguno``),
+    ``retain_active_candidates``, ``infer_round_number``, and
+    ``deduplicate_polls``.
+
+    The companion ``transfer_matrix.csv`` is NOT loaded — it is reserved
+    as a validation target for SPEC-30 (transfer rate estimation model).
+
+    Args:
+        data_dir: Path to the project data directory. Auto-resolved if
+            ``None``.
+
+    Returns:
+        A validated ``CleanPolls`` container with AS/COA data and an
+        empty ``consultation`` list.
+
+    """
+    resolved = resolve_data_dir(data_dir)
+    as_coa_dir = resolved / "2022-polls" / "as_coa"
+
+    # ── Column mapping: AS/COA CSV → canonical keys ──
+    _round1_col_map: dict[str, str] = {
+        "petro": "gustavo_petro",
+        "fico_gutierrez": "federico_gutierrez",
+        "rodolfo_hernandez": "rodolfo_hernandez",
+        "sergio_fajardo": "sergio_fajardo",
+        "ingrid_betancourt": "ingrid_betancourt",
+        "john_milton_rodriguez": "otros",
+        "blanco": "blanco",
+        "ninguno": "ninguno",
+        "ns_nr": "ns_nr",
+    }
+
+    _round2_col_map: dict[str, str] = {
+        "petro": "gustavo_petro",
+        "rodolfo_hernandez": "rodolfo_hernandez",
+        "blanco": "blanco",
+        "ns_nr": "ns_nr",
+    }
+
+    # ── Load round 1 ──
+    r1 = pd.read_csv(as_coa_dir / "round1.csv")
+    r1 = r1.rename(columns=_round1_col_map)
+    # Merge ninguno ("none") into ns_nr as an undecided/abstention signal
+    r1["ns_nr"] = r1["ns_nr"].fillna(0.0) + r1["ninguno"].fillna(0.0)
+    r1 = r1.drop(columns=["fuente", "ambito", "ninguno"])
+    r1["encuestadora"] = _AGREGADO_POLLSTER
+
+    # ── Load round 2 ──
+    r2 = pd.read_csv(as_coa_dir / "runoff.csv")
+    r2 = r2.rename(columns=_round2_col_map)
+    r2 = r2.drop(columns=["fuente", "ambito"])
+    r2["encuestadora"] = _AGREGADO_POLLSTER
+
+    # ── Combine and process ──
+    combined = pd.concat([r1, r2], ignore_index=True)
+    combined["fecha"] = pd.to_datetime(combined["fecha"])
+
+    # AS/COA is aggregate data with no per-poll metadata; add placeholder
+    # sample columns so downstream pipeline steps (deduplicate_polls) work.
+    combined["muestra"] = None
+    combined["muestra_int_voto"] = None
+
+    # Normalize undecided (redistribute ns_nr + ninguno)
+    combined = normalize_undecided(combined)
+
+    # Snapshot for all_polls (before column filtering)
+    all_polls = combined.copy()
+
+    # Infer round number
+    r1_keys = [c.key for c in get_active_candidates(1)]
+    combined = retain_active_candidates(combined, r1_keys)
+    combined = infer_round_number(combined)
+
+    # Split by round
+    mask_r1 = combined["round_number"] == 1
+    mask_r2 = combined["round_number"] == _ROUND_TWO
+    round1_df = combined[mask_r1].copy()
+    round2_df = combined[mask_r2].copy()
+
+    # Per-round: retain active candidates + deduplicate
+    r2_keys = [c.key for c in get_active_candidates(2)]
+    if not round1_df.empty:
+        round1_df = retain_active_candidates(round1_df, r1_keys)
+        round1_df = deduplicate_polls(round1_df)
+    if not round2_df.empty:
+        round2_df = retain_active_candidates(round2_df, r2_keys)
+        round2_df = deduplicate_polls(round2_df)
+
+    # Renormalise per-round to 100% ± 0.1%
+    for df_round in [round1_df, round2_df]:
+        if df_round.empty:
+            continue
+        round_share_cols = [c for c in df_round.columns if c not in _SHARE_COLS_EXCLUDED]
+        _renormalize_rows(df_round, round_share_cols, set(df_round.index))
+        _validate_normalized_rows(
+            df_round,
+            round_share_cols,
+            set(df_round.index),
+            tolerance_pct=_POST_RENORMALIZE_TOLERANCE_PCT,
+        )
+
+    return CleanPolls(
+        round1=round1_df,
+        round2=round2_df,
+        consultation=[],
+        all_polls=all_polls,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
