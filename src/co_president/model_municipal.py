@@ -44,7 +44,6 @@ __all__ = [
 ]
 
 _EPSILON = 1e-10
-_EXTRACT_YEAR = 2022
 _EXTRACT_ROUND = 1
 
 
@@ -83,10 +82,10 @@ def compute_effective_pop(pop: np.ndarray, turnout: np.ndarray) -> np.ndarray:
     return pop_f * turnout / mean_turnout
 
 
-def _extract_clr_left_share(features: pd.DataFrame) -> np.ndarray:
+def _extract_clr_left_share(features: pd.DataFrame, target_year: int = 2022) -> np.ndarray:
     """Extract CLR-transformed left vote share from the most recent election.
 
-    Uses the 2022 round-1 ``historical`` record.  Falls back to 0.0
+    Uses *target_year* round-1 ``historical`` record.  Falls back to 0.0
     (neutral CLR) when no record is available.
     """
     n = len(features)
@@ -95,7 +94,7 @@ def _extract_clr_left_share(features: pd.DataFrame) -> np.ndarray:
         hist = features.iloc[i].get("historical")
         if isinstance(hist, tuple) and len(hist) > 0:  # pyright: ignore[reportUnknownArgumentType]
             for rec in hist:  # type: ignore[reportUnknownVariableType]
-                if rec.year == _EXTRACT_YEAR and rec.round == _EXTRACT_ROUND:  # type: ignore[reportUnknownMemberType]
+                if rec.year == target_year and rec.round == _EXTRACT_ROUND:  # type: ignore[reportUnknownMemberType]
                     clr_left = float(rec.clr_shares()[0])  # type: ignore[reportUnknownMemberType]
                     result[i] = clr_left
                     break
@@ -117,6 +116,7 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
     polls: pd.DataFrame,
     results: RoundResult | None,
     config: ModelConfig,
+    target_year: int = 2022,
 ) -> pm.Model:
     """Build the 3-layer municipal hierarchical PyMC model.
 
@@ -130,6 +130,8 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
             shares), ``fecha``, ``encuestadora``, ``muestra``.
         results: Election result for validation (optional).
         config: Model hyperparameters.
+        target_year: Election year to extract ``clr_left_share`` from the
+            ``historical`` column.  Default 2022.
 
     Returns:
         Constructed ``pm.Model``.
@@ -193,7 +195,7 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
     pop_weights = effective_pop / effective_pop.sum()
 
     # Feature arrays (M,)
-    clr_left = _extract_clr_left_share(features)
+    clr_left = _extract_clr_left_share(features, target_year)
     pct_afro = features["pct_afro_colombian"].to_numpy()
     nbi_rate = features["nbi_rate"].to_numpy()
     clr_nbi = _clr_nbi_array(nbi_rate)
