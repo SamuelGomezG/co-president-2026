@@ -1,13 +1,14 @@
 """SPEC-24: ECP (Encuesta de Cultura Política) region-level panel ingestion.
 
 Aggregates DANE-DIMPE Encuesta de Cultura Política microdata from
-six waves (2011--2023) into a region-level panel file at
+seven waves (2011--2023) into a region-level panel file at
 ``data/fundamentals/ecp_region_panel.csv``.
 
 Latent constructs extracted:
 * Trust-in-institutions index (Democracia module)
 * Political participation index (Participacion module)
-* Civic engagement index (Elecciones y partidos + Capital social modules)
+* Civic engagement index (Elecciones y partidos module;
+  falls back to Capital social module if unavailable)
 
 NOTE: The ECP survey is designed for **regional-level** inference only.
 Official microdata does not include DANE department codes; the finest
@@ -213,7 +214,7 @@ def validate_ecp(df: pd.DataFrame) -> list[str]:
 
 
 def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
-    """Assemble a single ECP wave into a region-level panel row.
+    """Assemble a single ECP wave into region-level panel rows.
 
     Steps:
     1. Load the housing table for FEX_P and REGION identifiers.
