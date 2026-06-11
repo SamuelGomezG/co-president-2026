@@ -16,6 +16,7 @@ reference/
 
 # Coverage artifacts
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 
@@ -46,3 +47,10 @@ PLAN.md
 
 # Generated coverage report — produced at runtime by write_coverage_report
 data/fundamentals/COVERAGE.md
+
+# 2026 election cycle data (not yet ingested by SPEC code)
+data/2026-elections/
+data/2026-polls/
+data/campaign_finance/
+data/conflict/
+data/digital_signals/

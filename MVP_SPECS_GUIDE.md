@@ -3,7 +3,7 @@
 **Project**: Colombian Presidential Elections 2026 — Polling-Based Bayesian Forecast  
 **MVP Scope**: Predict 2022 election results from national polls only, no demographic/regional data  
 **Language**: Python 3.12  
-**Last Updated**: 2026-05-13
+**Last Updated**: 2026-06-10
 
 ---
 
@@ -1544,6 +1544,26 @@ jobs:
 | MAE (Mean Absolute Error) | `MAE = (1/N) × Σ|pred_i − actual_i|` | Standard |
 | RMSE (Root Mean Square Error) | `RMSE = √((1/N) × Σ(pred_i − actual_i)²)` | Standard |
 | Brier score | `(1/N) × Σ(p_i − o_i)²` | Standard (binary outcome scoring) |
+
+---
+
+## 15. Implementation Status
+
+All MVP SPECs (SPEC-01 through SPEC-11) are shipped. See `docs/specs/STATUS.md` for the full status of every SPEC (01–36).
+
+| SPEC | Module(s) | Status |
+|------|-----------|--------|
+| SPEC-01 Project scaffolding | `paths.py`, `pyproject.toml` | ✅ Shipped |
+| SPEC-02 Configuration | `config.py` | ✅ Shipped |
+| SPEC-03 Results consolidation | `data_results.py` | ✅ Shipped |
+| SPEC-04 Poll loading & cleaning | `data_polls.py` | ✅ Shipped |
+| SPEC-05 Baseline aggregation | `aggregation.py` | ✅ Shipped |
+| SPEC-06 1st-round Bayesian model | `model_round1.py` | ✅ Shipped |
+| SPEC-07 Runoff simple (K=3) | `model_runoff_simple.py` | ✅ Shipped |
+| SPEC-08 Runoff pairing matrix | `model_runoff_matrix.py` | ✅ Shipped |
+| SPEC-09 Validation & plotting | `validation.py`, `plotting.py` | ✅ Shipped |
+| SPEC-10 CLI | `__main__.py` | ✅ Shipped |
+| SPEC-11 Data quality | `_data_quality.py` | ✅ Shipped |
 
 ---
 

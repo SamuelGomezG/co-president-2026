@@ -5,7 +5,7 @@ full pipeline, generating reports, and producing plots.
 
 Commands:
     run             Run the full pipeline (or ``--no-sample`` for baseline only)
-    validate        Load saved ``InferenceData`` and print validation metrics
+    validate        Load saved ``DataTree`` and print validation metrics
     aggregate       Print baseline weighted polling averages (SPEC-05)
     plot            Generate all visualization plots
     ingest          Run ingestion pipeline for a component (SPEC-16)
@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from datetime import date
 
-    import arviz as az  # type: ignore[reportMissingTypeStubs]
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
+    from xarray import DataTree
 
 from co_president.config import (
     CONSULTATION_DATE,
@@ -92,7 +92,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "validate",
-        help="Load saved InferenceData and print validation metrics",
+        help="Load saved DataTree and print validation metrics",
     )
 
     subparsers.add_parser(
@@ -447,13 +447,13 @@ def _load_and_validate() -> tuple[CleanPolls, RoundResult, RoundResult]:
     return clean_polls, results_r1, results_r2
 
 
-def _log_and_save_trace(idata: az.InferenceData, path: Path) -> None:
-    """Log and save an InferenceData to a netCDF file."""
+def _log_and_save_trace(idata: DataTree, path: Path) -> None:
+    """Log and save a DataTree to a netCDF file."""
     logger.info("Saving trace to %s", path)
     idata.to_netcdf(str(path))  # pyright: ignore[reportUnknownMemberType]
 
 
-def _check_convergence(idata: az.InferenceData, label: str) -> None:
+def _check_convergence(idata: DataTree, label: str) -> None:
     """Check R-hat convergence and log a warning if it exceeds threshold."""
     import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
 
@@ -480,7 +480,7 @@ def _find_pairing(matrix: RunoffMatrix, pair: tuple[str, str]) -> PairingForecas
 
 
 def _compute_runoff_matrix(  # noqa: PLR0913
-    idata_r1: az.InferenceData,
+    idata_r1: DataTree,
     round1_forecast: Round1Forecast,
     results_r1: RoundResult,
     results_r2: RoundResult,
@@ -491,7 +491,7 @@ def _compute_runoff_matrix(  # noqa: PLR0913
     """Estimate the runoff matrix, log top pairings, and save as JSON.
 
     Args:
-        idata_r1: Round 1 posterior ``InferenceData``.
+        idata_r1: Round 1 posterior ``DataTree``.
         round1_forecast: Round 1 forecast with ``prob_win_outright`` per candidate.
         results_r1: Round 1 ``RoundResult``.
         results_r2: Round 2 ``RoundResult``.
@@ -914,15 +914,15 @@ def _cmd_run(args: argparse.Namespace) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _load_trace_or_exit(path: Path, label: str) -> az.InferenceData:
-    """Load an InferenceData from a netCDF file or exit with error.
+def _load_trace_or_exit(path: Path, label: str) -> DataTree:
+    """Load a DataTree from a netCDF file or exit with error.
 
     Args:
         path: Path to the .nc file.
         label: Human-readable name for error messages.
 
     Returns:
-        Loaded InferenceData.
+        Loaded DataTree.
 
     """
     import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]

@@ -82,8 +82,7 @@ make sec          # Runs pip-audit + bandit
 
 Also available: `pre-commit run --all-files` for pre-push validation.
 
-**Pre-commit hooks** are now gated by file type to avoid wasted runs:
-- `pytest-fast` only triggers when `src/co_president/` or `tests/` files are staged.
+**Pre-commit hooks** are defined in `.pre-commit-config.yaml`:
 - `detect-private-key` catches secrets locally before CI.
 - `pip-audit` has been moved to dedicated CI (too slow for local dev).
 
@@ -210,7 +209,7 @@ The `.gitignore` ignores uncompressed `.csv` copies to prevent accidental re-com
 
 - **`uv run python` may fail with `ModuleNotFoundError`** if the virtual environment was created but the local package wasn't installed. Run `uv pip install -e .` to fix.
 - **`ruff format` auto-modifies files** during `make check`. Check `git status` after to stage any formatting changes before committing.
-- **PyMC ≥6.0 is installed** (pyproject allows ≥5.15). API version differences from PyMC 5.x docs are possible — verify signatures at the linked docs before using any PyMC class.
+- **PyMC ≥5.15 is installed** (per `pyproject.toml`). API version differences from PyMC 5.x docs are possible — verify signatures at the linked docs before using any PyMC class.
 - **`.python-version` pins 3.12.13**. `uv` will use whatever 3.12 interpreter it finds; ensure 3.12.13 is available via pyenv or uv.
 - **Large CSV files** (`MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz`) are ~95 MB each. Unit tests must never load them.
 - **Package verification**: Always check the current API docs for a library before writing code. Do not trust memory. Key reference URLs are in `MVP_SPECS_GUIDE.md` §2.
@@ -261,12 +260,6 @@ This project has access to custom sub-agents (via the `task` tool) and skills (v
 | Skill | When to load | Notes |
 |---|---|---|
 | `github-workflow-expert` | Creating issues, PRs, labels, milestones, and V2 Project Board management | Used by `github-issue-writer` and `github-pr-writer` |
-
-#### Informational
-
-| Skill | Status | Notes |
-|---|---|---|
-| `python-executor` | **Not available** | Requires `belt` CLI (inference.sh) which is not installed. For Python execution, use `uv run python` instead. |
 
 ---
 
