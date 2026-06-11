@@ -1,6 +1,6 @@
 # SPEC Status Tracker
 
-> **Source of truth**: See `MVP_SPECS_GUIDE.md` (SPEC-01→11), `ENHANCEMENT_ROADMAP.md` (SPEC-12→29),
+> **Source of truth**: See `MVP_SPECS_GUIDE.md` (SPEC-01→11), `ENHANCEMENT_ROADMAP.md` (SPEC-12→14),
 > `docs/PLAN_demographic_ingestion.md` (SPEC-15→30), `docs/PLAN_cne_2026_ingestion.md` (SPEC-31→36).
 
 ## MVP — National Polling Model (Shipped)
