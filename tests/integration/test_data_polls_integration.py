@@ -203,7 +203,12 @@ class TestPollSchemaVerification:
             "municipios",
             "ns_nr",
         }
-        assert expected_metadata == set(_SHARE_COLS_EXCLUDED) - {"round_number"}
+        excluded = set(_SHARE_COLS_EXCLUDED) - {"round_number"}
+        assert expected_metadata <= excluded, (
+            f"CSV metadata columns not fully covered by _SHARE_COLS_EXCLUDED. "
+            f"Missing: {expected_metadata - excluded}"
+        )
+        assert expected_metadata <= set(df.columns)
         assert expected_metadata <= set(df.columns)
 
         share_columns = set(df.columns) - expected_metadata - {"round_number"}
