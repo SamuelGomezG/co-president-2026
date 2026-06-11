@@ -1,8 +1,9 @@
-"""SPEC-03: Election results consolidation.
+"""SPEC-03, SPEC-23: Election results consolidation.
 
 Ingests Registraduría (MMV) and MOE result files, aggregates to
 national vote totals per candidate, cross-validates them, and produces a
-single canonical ``RoundResult`` per round.
+single canonical ``RoundResult`` per round. SPEC-23 adds MOE PDF
+cross-validation against the canonical results.
 """
 
 from __future__ import annotations
@@ -27,10 +28,12 @@ from co_president.config import (
 from co_president.paths import resolve_data_dir
 
 __all__ = [
+    "PDF_RESULTS_2022",
     "CandidateResult",
     "RoundResult",
     "consolidate_round",
     "cross_validate",
+    "cross_validate_against_moe_pdf",
     "load_canonical_results",
     "load_moe_round1",
     "load_moe_round2",
@@ -47,6 +50,7 @@ _TOLERANCE_VALID_VOTES_PCT_DIFF = 0.10  # % difference in total valid votes → 
 _TOLERANCE_CANDIDATE_SHARE_PP = 0.50  # percentage point difference in vote share → WARNING
 _MIN_CANDIDATES_FOR_TOP_TWO = 2  # minimum candidates needed for top_two()
 _ROUND_TWO = 2  # second (runoff) round identifier
+_MIN_PDF_ROW_LENGTH = 2  # minimum cells in a PDF table row to attempt parsing
 
 
 def _get_series_int(series: pd.Series, key: str) -> int:
@@ -723,3 +727,310 @@ def load_canonical_results(
     result2 = consolidate_round(reg_r2, moe_r2, 2)
 
     return result1, result2
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MOE PDF cross-validation (SPEC-23)
+# ═══════════════════════════════════════════════════════════════════
+
+
+PDF_RESULTS_2022 = "2022.11.09-LIBRO-RESULTADOS-ELECTORALES-PRESIDENCIALES-2022.pdf"
+
+_SKIP_HEADER_WORDS = {"partido", "movimiento", "votos", "porcentaje", "%", "total", "subtotal"}
+
+
+def _clean_vote_count(vote_str: str) -> int:
+    """Convert a vote count string to an integer.
+
+    Handles Colombian format (dots as thousands separators, e.g.
+    ``8.542.020``) and international format (commas, e.g. ``8,542,020``).
+
+    Args:
+        vote_str: Raw vote count string from the PDF table.
+
+    Returns:
+        Integer vote count. Returns 0 if parsing fails.
+
+    """
+    cleaned = vote_str.strip().replace(".", "").replace(",", "")
+    try:
+        return int(cleaned)
+    except ValueError:
+        return 0
+
+
+def _try_extract_pdfplumber(
+    pdf_path: Path,
+    page_range: tuple[int, int] | None = None,
+) -> list[list[list[str]]] | None:
+    """Extract tables from a PDF using pdfplumber.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        page_range: Optional ``(first_page, last_page_inclusive)`` 1-based
+            range. When provided, only tables on pages within this range
+            are extracted.
+
+    Returns:
+        List of tables (each table is a list of rows, each row is a list
+        of cell strings). Returns ``None`` if pdfplumber is unavailable
+        or extraction fails.
+
+    """
+    try:
+        import pdfplumber  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            pages = pdf.pages
+            if page_range is not None:
+                first, last = page_range
+                start_idx = max(0, first - 1)
+                end_idx = min(len(pages), last)
+                pages = pages[start_idx:end_idx]
+            tables: list[list[list[str]]] = []
+            for page in pages:
+                page_tables = page.extract_tables()
+                if not page_tables:
+                    continue
+                for raw_table in page_tables:
+                    cleaned = [
+                        [str(cell) if cell is not None else "" for cell in row] for row in raw_table
+                    ]
+                    tables.append(cleaned)
+            return tables or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _try_extract_pymupdf(
+    pdf_path: Path,
+    page_range: tuple[int, int] | None = None,
+) -> list[list[list[str]]] | None:
+    """Extract tables from a PDF using PyMuPDF.
+
+    Note: ``find_tables()`` works on text-based PDFs with embedded table
+    structures. It does not perform OCR and will not extract tables from
+    image-only (scanned) pages.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        page_range: Optional ``(first_page, last_page_inclusive)`` 1-based
+            range. When provided, only tables on pages within this range
+            are extracted.
+
+    Returns:
+        List of tables (same structure as pdfplumber). Returns ``None``
+        if pymupdf is unavailable or extraction fails.
+
+    """
+    try:
+        import pymupdf  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        doc = pymupdf.open(pdf_path)
+    except Exception:  # noqa: BLE001
+        return None
+    tables: list[list[list[str]]] = []
+    try:
+        pages = list(doc)  # type: ignore[reportUnknownVariableType]
+        if page_range is not None:
+            first, last = page_range
+            start_idx = max(0, first - 1)
+            end_idx = min(len(pages), last)  # type: ignore[reportUnknownArgumentType]
+            pages = pages[start_idx:end_idx]  # type: ignore[reportUnknownVariableType]
+        for page in pages:  # type: ignore[reportUnknownVariableType]
+            page_tables = page.find_tables()  # type: ignore[reportUnknownMemberType]
+            for table in page_tables or []:  # type: ignore[reportUnknownVariableType]
+                data = table.extract()  # type: ignore[reportUnknownMemberType]
+                cleaned = [
+                    [str(cell) if cell is not None else "" for cell in row]  # type: ignore[reportUnknownArgumentType]
+                    for row in data  # type: ignore[reportUnknownVariableType]
+                ]
+                tables.append(cleaned)
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        doc.close()
+    return tables or None
+
+
+def _extract_tables_with_fallback(
+    pdf_path: Path,
+    page_range: tuple[int, int] | None = None,
+) -> list[list[list[str]]]:
+    """Extract tables from a PDF with pdfplumber to pymupdf fallback.
+
+    Tries pdfplumber first. If it returns no tables or raises an error,
+    falls back to pymupdf as a secondary table-detection engine.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        page_range: Optional ``(first_page, last_page_inclusive)`` 1-based
+            range. When provided, only tables on pages within this range
+            are extracted.
+
+    Returns:
+        List of extracted tables. Empty list if both engines fail.
+
+    """
+    tables = _try_extract_pdfplumber(pdf_path, page_range)
+    if tables:
+        return tables
+    tables = _try_extract_pymupdf(pdf_path, page_range)
+    if tables:
+        return tables
+    return []
+
+
+def _is_header_or_summary(row: list[str]) -> bool:
+    """Check if a table row is a header or summary row.
+
+    A row is considered a header/summary row if any cell (lowercased
+    and stripped) exactly matches a known header word. This avoids
+    false positives on coalition names like ``"VOTOS EN BLANCO"``.
+
+    Args:
+        row: A single row from an extracted PDF table.
+
+    Returns:
+        ``True`` if the row should be skipped.
+
+    """
+    for cell in row:
+        cell_lower = cell.strip().lower()
+        if cell_lower in _SKIP_HEADER_WORDS:
+            return True
+    return False
+
+
+def _parse_pdf_tables(tables: list[list[list[str]]]) -> pd.DataFrame:
+    """Convert extracted PDF tables into a name/votes DataFrame.
+
+    Scans all tables for rows containing a coalition/candidate name
+    and a vote count. Header rows, summary rows, and unparseable rows
+    are skipped.
+
+    Args:
+        tables: Raw tables from ``_extract_tables_with_fallback``.
+
+    Returns:
+        DataFrame with columns ``name`` (coalition/candidate name) and
+        ``votes`` (integer vote count). The caller is responsible for
+        mapping names to canonical keys via ``_aggregate_and_map``.
+
+    Raises:
+        ValueError: If no parseable rows are found in the extracted tables.
+
+    """
+    rows: list[dict[str, str | int]] = []
+    for table in tables:
+        for row in table:
+            if len(row) < _MIN_PDF_ROW_LENGTH:
+                continue
+            name = str(row[0]).strip()
+            vote_str = str(row[1]).strip()
+            if not name or not vote_str:
+                continue
+            if _is_header_or_summary(row):
+                continue
+            votes = _clean_vote_count(vote_str)
+            if votes <= 0:
+                continue
+            rows.append({"name": name, "votes": votes})
+    if not rows:
+        msg = (
+            "No parseable rows found in extracted PDF tables. "
+            "Check that the PDF contains tables with coalition names "
+            "and vote counts."
+        )
+        raise ValueError(msg)
+    return pd.DataFrame(rows)
+
+
+def _build_from_pdf_tables(
+    tables: list[list[list[str]]],
+    round_number: Literal[1, 2],
+    registered_voters: int,
+    polling_stations: int,
+) -> RoundResult:
+    """Build a ``RoundResult`` from extracted PDF tables.
+
+    Parses the tables into a DataFrame, maps coalition names to
+    candidate keys via ``COALITION_TO_CANDIDATE``, and builds a
+    complete ``RoundResult`` using the standard pipeline.
+
+    Args:
+        tables: Raw tables from ``_extract_tables_with_fallback``.
+        round_number: 1 or 2.
+        registered_voters: Total registered voters for this round.
+        polling_stations: Unique polling stations for this round.
+
+    Returns:
+        A fully populated ``RoundResult`` derived from the PDF data.
+
+    """
+    parsed = _parse_pdf_tables(tables)
+    aggregated = _aggregate_and_map(parsed, "name", "votes")
+    return _build_round_result(aggregated, round_number, registered_voters, polling_stations)
+
+
+def cross_validate_against_moe_pdf(
+    registraduria: RoundResult,
+    moe_csv: RoundResult,
+    pdf_path: Path,
+) -> list[str]:
+    """Parse the MOE PDF and perform 3-way cross-validation.
+
+    Extracts tables from the MOE PDF (pages 6--14 which contain the
+    presidential results), reconstructs a ``RoundResult`` from the
+    extracted data, and cross-validates it against both the Registraduría
+    and MOE CSV results using the same tolerances as ``cross_validate``.
+
+    Args:
+        registraduria: Canonical result from the Registraduría.
+        moe_csv: Result from the MOE CSV files.
+        pdf_path: Path to the MOE PDF file.
+
+    Returns:
+        List of warning messages. Empty list = all three sources agree
+        within tolerances.
+
+    Raises:
+        FileNotFoundError: If the PDF file does not exist.
+        ValueError: If the PDF contains no parseable result tables.
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from co_president.data_results import (
+        ...     cross_validate_against_moe_pdf,
+        ...     load_canonical_results,
+        ... )
+        >>> r1, _r2 = load_canonical_results()
+        >>> pdf_path = Path("data/2022-presidential-results/2022.11.09-...pdf")
+        >>> warnings = cross_validate_against_moe_pdf(r1, r1, pdf_path)
+        >>> if warnings:
+        ...     for w in warnings:
+        ...         print(w)
+
+    """
+    if not pdf_path.exists():
+        msg = f"MOE PDF not found: {pdf_path}"
+        raise FileNotFoundError(msg)
+
+    pdf_tables = _extract_tables_with_fallback(pdf_path, page_range=(6, 14))
+
+    round_number = registraduria.round_number
+    pdf_result = _build_from_pdf_tables(
+        pdf_tables,
+        round_number,
+        registraduria.registered_voters,
+        registraduria.polling_stations,
+    )
+
+    warnings: list[str] = []
+    warnings.extend(f"Reg vs PDF: {w}" for w in cross_validate(registraduria, pdf_result))
+    warnings.extend(f"MOE CSV vs PDF: {w}" for w in cross_validate(moe_csv, pdf_result))
+    return warnings

@@ -2,27 +2,28 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import FrozenInstanceError
 import logging
-from typing import TYPE_CHECKING
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from co_president.config import (
     COALITION_TO_CANDIDATE,
     ELECTION_DATE_ROUND1,
 )
 from co_president.data_results import (
+    PDF_RESULTS_2022,
     CandidateResult,
     RoundResult,
     _aggregate_and_map,
     _build_round_result,
     _compute_candidate_results,
     _extract_excluded_votes,
+    _extract_tables_with_fallback,
     _merge_blanco_into_rest,
     _read_mmv,
     _read_moe,
@@ -30,6 +31,7 @@ from co_president.data_results import (
     _resolve_mmv_path,
     consolidate_round,
     cross_validate,
+    cross_validate_against_moe_pdf,
 )
 
 # ═══════════════════════════════════════════════════════════════════
@@ -511,3 +513,153 @@ class TestResultHelpers:
 
 # NOTE: TestRegistraduriaLoaders, TestMOELoaders, TestParticipationLoaders,
 # TestLoadCanonicalResults have been moved to tests/integration/test_data_results_integration.py
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MOE PDF cross-validation tests (SPEC-23)
+# ═══════════════════════════════════════════════════════════════════
+
+
+_SYNTHETIC_PDF_TABLE: list[list[str]] = [
+    ["PARTIDO - MOVIMIENTO", "VOTOS", "%"],
+    ["COALICIÓN PACTO HISTÓRICO", "8.000.000", "40,00%"],
+    ["LIGA DE GOBERNANTES ANTICORRUPCIÓN", "6.000.000", "30,00%"],
+    ["COALICIÓN EQUIPO POR COLOMBIA", "4.000.000", "20,00%"],
+    ["COALICIÓN CENTRO ESPERANZA", "1.000.000", "5,00%"],
+    ["COLOMBIA PIENSA EN GRANDE", "500.000", "2,50%"],
+    ["VOTOS EN BLANCO", "500.000", "2,50%"],
+    ["VOTOS NULOS", "200.000", "1,00%"],
+    ["VOTOS NO MARCADOS", "50.000", "0,25%"],
+]
+
+# Flat list of extracted tables as returned by _extract_tables_with_fallback
+# when page_range restricts extraction to the results pages.
+# The extracted tables are a simple flat sequence — no per-page structure.
+_SYNTHETIC_PDF_TABLES: list[list[list[str]]] = [_SYNTHETIC_PDF_TABLE]
+
+
+def _make_pdf_test_round1_results() -> tuple[RoundResult, RoundResult]:
+    """Create Registraduría and MOE CSV RoundResults matching synthetic PDF data."""
+    candidates = (
+        CandidateResult("gustavo_petro", 8_000_000, 0.40),
+        CandidateResult("rodolfo_hernandez", 6_000_000, 0.30),
+        CandidateResult("federico_gutierrez", 4_000_000, 0.20),
+        CandidateResult("sergio_fajardo", 1_000_000, 0.05),
+        CandidateResult("rest", 500_000, 0.025),
+    )
+    result = RoundResult(
+        round_number=1,
+        date=ELECTION_DATE_ROUND1,
+        total_valid_votes=19_500_000,
+        total_votes_incl_blank=20_000_000,
+        registered_voters=38_971_664,
+        polling_stations=12_505,
+        candidates=candidates,
+        blank_votes=500_000,
+        null_votes=200_000,
+        unmarked_votes=50_000,
+    )
+    return result, result
+
+
+class TestMOEPDFCrossValidation:
+    """Tests for MOE PDF cross-validation (SPEC-23)."""
+
+    def test_constants_defined(self) -> None:
+        """Verify PDF_RESULTS_2022 constant is defined."""
+        assert isinstance(PDF_RESULTS_2022, str)
+        assert PDF_RESULTS_2022.endswith(".pdf")
+
+    def test_extract_tables_fallback_uses_pymupdf(self, tmp_path: Path) -> None:
+        """Verify fallback to pymupdf when pdfplumber returns no data."""
+        pdf_file = tmp_path / "test_empty.pdf"
+        pdf_file.write_text("dummy")
+        with (
+            patch("co_president.data_results._try_extract_pdfplumber", return_value=None),
+            patch("co_president.data_results._try_extract_pymupdf") as mock_fallback,
+        ):
+            mock_fallback.return_value = [[["coalicion", "100"]]]
+            result = _extract_tables_with_fallback(pdf_file)
+        assert len(result) >= 1
+        assert len(result[0]) >= 1
+
+    def test_extract_tables_fallback_both_fail_return_empty(self, tmp_path: Path) -> None:
+        """Verify empty list when both engines fail."""
+        pdf_file = tmp_path / "test_corrupt.pdf"
+        pdf_file.write_text("not a pdf")
+        with (
+            patch("co_president.data_results._try_extract_pdfplumber", return_value=None),
+            patch("co_president.data_results._try_extract_pymupdf", return_value=None),
+        ):
+            result = _extract_tables_with_fallback(pdf_file)
+        assert result == []
+
+    def test_cross_validate_moe_pdf_missing_file_raises(self) -> None:
+        """Verify FileNotFoundError when PDF does not exist."""
+        reg, moe = _make_pdf_test_round1_results()
+        with pytest.raises(FileNotFoundError, match="MOE PDF not found"):
+            cross_validate_against_moe_pdf(reg, moe, Path("/nonexistent/moe.pdf"))
+
+    def test_cross_validate_moe_pdf_petro_share_within_tolerance(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify no Petro warning when PDF data matches Registraduría closely."""
+        pdf_file = tmp_path / "moe.pdf"
+        pdf_file.write_text("dummy")
+        reg, moe = _make_pdf_test_round1_results()
+        with patch(
+            "co_president.data_results._extract_tables_with_fallback",
+            return_value=_SYNTHETIC_PDF_TABLES,
+        ):
+            warnings = cross_validate_against_moe_pdf(reg, moe, pdf_file)
+        petro_warnings = [w for w in warnings if "gustavo_petro" in w]
+        assert not petro_warnings, f"Unexpected Petro warnings: {petro_warnings}"
+
+    def test_cross_validate_moe_pdf_hernandez_share_within_tolerance(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify no Hernandez warning when PDF data matches Registraduría closely."""
+        pdf_file = tmp_path / "moe.pdf"
+        pdf_file.write_text("dummy")
+        reg, moe = _make_pdf_test_round1_results()
+        with patch(
+            "co_president.data_results._extract_tables_with_fallback",
+            return_value=_SYNTHETIC_PDF_TABLES,
+        ):
+            warnings = cross_validate_against_moe_pdf(reg, moe, pdf_file)
+        hernandez_warnings = [w for w in warnings if "rodolfo_hernandez" in w]
+        assert not hernandez_warnings, f"Unexpected Hernandez warnings: {hernandez_warnings}"
+
+    def test_cross_validate_moe_pdf_tolerance_boundary(self, tmp_path: Path) -> None:
+        """Verify 0.50pp tolerance boundary: no warning at +0.49pp, warning at +0.51pp."""
+        pdf_file = tmp_path / "moe.pdf"
+        pdf_file.write_text("dummy")
+        reg, moe = _make_pdf_test_round1_results()
+
+        # To shift Petro's share by +0.49pp (from 0.4000 to 0.4049):
+        # X / (12_000_000 + X) = 0.4049 => X = 8_164_678
+        modified_49 = copy.deepcopy(_SYNTHETIC_PDF_TABLES)
+        modified_49[0][1][1] = "8.164.678"
+
+        with patch(
+            "co_president.data_results._extract_tables_with_fallback",
+            return_value=modified_49,
+        ):
+            warnings_49 = cross_validate_against_moe_pdf(reg, moe, pdf_file)
+        petro_warnings_49 = [w for w in warnings_49 if "gustavo_petro" in w]
+        assert not petro_warnings_49, f"Unexpected Petro warning at +0.49pp: {petro_warnings_49}"
+
+        # To shift Petro's share by +0.51pp (from 0.4000 to 0.4051):
+        # X / (12_000_000 + X) = 0.4051 => X = 8_171_457
+        modified_51 = copy.deepcopy(_SYNTHETIC_PDF_TABLES)
+        modified_51[0][1][1] = "8.171.457"
+
+        with patch(
+            "co_president.data_results._extract_tables_with_fallback",
+            return_value=modified_51,
+        ):
+            warnings_51 = cross_validate_against_moe_pdf(reg, moe, pdf_file)
+        petro_warnings_51 = [w for w in warnings_51 if "gustavo_petro" in w]
+        assert petro_warnings_51, "Expected Petro warning at +0.51pp"
