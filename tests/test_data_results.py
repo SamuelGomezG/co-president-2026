@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import FrozenInstanceError
 import logging
 from pathlib import Path
@@ -531,12 +532,10 @@ _SYNTHETIC_PDF_TABLE: list[list[str]] = [
     ["VOTOS NO MARCADOS", "50.000", "0,25%"],
 ]
 
-# Simulates a 14-page PDF where pages 1-5 have no extractable tables,
-# page 6 (index 5) has the results table, and pages 7-14 are empty.
-# This matches the [5:14] slice used by cross_validate_against_moe_pdf.
-_SYNTHETIC_PDF_TABLES: list[list[list[str]]] = (
-    [[] for _ in range(5)] + [_SYNTHETIC_PDF_TABLE] + [[] for _ in range(8)]
-)
+# Flat list of extracted tables as returned by _extract_tables_with_fallback
+# when page_range restricts extraction to the results pages.
+# The extracted tables are a simple flat sequence — no per-page structure.
+_SYNTHETIC_PDF_TABLES: list[list[list[str]]] = [_SYNTHETIC_PDF_TABLE]
 
 
 def _make_pdf_test_round1_results() -> tuple[RoundResult, RoundResult]:
@@ -579,7 +578,7 @@ class TestMOEPDFCrossValidation:
             patch("co_president.data_results._try_extract_pdfplumber", return_value=None),
             patch("co_president.data_results._try_extract_pymupdf") as mock_fallback,
         ):
-            mock_fallback.return_value = [[[["coalicion", "100"]]]]
+            mock_fallback.return_value = [[["coalicion", "100"]]]
             result = _extract_tables_with_fallback(pdf_file)
         assert len(result) >= 1
         assert len(result[0]) >= 1
@@ -632,3 +631,35 @@ class TestMOEPDFCrossValidation:
             warnings = cross_validate_against_moe_pdf(reg, moe, pdf_file)
         hernandez_warnings = [w for w in warnings if "rodolfo_hernandez" in w]
         assert not hernandez_warnings, f"Unexpected Hernandez warnings: {hernandez_warnings}"
+
+    def test_cross_validate_moe_pdf_tolerance_boundary(self, tmp_path: Path) -> None:
+        """Verify 0.50pp tolerance boundary: no warning at +0.49pp, warning at +0.51pp."""
+        pdf_file = tmp_path / "moe.pdf"
+        pdf_file.write_text("dummy")
+        reg, moe = _make_pdf_test_round1_results()
+
+        # To shift Petro's share by +0.49pp (from 0.4000 to 0.4049):
+        # X / (12_000_000 + X) = 0.4049 => X = 8_164_678
+        modified_49 = copy.deepcopy(_SYNTHETIC_PDF_TABLES)
+        modified_49[0][1][1] = "8.164.678"
+
+        with patch(
+            "co_president.data_results._extract_tables_with_fallback",
+            return_value=modified_49,
+        ):
+            warnings_49 = cross_validate_against_moe_pdf(reg, moe, pdf_file)
+        petro_warnings_49 = [w for w in warnings_49 if "gustavo_petro" in w]
+        assert not petro_warnings_49, f"Unexpected Petro warning at +0.49pp: {petro_warnings_49}"
+
+        # To shift Petro's share by +0.51pp (from 0.4000 to 0.4051):
+        # X / (12_000_000 + X) = 0.4051 => X = 8_171_457
+        modified_51 = copy.deepcopy(_SYNTHETIC_PDF_TABLES)
+        modified_51[0][1][1] = "8.171.457"
+
+        with patch(
+            "co_president.data_results._extract_tables_with_fallback",
+            return_value=modified_51,
+        ):
+            warnings_51 = cross_validate_against_moe_pdf(reg, moe, pdf_file)
+        petro_warnings_51 = [w for w in warnings_51 if "gustavo_petro" in w]
+        assert petro_warnings_51, "Expected Petro warning at +0.51pp"
