@@ -90,6 +90,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Override ModelConfig fields (KEY=VALUE KEY=VALUE ...)",
     )
+    run_parser.add_argument(
+        "--year",
+        type=str,
+        choices=["2022", "2026"],
+        default="2022",
+        help="Election target year (default: 2022)",
+    )
 
     subparsers.add_parser(
         "validate",
@@ -913,7 +920,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
     # ── Run (with or without MCMC) ────────────────────────────────────
     if args.no_sample:
-        round1_candidates = get_active_candidates(1)
+        year_int = int(getattr(args, "year", "2022"))
+        round1_candidates = get_active_candidates(1, year=year_int)
         _print_no_sample_table(clean_polls, results_r1, round1_candidates)
         return
 
@@ -1520,12 +1528,14 @@ def _load_polls_to_2014() -> pd.DataFrame | None:
 
 
 def _cmd_forecast(args: argparse.Namespace) -> None:
-    """Execute the ``forecast`` subcommand.
+    """Execute the ``forecast`` subcommand (gating checkpoint only).
 
-    Sets up the ``ModelConfig`` with the requested ``fundamentals_mode``.
-    When ``--year 2026`` is passed, swaps to ``FIRST_ROUND_CANDIDATES_2026``
-    (candidate-agnostic feature space).  When ``--validate-oos`` is set and
-    ``year == 2026``, runs dual gating tests (SPEC-28).
+    This command does NOT run the model.  It validates preconditions:
+    - Swaps to ``FIRST_ROUND_CANDIDATES_2026`` when ``--year 2026``.
+    - Runs dual gating tests (SPEC-28) when ``--validate-oos`` is set.
+
+    After gating passes, use ``run`` with ``--year 2026`` to execute
+    the full forecast.
 
     For full model execution (data loading + MCMC), use ``run`` with
     ``--config-override`` instead::
@@ -1553,7 +1563,7 @@ def _cmd_forecast(args: argparse.Namespace) -> None:
             f"Forecast configured: mode={config.fundamentals_mode!r}, "
             f"year=2026. "
             f"Run ``python -m co_president run --config-override "
-            f"fundamentals_mode={args.mode}`` to execute.",
+            f"fundamentals_mode={args.mode} --year 2026`` to execute.",
         )
     else:
         print(
