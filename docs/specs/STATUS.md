@@ -40,6 +40,12 @@
 | SPEC-21c | CLR/logit transforms | `fundamentals/features.py` | #240 | ✅ Shipped |
 | SPEC-22 | Municipal hierarchical model | `model_municipal.py` | #241 | ✅ Shipped |
 
+## Digital Signals — Twitter Sentiment (Shipped)
+
+| SPEC | Title | Modules | Status |
+|------|-------|---------|--------|
+| SPEC-39 | Twitter sentiment pipeline | `twitter_preprocess.py`, `twitter_denoise.py`, `bert_sentiment.py`, `llm_sentiment.py`, `sentiment_series.py` | ✅ Shipped |
+
 ## Planned (not yet implemented)
 
 | SPEC | Title | Plan doc | Status |
