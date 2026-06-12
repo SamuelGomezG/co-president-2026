@@ -39,6 +39,7 @@ __all__ = [
     "HierarchicalForecast",
     "MunicipalForecast",
     "build_municipal_model",
+    "compute_effective_num_municipalities",
     "compute_effective_pop",
     "sample_municipal_model",
 ]
@@ -458,9 +459,48 @@ def sample_municipal_model(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Forecast dataclasses
+# Posterior diagnostics
 # ═══════════════════════════════════════════════════════════════════════
 
+
+def compute_effective_num_municipalities(
+    idata: DataTree,
+    pool_alpha: float,
+) -> int:
+    """Compute effective number of municipalities from posterior shrinkage weights.
+
+    Shrinkage weight for municipality *m*:
+        ``w_m = 1 - Var(mu_m_raw | data) / Var(prior)``
+
+    Effective municipalities = ``sum(w_m)``, which should be << 1 122
+    if shrinkage is working well.
+
+    Args:
+        idata: ArviZ ``DataTree`` with ``mu_m_raw`` posterior.
+        pool_alpha: Prior standard deviation of ``mu_m_raw`` (``pool_alpha``
+            from ``ModelConfig``).
+
+    Returns:
+        Effective number of municipalities (integer, rounded down).
+
+    Raises:
+        KeyError: If ``mu_m_raw`` is missing from the posterior.
+
+    """
+    prior_var = pool_alpha**2
+    mu_samples = idata.posterior["mu_m_raw"].to_numpy()  # (chain, draw, M, K)
+    posterior_var = mu_samples.var(axis=(0, 1), ddof=1).mean(axis=-1)  # (M,) avg over candidates
+
+    _eps = 1e-12
+    shrinkage = 1.0 - posterior_var / (prior_var + _eps)
+    shrinkage = np.clip(shrinkage, 0.0, 1.0)
+    effective = float(np.round(shrinkage.sum()))  # type: ignore[arg-type]
+    return int(effective)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Forecast dataclasses
+# ═══════════════════════════════════════════════════════════════════════
 
 from dataclasses import dataclass  # noqa: E402 — import after model code
 
