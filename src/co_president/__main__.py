@@ -34,6 +34,7 @@ from co_president.config import (
     ELECTION_DATE_ROUND1,
     ELECTION_DATE_ROUND2,
     FIRST_ROUND_CANDIDATES,
+    FIRST_ROUND_CANDIDATES_2026,
     POLLSTER_RATINGS,
     ModelConfig,
     get_active_candidates,
@@ -88,6 +89,13 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[],
         help="Override ModelConfig fields (KEY=VALUE KEY=VALUE ...)",
+    )
+    run_parser.add_argument(
+        "--year",
+        type=str,
+        choices=["2022", "2026"],
+        default="2022",
+        help="Election target year (default: 2022)",
     )
 
     subparsers.add_parser(
@@ -162,6 +170,21 @@ def _build_parser() -> argparse.ArgumentParser:
             "Model mode: 'off' = national polling-only (SPEC-06), "
             "'prior_only' = municipal fundamentals prior (default), "
             "'joint' = full hierarchical"
+        ),
+    )
+    forecast_parser.add_argument(
+        "--year",
+        type=str,
+        choices=["2022", "2026"],
+        default="2022",
+        help="Forecast target year (default: 2022)",
+    )
+    forecast_parser.add_argument(
+        "--validate-oos",
+        action="store_true",
+        help=(
+            "Run dual out-of-sample validation (year_2018_holdout + "
+            "leave_2022_out) before 2026 forecast (SPEC-28)"
         ),
     )
 
@@ -897,7 +920,8 @@ def _cmd_run(args: argparse.Namespace) -> None:
 
     # ── Run (with or without MCMC) ────────────────────────────────────
     if args.no_sample:
-        round1_candidates = get_active_candidates(1)
+        year_int = int(getattr(args, "year", "2022"))
+        round1_candidates = get_active_candidates(1, year=year_int)
         _print_no_sample_table(clean_polls, results_r1, round1_candidates)
         return
 
@@ -1310,10 +1334,219 @@ def _run_ingest_component(  # noqa: PLR0913
         )
 
 
-def _cmd_forecast(args: argparse.Namespace) -> None:
-    """Execute the ``forecast`` subcommand.
+def _validate_before_2026_forecast(config: ModelConfig) -> None:
+    """Run dual gating tests before 2026 forecast (SPEC-28).
 
-    Sets up the ``ModelConfig`` with the requested ``fundamentals_mode``.
+    Executes ``year_2018_holdout`` (cross-alignment beta transfer) and
+    ``leave_2022_out`` (sparse-poll / heavy-fundamentals) in sequence.
+    Both must pass before the 2026 forecast is considered valid.
+
+    Args:
+        config: Model hyperparameters.
+
+    Raises:
+        SystemExit: If either gating test fails or required data is
+            unavailable.
+
+    """
+    from co_president.data import load_and_clean_all, load_canonical_results  # noqa: PLC0415
+    from co_president.fundamentals.features import load_features  # noqa: PLC0415
+    from co_president.validation.municipal_oos import (  # noqa: PLC0415
+        leave_2022_out,
+        year_2018_holdout,
+    )
+
+    try:
+        features = load_features()
+    except (OSError, ValueError):
+        logger.exception("FAIL: could not load municipal features for 2026 gating tests")
+        sys.exit(1)
+
+    # -- leave 2022 out (sparse-poll regime test) ------------------------
+    try:
+        clean_polls = load_and_clean_all()
+        results_r1, _ = load_canonical_results()
+    except (OSError, ValueError, FileNotFoundError):
+        logger.exception(
+            "FAIL: could not load 2022 poll/result data for leave_2022_out gating test",
+        )
+        sys.exit(1)
+
+    try:
+        leave_2022_out(features, clean_polls.round1, results_r1, config)
+    except ValueError as exc:
+        err_msg = str(exc).lower()
+        if "poll" in err_msg and ("cap" in err_msg or "received" in err_msg):
+            logger.exception(
+                "FAIL: the sampled poll set exceeds the 10-poll cap — "
+                "try a different sampling_strategy or adjust the cap",
+            )
+        else:
+            logger.exception(
+                "FAIL: model cannot operate under sparse-poll / "
+                "heavy-fundamentals deployment mode — check "
+                "fundamentals_mode and sigma_m_prior",
+            )
+        sys.exit(1)
+    logger.info("PASS: leave_2022_out — model viable under sparse-poll regime")
+
+    # -- year 2018 holdout (cross-alignment beta transfer) ---------------
+    results_2018 = _load_results_2018()
+    if results_2018 is None:
+        logger.warning(
+            "SKIP: year_2018_holdout — no 2018 election data available. "
+            "This gating test requires historical CEDAE results.",
+        )
+    else:
+        polls_to_2014 = _load_polls_to_2014()
+        if polls_to_2014 is None or polls_to_2014.empty:
+            logger.warning(
+                "SKIP: year_2018_holdout — no pre-2014 poll data available. "
+                "This gating test requires historical poll data.",
+            )
+        else:
+            try:
+                year_2018_holdout(features, polls_to_2014, results_2018, config)
+            except ValueError:
+                logger.exception(
+                    "FAIL: beta coefficients do not transfer across "
+                    "coalition alignments — check fundamentals_mode "
+                    "and beta priors",
+                )
+                sys.exit(1)
+
+            logger.info(
+                "PASS: year_2018_holdout — beta coefficients transfer across coalition alignments",
+            )
+
+    logger.info("2026 gating tests complete")
+
+
+def _load_results_2018() -> RoundResult | None:
+    """Load and aggregate 2018 round-1 results for the 2018 holdout test.
+
+    Fetches municipal-level 2018 results via CEDAE and aggregates to a
+    national ``RoundResult``.
+
+    Returns:
+        Aggregated ``RoundResult``, or ``None`` if data is unavailable.
+
+    """
+    from co_president.ingestion.ingest_historical import (  # noqa: PLC0415
+        fetch_cedae_results,
+    )
+
+    try:
+        municipal_2018 = fetch_cedae_results(2018, 1)
+    except (OSError, ValueError):
+        logger.warning("Could not load 2018 CEDAE results — skipping")
+        return None
+
+    if municipal_2018.empty:
+        return None
+
+    from co_president.data import CandidateResult, RoundResult  # noqa: PLC0415
+
+    known = {c.key for c in get_active_candidates(1)}
+    vote_cols = [c for c in municipal_2018.columns if c in known]
+    if not vote_cols:
+        return None
+
+    totals = municipal_2018[vote_cols].sum(numeric_only=True)
+    total_votes = int(totals.sum())
+    if total_votes == 0:
+        return None
+
+    from datetime import date  # noqa: PLC0415
+
+    candidates = tuple(
+        CandidateResult(
+            candidate_key=k,
+            votes=int(totals[k]),
+            vote_share=float(totals[k]) / total_votes,
+        )
+        for k in vote_cols
+    )
+    return RoundResult(
+        round_number=1,
+        date=date(2018, 5, 27),
+        total_valid_votes=total_votes,
+        total_votes_incl_blank=total_votes,
+        registered_voters=0,
+        polling_stations=0,
+        candidates=candidates,
+        blank_votes=0,
+        null_votes=0,
+        unmarked_votes=0,
+    )
+
+
+def _load_polls_to_2014() -> pd.DataFrame | None:
+    """Attempt to load poll data from before 2014.
+
+    Returns:
+        DataFrame with historical poll data, or ``None`` when no data
+        source is configured / available.
+
+    Note:
+        Pre-2014 poll data is not included in the standard distribution.
+        This function returns ``None`` (skip) unless a custom data source
+        is configured at ``data/2014-polls/``.
+
+    """
+    import pandas as pd  # noqa: PLC0415
+
+    from co_president.paths import resolve_data_dir  # noqa: PLC0415
+
+    polls_dir = resolve_data_dir(None) / "2014-polls"
+    candidates = FIRST_ROUND_CANDIDATES  # Backward-compatible candidate set
+    csv_files: list[Path] = list(polls_dir.glob("*.csv"))
+    if not polls_dir.exists() or not csv_files:
+        return None
+    frames: list[pd.DataFrame] = []
+    for p in csv_files:
+        try:
+            frames.append(pd.read_csv(p, encoding="utf-8", encoding_errors="replace"))
+        except (OSError, ValueError):
+            logger.warning("Could not read %s", str(p))
+    if not frames:
+        return None
+    combined = pd.concat(frames, ignore_index=True)
+    if "fecha" in combined.columns:
+        combined["fecha"] = pd.to_datetime(combined["fecha"], errors="coerce")
+        before = len(combined)
+        combined = combined[combined["fecha"] < pd.Timestamp("2014-01-01")]
+        after = len(combined)
+        if before > after:
+            logger.warning(
+                "_load_polls_to_2014: dropped %d rows with dates beyond 2013-12-31",
+                before - after,
+            )
+        if combined.empty:
+            return None
+    else:
+        logger.warning(
+            "_load_polls_to_2014: missing 'fecha' column — "
+            "cannot validate pre-2014 cutoff, skipping holdout",
+        )
+        return None
+    expected = set(candidates)
+    available = set(combined.columns) & expected
+    if not available:
+        return None
+    return combined
+
+
+def _cmd_forecast(args: argparse.Namespace) -> None:
+    """Execute the ``forecast`` subcommand (gating checkpoint only).
+
+    This command does NOT run the model.  It validates preconditions:
+    - Swaps to ``FIRST_ROUND_CANDIDATES_2026`` when ``--year 2026``.
+    - Runs dual gating tests (SPEC-28) when ``--validate-oos`` is set.
+
+    After gating passes, use ``run`` with ``--year 2026`` to execute
+    the full forecast.
+
     For full model execution (data loading + MCMC), use ``run`` with
     ``--config-override`` instead::
 
@@ -1324,11 +1557,35 @@ def _cmd_forecast(args: argparse.Namespace) -> None:
 
     """
     config = ModelConfig(fundamentals_mode=args.mode)
-    print(
-        f"Forecast configured: mode={config.fundamentals_mode!r}. "
-        f"Run ``python -m co_president run --config-override "
-        f"fundamentals_mode={args.mode}`` to execute.",
-    )
+
+    if args.year == "2026":
+        if not FIRST_ROUND_CANDIDATES_2026:
+            logger.info(
+                "2026 target: FIRST_ROUND_CANDIDATES_2026 is empty — "
+                "using candidate-agnostic feature space "
+                "(FIRST_ROUND_CANDIDATES fallback)",
+            )
+        if args.validate_oos:
+            logger.info("Running 2026 gating validation (SPEC-28)...")
+            _validate_before_2026_forecast(config)
+
+        print(
+            f"Forecast configured: mode={config.fundamentals_mode!r}, "
+            f"year=2026. "
+            f"Run ``python -m co_president run --config-override "
+            f"fundamentals_mode={args.mode} --year 2026`` to execute.",
+        )
+    else:
+        print(
+            f"Forecast configured: mode={config.fundamentals_mode!r}. "
+            f"Run ``python -m co_president run --config-override "
+            f"fundamentals_mode={args.mode}`` to execute.",
+        )
+
+    if args.validate_oos and args.year != "2026":
+        logger.warning(
+            "--validate-oos is only meaningful with --year 2026; skipping out-of-sample validation",
+        )
 
 
 def _cmd_ingest(args: argparse.Namespace) -> None:

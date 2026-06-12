@@ -836,3 +836,49 @@ def test_find_pairing_returns_none_when_missing() -> None:
     )
     result = _find_pairing(matrix, ("federico_gutierrez", "sergio_fajardo"))
     assert result is None
+
+
+class TestForecastCLI:
+    """Tests for forecast subcommand CLI arguments."""
+
+    def test_forecast_parser_defaults(self) -> None:
+        """Verify forecast subcommand default argument values."""
+        from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+        parser = _build_parser()
+        args = parser.parse_args(["forecast"])
+        assert args.year == "2022"
+        assert args.validate_oos is False
+
+    def test_forecast_parser_with_year(self) -> None:
+        """Verify --year 2026 is parsed correctly."""
+        from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+        parser = _build_parser()
+        args = parser.parse_args(["forecast", "--year", "2026"])
+        assert args.year == "2026"
+
+    def test_forecast_parser_with_validate_oos(self) -> None:
+        """Verify --validate-oos flag is parsed correctly."""
+        from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+        parser = _build_parser()
+        args = parser.parse_args(["forecast", "--validate-oos"])
+        assert args.validate_oos is True
+
+    def test_forecast_parser_year_and_validate_oos(self) -> None:
+        """Verify --year 2026 and --validate-oos together."""
+        from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+        parser = _build_parser()
+        args = parser.parse_args(["forecast", "--year", "2026", "--validate-oos"])
+        assert args.year == "2026"
+        assert args.validate_oos is True
+
+    def test_forecast_parser_invalid_year(self) -> None:
+        """Verify --year rejects invalid value."""
+        from co_president.__main__ import _build_parser  # noqa: PLC0415
+
+        parser = _build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["forecast", "--year", "2010"])

@@ -13,6 +13,7 @@ from co_president.config import (
     CONSULTATION_KEY_MAP,
     CONSULTATION_VOTES,
     FIRST_ROUND_CANDIDATES,
+    FIRST_ROUND_CANDIDATES_2026,
     POLLSTER_RATINGS,
     TRANSFER_BLANCO_SPLIT,
     TRANSFER_FAJARDO_HERNANDEZ,
@@ -206,6 +207,18 @@ class TestFirstRoundCandidates:
         assert rest.coalition is None
 
 
+class TestFirstRoundCandidates2026:
+    """Tests for the FIRST_ROUND_CANDIDATES_2026 placeholder."""
+
+    def test_empty_by_default(self) -> None:
+        """Verify 2026 candidate dict is empty (placeholder)."""
+        assert len(FIRST_ROUND_CANDIDATES_2026) == 0
+
+    def test_is_dict(self) -> None:
+        """Verify type is dict."""
+        assert isinstance(FIRST_ROUND_CANDIDATES_2026, dict)
+
+
 class TestCoalitionToCandidate:
     """Tests for the COALITION_TO_CANDIDATE mapping."""
 
@@ -332,6 +345,15 @@ class TestGetActiveCandidates:
         }
         assert keys == expected
 
+    def test_year_2026_fallback(self) -> None:
+        """Verify year=2026 falls back to 2022 candidates (placeholder empty)."""
+        active_2026 = get_active_candidates(1, year=2026)
+        active_2022 = get_active_candidates(1)
+        assert len(active_2026) == len(active_2022)
+        keys_2026 = {c.key for c in active_2026}
+        keys_2022 = {c.key for c in active_2022}
+        assert keys_2026 == keys_2022
+
 
 class TestGetCandidateColumnMap:
     """Tests for the get_candidate_column_map helper."""
@@ -359,6 +381,12 @@ class TestGetCandidateColumnMap:
             "blanco",
         }
         assert set(mapping) == expected
+
+    def test_year_2026_fallback(self) -> None:
+        """Verify year=2026 falls back to 2022 column map (placeholder empty)."""
+        mapping_2026 = get_candidate_column_map(year=2026)
+        mapping_2022 = get_candidate_column_map()
+        assert set(mapping_2026) == set(mapping_2022)
 
 
 class TestConsultationVotes:
