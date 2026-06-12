@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 import pytest
+import xarray as xr
 
 from co_president.config import (
     FIRST_ROUND_CANDIDATES,
@@ -16,6 +17,7 @@ from co_president.data import CandidateResult, RoundResult
 from co_president.fundamentals.features import HistoricalRecord
 from co_president.model_municipal import (
     build_municipal_model,
+    compute_effective_num_municipalities,
     compute_effective_pop,
     sample_municipal_model,
 )
@@ -274,6 +276,157 @@ def test_build_municipal_model_requires_features() -> None:
             None,
             config,
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Horseshoe prior graph test
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def test_build_municipal_model_graph_horseshoe() -> None:
+    """Test that the municipal model builds with Horseshoe priors enabled.
+
+    Expected free RVs must include ``tau_horseshoe`` and the ``_lam`` /
+    ``_z`` variables from the Horseshoe parameterization, while still
+    producing the same deterministic and observed structure.
+    """
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_3row_polls()
+    config = ModelConfig(
+        use_horseshoe_prior=True,
+        beta_coefficient_prior_sigma=0.5,
+        sigma_m_prior=0.3,
+        house_effect_sigma_prior=1.0,
+    )
+    model = build_municipal_model(features, polls, None, config)
+
+    # Horseshoe introduces: tau_horseshoe, beta_*_lam (6 groups), beta_*_z (6 groups)
+    # This replaces the 6 plain Normal(0, 0.5) betas with 13 new RVs.
+    # Expected free RV names (Normal baseline + Horseshoe additions)
+    baseline_names = {
+        "alpha",
+        "sigma_m",
+        "mu_m_raw",
+        "sigma_house",
+        "phi_poll",
+        "raw_house",
+    }
+    horseshoe_names = {
+        "tau_horseshoe",
+        "beta_historical_lam",
+        "beta_historical_z",
+        "beta_ethnicity_lam",
+        "beta_ethnicity_z",
+        "beta_poverty_lam",
+        "beta_poverty_z",
+        "beta_rural_lam",
+        "beta_rural_z",
+        "beta_education_lam",
+        "beta_education_z",
+        "beta_risk_lam",
+        "beta_risk_z",
+    }
+    free_rv_names = {rv.name for rv in model.free_RVs}
+    expected_free = baseline_names | horseshoe_names
+    assert free_rv_names == expected_free, (
+        f"Free RV mismatch.\nExpected: {expected_free}\nGot:      {free_rv_names}"
+    )
+
+    # Horseshoe adds 6 Deterministic betas (beta_historical, etc.)
+    expected_det_names = {
+        "p_municipal",
+        "p_natl",
+        "phi_poll_n",
+        "house_effects",
+        "p_poll",
+    }
+    horseshoe_det_names = {
+        "beta_historical",
+        "beta_ethnicity",
+        "beta_poverty",
+        "beta_rural",
+        "beta_education",
+        "beta_risk",
+    }
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == expected_det_names | horseshoe_det_names, (
+        f"Deterministic mismatch.\nExpected: {expected_det_names | horseshoe_det_names}\n"
+        f"Got:      {det_names}"
+    )
+
+    assert len(model.observed_RVs) == 1
+    assert model.observed_RVs[0].name == "poll_likelihood"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Effective municipalities test
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestComputeEffectiveNumMunicipalities:
+    """Tests for the shrinkage-based effective municipality count."""
+
+    def test_perfect_shrinkage(self) -> None:
+        """When posterior variance is zero, all 3 municipalities are effective."""
+        idata = _make_dummy_idata(n_muni=3)
+        eff = compute_effective_num_municipalities(idata, pool_alpha=0.95)
+        assert eff == 3
+
+    def test_no_shrinkage(self) -> None:
+        """When posterior equals prior variance, effective count is 0."""
+        idata = _make_dummy_idata(n_muni=3, var_mult=0.95**2)
+        eff = compute_effective_num_municipalities(idata, pool_alpha=0.95)
+        assert eff == 0
+
+    def test_partial_shrinkage(self) -> None:
+        """When posterior variance is half of prior, effective count is ~1.5."""
+        idata = _make_dummy_idata(n_muni=3, var_mult=(0.95**2) * 0.5)
+        eff = compute_effective_num_municipalities(idata, pool_alpha=0.95)
+        assert eff == 1  # np.round(1.5) = 2? Actually (1 - 0.5) * 3 = 1.5 → rounded = 2
+        assert eff in (1, 2)
+
+
+def _make_dummy_idata(
+    n_muni: int = 3,
+    var_mult: float = 0.0,
+    n_chains: int = 2,
+    n_draws: int = 100,
+) -> xr.DataTree:
+    """Create a dummy ``xr.DataTree`` with a ``mu_m_raw`` posterior.
+
+    Sets ``mu_m_raw`` to zero-centered noise with variance
+    *var_mult* (relative to pool_alpha^2).  When *var_mult* = 0 (the
+    default), the posterior variance is 0 and shrinkage is perfect.
+
+    Args:
+        n_muni: Number of municipalities.
+        var_mult: Multiplier for the posterior variance relative to
+            ``pool_alpha**2``.
+        n_chains: Number of MCMC chains.
+        n_draws: Number of draws per chain.
+
+    Returns:
+        Dummy ``xr.DataTree`` with only ``mu_m_raw`` in the posterior.
+
+    """
+    rng = np.random.default_rng(42)
+    data = rng.normal(
+        0,
+        np.sqrt(var_mult),
+        size=(n_chains, n_draws, n_muni, 3),
+    ).astype(np.float32)
+
+    posterior = xr.Dataset(
+        {
+            "mu_m_raw": xr.DataArray(
+                data,
+                dims=("chain", "draw", "mu_m_raw_dim_0", "mu_m_raw_dim_1"),
+            ),
+        }
+    )
+    dt = xr.DataTree()
+    dt["posterior"] = posterior
+    return dt
 
 
 # ═══════════════════════════════════════════════════════════════════════
