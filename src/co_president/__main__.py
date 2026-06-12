@@ -1378,8 +1378,8 @@ def _validate_before_2026_forecast(config: ModelConfig) -> None:
         err_msg = str(exc).lower()
         if "poll" in err_msg and ("cap" in err_msg or "received" in err_msg):
             logger.exception(
-                "FAIL: leave_2022_out received too many polls — "
-                "ensure the input is pre-sampled to ≤ 10 polls",
+                "FAIL: the sampled poll set exceeds the 10-poll cap — "
+                "try a different sampling_strategy or adjust the cap",
             )
         else:
             logger.exception(
@@ -1499,11 +1499,9 @@ def _load_polls_to_2014() -> pd.DataFrame | None:
     from co_president.paths import resolve_data_dir  # noqa: PLC0415
 
     polls_dir = resolve_data_dir(None) / "2014-polls"
-    if not polls_dir.exists():
-        return None
     candidates = FIRST_ROUND_CANDIDATES  # Backward-compatible candidate set
     csv_files: list[Path] = list(polls_dir.glob("*.csv"))
-    if not csv_files:
+    if not polls_dir.exists() or not csv_files:
         return None
     frames: list[pd.DataFrame] = []
     for p in csv_files:
@@ -1526,6 +1524,12 @@ def _load_polls_to_2014() -> pd.DataFrame | None:
             )
         if combined.empty:
             return None
+    else:
+        logger.warning(
+            "_load_polls_to_2014: missing 'fecha' column — "
+            "cannot validate pre-2014 cutoff, skipping holdout",
+        )
+        return None
     expected = set(candidates)
     available = set(combined.columns) & expected
     if not available:

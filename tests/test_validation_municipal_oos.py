@@ -405,7 +405,7 @@ class TestLeave2022OutCap:
 
     def test_raises_when_bootstrap_exceeds_cap(self) -> None:
         """ValueError when bootstrap strategy passes > 10 polls through."""
-        polls_11 = pd.concat(
+        polls_exceeding_cap = pd.concat(
             [_make_3row_polls()] * 4,
             ignore_index=True,
         )
@@ -416,7 +416,7 @@ class TestLeave2022OutCap:
         with pytest.raises(ValueError, match="hard cap"):
             leave_2022_out(
                 features,
-                polls_11,
+                polls_exceeding_cap,
                 result,
                 config,
                 sampling_strategy="bootstrap",
