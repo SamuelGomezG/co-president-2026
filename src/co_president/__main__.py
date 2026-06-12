@@ -39,6 +39,8 @@ from co_president.config import (
     ModelConfig,
     get_active_candidates,
 )
+from co_president.ingestion.ingest_trends import compute_prop_fav, fetch_trends
+from co_president.ingestion.trends_keywords import CANDIDATE_QUERY_MAP_2026
 
 if TYPE_CHECKING:
     from co_president.config import Candidate
@@ -186,6 +188,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "Run dual out-of-sample validation (year_2018_holdout + "
             "leave_2022_out) before 2026 forecast (SPEC-28)"
         ),
+    )
+    forecast_parser.add_argument(
+        "--trends",
+        action="store_true",
+        help="Fetch and display Google Trends favorable propensity (SPEC-38)",
     )
 
     subparsers.add_parser("config", help="Print current configuration")
@@ -1537,6 +1544,33 @@ def _load_polls_to_2014() -> pd.DataFrame | None:
     return combined
 
 
+def _print_trends_for_forecast(year: str) -> None:
+    """Fetch and print Google Trends favorable propensity for candidates.
+
+    Args:
+        year: Forecast target year (``"2022"`` or ``"2026"``).
+
+    """
+    candidates = get_active_candidates(1, int(year))
+    candidate_keys = {c.key for c in candidates}
+    filtered_map = {k: v for k, v in CANDIDATE_QUERY_MAP_2026.items() if k in candidate_keys}
+    if not filtered_map:
+        logger.info("No trend query mappings available for year=%s", year)
+        return
+
+    queries = list(filtered_map.values())
+    trends_df = fetch_trends(queries)
+    if trends_df.empty:
+        logger.info("No trends data returned for year=%s", year)
+        return
+
+    prop_fav = compute_prop_fav(trends_df, filtered_map)
+    print("\n=== Google Trends Favorable Propensity ===")
+    for _, row in prop_fav.iterrows():
+        print(f"  {row['candidate']}: {row['prop_fav']:.1%}")
+    print()
+
+
 def _cmd_forecast(args: argparse.Namespace) -> None:
     """Execute the ``forecast`` subcommand (gating checkpoint only).
 
@@ -1581,6 +1615,9 @@ def _cmd_forecast(args: argparse.Namespace) -> None:
             f"Run ``python -m co_president run --config-override "
             f"fundamentals_mode={args.mode}`` to execute.",
         )
+
+    if getattr(args, "trends", False):
+        _print_trends_for_forecast(args.year)
 
     if args.validate_oos and args.year != "2026":
         logger.warning(
