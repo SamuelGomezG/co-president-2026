@@ -6,7 +6,6 @@ description: >-
 mode: subagent
 model: opencode-go/qwen3.7-plus
 temperature: 0.1
-hidden: true
 permission:
   read: allow
   edit: deny

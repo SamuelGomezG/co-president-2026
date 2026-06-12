@@ -7,7 +7,6 @@ mode: primary
 model: opencode-go/deepseek-v4-pro
 temperature: 0.1
 reasoningEffort: max
-maxSteps: 12
 color: "#2ecc71"
 permission:
   read: allow
