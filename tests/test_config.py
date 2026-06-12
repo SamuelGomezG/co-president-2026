@@ -127,6 +127,16 @@ class TestModelConfig:
         cfg = ModelConfig(pool_alpha=0.8)
         assert cfg.pool_alpha == 0.8
 
+    def test_use_horseshoe_prior_default(self) -> None:
+        """Verify use_horseshoe_prior defaults to False."""
+        cfg = ModelConfig()
+        assert cfg.use_horseshoe_prior is False
+
+    def test_use_horseshoe_prior_enabled(self) -> None:
+        """Verify use_horseshoe_prior can be set to True."""
+        cfg = ModelConfig(use_horseshoe_prior=True)
+        assert cfg.use_horseshoe_prior is True
+
     def test_enable_population_weighting_disabled(self) -> None:
         """Verify population weighting can be disabled."""
         cfg = ModelConfig(enable_population_weighting=False)
