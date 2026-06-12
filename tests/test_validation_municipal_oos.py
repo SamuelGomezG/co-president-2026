@@ -397,10 +397,14 @@ class TestBuildMissingDataReport:
 
 
 class TestLeave2022OutCap:
-    """Tests for the ≤10-poll cap in leave_2022_out."""
+    """Tests for the ≤10-poll cap in leave_2022_out.
 
-    def test_raises_when_more_than_10_polls(self) -> None:
-        """ValueError when > 10 polls are passed."""
+    The cap is checked AFTER sampling.  Use ``bootstrap`` strategy
+    (pass-through) to supply > 10 polls and verify the cap still fires.
+    """
+
+    def test_raises_when_bootstrap_exceeds_cap(self) -> None:
+        """ValueError when bootstrap strategy passes > 10 polls through."""
         polls_11 = pd.concat(
             [_make_3row_polls()] * 4,
             ignore_index=True,
@@ -409,8 +413,14 @@ class TestLeave2022OutCap:
         result = _make_2022_result()
         config = ModelConfig()
 
-        with pytest.raises(ValueError, match="hard cap is 10"):
-            leave_2022_out(features, polls_11, result, config)
+        with pytest.raises(ValueError, match="hard cap"):
+            leave_2022_out(
+                features,
+                polls_11,
+                result,
+                config,
+                sampling_strategy="bootstrap",
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════

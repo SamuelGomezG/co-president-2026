@@ -499,14 +499,10 @@ def leave_2022_out(  # noqa: C901, PLR0913
         ValueError: If ``len(polls_2022) > 10`` or R-squared < 0.3.
 
     """
-    if len(polls_2022) > _MAX_POLLS_2022:
-        msg = (
-            f"leave_2022_out: received {len(polls_2022)} polls, "
-            f"but the hard cap is {_MAX_POLLS_2022}. "
-            "Use a sampling strategy to reduce the poll count."
-        )
-        raise ValueError(msg)
-
+    # Sample first, then validate the result against the cap.
+    # The caller may pass the full unfiltered poll DataFrame; the
+    # sampling strategy reduces it to the sparse-poll regime before
+    # the hard-cap check fires.
     if sampling_strategy == "bootstrap":
         # Bootstrap runs are not handled inline because
         # sample_bootstrap_polls() returns a list of DataFrames
@@ -523,6 +519,14 @@ def leave_2022_out(  # noqa: C901, PLR0913
 
     if len(_polls) == 0:
         msg = f"leave_2022_out: no polls remain after '{sampling_strategy}' sampling"
+        raise ValueError(msg)
+
+    if len(_polls) > _MAX_POLLS_2022:
+        msg = (
+            f"leave_2022_out: post-sampling poll count ({len(_polls)}) "
+            f"exceeds hard cap ({_MAX_POLLS_2022}). "
+            "Use a different sampling strategy or reduce the cap."
+        )
         raise ValueError(msg)
 
     candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(_polls.columns))
