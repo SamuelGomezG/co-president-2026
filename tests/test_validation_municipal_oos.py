@@ -20,6 +20,7 @@ from co_president.validation.municipal_oos import (
     _compute_r2,
     compare_modes,
     leave_2022_out,
+    run_sensitivity_ablation,
     sample_all_low_polls,
     sample_bootstrap_polls,
     sample_stratified_polls,
@@ -574,3 +575,91 @@ def test_compare_modes_architecture() -> None:
     for key in ("gustavo_petro", "rodolfo_hernandez"):
         assert key in diffs
         assert diffs[key] >= 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# leave_2022_out — MAE gating test
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+def test_leave_2022_out_mae_gate() -> None:
+    """leave_2022_out raises ValueError when MAE exceeds 5 pp for a top-3 candidate.
+
+    Uses weak priors + 1-chain MCMC to stress the model and trigger the
+    MAE gating assertion.
+    """
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_multi_pollster_polls().head(3).copy()
+    polls["muestra"] = 10  # tiny samples increase posterior variance
+    result = _make_2022_result()
+    config = ModelConfig(
+        beta_coefficient_prior_sigma=10.0,
+        sigma_m_prior=0.5,
+        house_effect_sigma_prior=2.0,
+        mcmc_draws=200,
+        mcmc_tune=100,
+        mcmc_chains=1,
+        mcmc_cores=1,
+    )
+
+    with pytest.raises(ValueError, match="abs_error"):
+        leave_2022_out(features, polls, result, config, seed=42)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# leave_2022_out — HDI containment gating test
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+def test_leave_2022_out_hdi_gate() -> None:
+    """leave_2022_out raises ValueError when 94% HDI does not contain 40.34%.
+
+    Uses weak priors + 1-chain MCMC to produce wide posteriors that
+    may fail the 94% HDI containment test.
+    """
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_multi_pollster_polls().head(3).copy()
+    polls["muestra"] = 10
+    result = _make_2022_result()
+    config = ModelConfig(
+        beta_coefficient_prior_sigma=10.0,
+        sigma_m_prior=0.5,
+        house_effect_sigma_prior=2.0,
+        mcmc_draws=200,
+        mcmc_tune=100,
+        mcmc_chains=1,
+        mcmc_cores=1,
+    )
+
+    with pytest.raises(ValueError, match=r"94% HDI|abs_error|exceeds"):
+        leave_2022_out(features, polls, result, config, seed=99)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# run_sensitivity_ablation — smoke test
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+def test_run_sensitivity_ablation_smoke() -> None:
+    """run_sensitivity_ablation produces a comparison DataFrame with all three configs."""
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_3row_polls()
+    config = ModelConfig(
+        mcmc_draws=200,
+        mcmc_tune=100,
+        mcmc_chains=1,
+        mcmc_cores=1,
+    )
+
+    result = run_sensitivity_ablation(features, polls, None, config)
+    assert isinstance(result, pd.DataFrame)
+    assert not result.empty
+    assert "configuration" in result.columns
+    configs_found = set(result["configuration"])
+    expected = {"off", "normal", "horseshoe"}
+    assert configs_found == expected, f"Expected configs {expected}, got {configs_found}"
+    assert "posterior_mean" in result.columns
+    assert "effective_num_municipalities" in result.columns

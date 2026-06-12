@@ -8,22 +8,26 @@ prevents overfitting to 2022 data by failing the build with a
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import arviz as az  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd
 
 from co_president.config import FIRST_ROUND_CANDIDATES, POLLSTER_RATINGS
 from co_president.model_municipal import (
     build_municipal_model,
+    compute_effective_num_municipalities,
     sample_municipal_model,
 )
 
 if TYPE_CHECKING:
-    from co_president.config import ModelConfig
     from co_president.data import RoundResult
+
+from co_president.config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,7 @@ __all__ = [
     "compare_modes",
     "leave_2022_out",
     "leave_one_year_out",
+    "run_sensitivity_ablation",
     "sample_all_low_polls",
     "sample_bootstrap_polls",
     "sample_stratified_polls",
@@ -453,7 +458,7 @@ def year_2018_holdout(
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def leave_2022_out(  # noqa: PLR0913
+def leave_2022_out(  # noqa: C901, PLR0913
     features: pd.DataFrame,
     polls_2022: pd.DataFrame,
     results_2022: RoundResult,
@@ -554,15 +559,37 @@ def leave_2022_out(  # noqa: PLR0913
     abs_errors = np.array([float(e["abs_error"]) for e in errors])
     mae = float(abs_errors.mean())
 
-    top3_errors = sorted(errors, key=lambda x: float(x["abs_error"]), reverse=True)[:3]
-    for e in top3_errors:
+    # ── Gating: top-3 candidates by actual vote share must have MAE < 5 pp ──
+    sorted_by_share = sorted(
+        errors,
+        key=lambda x: float(x["actual_share"]),
+        reverse=True,
+    )
+    top3_by_share = sorted_by_share[:3]
+    for e in top3_by_share:
         if float(e["abs_error"]) > _MAE_PP_THRESHOLD:
-            logger.warning(
-                "leave_2022_out: candidate %s abs_error=%.4f exceeds %.0f pp threshold",
-                e["candidate"],
-                float(e["abs_error"]),
-                _MAE_PP_THRESHOLD * 100,
+            msg = (
+                f"leave_2022_out: candidate {e['candidate']} "
+                f"(actual {float(e['actual_share']):.4f}) "
+                f"abs_error={float(e['abs_error']):.4f} exceeds "
+                f"{_MAE_PP_THRESHOLD * 100:.0f} pp threshold"
             )
+            raise ValueError(msg)
+
+    # ── Gating: 94% HDI for Gustavo Petro must contain 40.34 % ──────────────
+    if "gustavo_petro" not in candidate_keys:
+        msg = f"Candidate 'gustavo_petro' not found in candidate_keys={candidate_keys}"
+        raise ValueError(msg)
+    petro_idx = candidate_keys.index("gustavo_petro")
+    petro_draws = idata.posterior["p_natl"].to_numpy()[:, :, petro_idx].flatten()
+    hdi_94 = az.hdi(petro_draws, hdi_prob=0.94)  # type: ignore[reportUnknownMemberType]
+    petro_actual = 0.4034
+    if not (hdi_94[0] <= petro_actual <= hdi_94[1]):
+        msg = (
+            f"leave_2022_out: 94% HDI for Gustavo Petro [{hdi_94[0]:.4f}, {hdi_94[1]:.4f}] "
+            f"does not contain actual share {petro_actual}"
+        )
+        raise ValueError(msg)
 
     logger.info(
         "leave_2022_out: R²=%.4f, MAE=%.4f (strategy=%s, n_polls=%d)",
@@ -634,6 +661,133 @@ def compare_modes(
             )
 
     return diffs
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Sensitivity ablation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def run_sensitivity_ablation(
+    features: pd.DataFrame,
+    polls: pd.DataFrame,
+    results: RoundResult | None,
+    config: ModelConfig,
+) -> pd.DataFrame:
+    """Run sensitivity ablation across three prior configurations.
+
+    Compares:
+    - ``"off"`` (flat): ``beta_coefficient_prior_sigma = 10.0``,
+      approximate uninformative prior.
+    - ``"normal"`` (default): ``Normal(0, 0.5)`` on beta coefficients.
+    - ``"horseshoe"``: Horseshoe prior on beta coefficients (aggressive
+      local + global shrinkage).
+
+    For each configuration, builds and samples the model, then reports
+    posterior means, effective number of municipalities, WAIC, and LOO.
+
+    Args:
+        features: Municipal feature matrix.
+        polls: Poll DataFrame.
+        results: Optional election result (passed through to model).
+        config: Base ``ModelConfig`` (will be modified per configuration).
+
+    Returns:
+        DataFrame with columns: ``configuration``, ``candidate``,
+        ``posterior_mean``, ``effective_num_municipalities``,
+        ``waic``, ``loo``.
+
+    Raises:
+        ValueError: If the model fails to sample for any configuration.
+
+    """
+    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
+    if not candidate_keys:
+        msg = "run_sensitivity_ablation: no candidate columns overlap with polls"
+        raise ValueError(msg)
+
+    configurations: list[dict[str, object]] = [
+        {
+            "name": "off",
+            "config": dataclasses.replace(
+                config,
+                beta_coefficient_prior_sigma=10.0,
+                use_horseshoe_prior=False,
+            ),
+        },
+        {
+            "name": "normal",
+            "config": dataclasses.replace(
+                config,
+                beta_coefficient_prior_sigma=0.5,
+                use_horseshoe_prior=False,
+            ),
+        },
+        {
+            "name": "horseshoe",
+            "config": dataclasses.replace(
+                config,
+                beta_coefficient_prior_sigma=0.5,
+                use_horseshoe_prior=True,
+            ),
+        },
+    ]
+
+    rows: list[dict[str, object]] = []
+
+    for cfg in configurations:
+        name = str(cfg["name"])
+        cfg_obj = cfg["config"]
+        if not isinstance(cfg_obj, ModelConfig):
+            msg = f"Expected a ModelConfig instance, got {type(cfg_obj).__name__}"
+            raise TypeError(msg)
+
+        logger.info("run_sensitivity_ablation: building model for '%s'", name)
+        model = build_municipal_model(features, polls, results, cfg_obj, target_year=2022)
+        idata = sample_municipal_model(model, cfg_obj)
+
+        # Posterior means
+        p_natl = idata.posterior["p_natl"].to_numpy()
+        means = p_natl.mean(axis=(0, 1))
+
+        for i, key in enumerate(candidate_keys):
+            rows.append(
+                {
+                    "configuration": name,
+                    "candidate": key,
+                    "posterior_mean": float(means[i]),
+                    "effective_num_municipalities": -1,
+                    "waic": float("nan"),
+                    "loo": float("nan"),
+                }
+            )
+
+        # Effective number of municipalities
+        eff = compute_effective_num_municipalities(idata, cfg_obj.pool_alpha)
+        for row in rows:
+            if row["configuration"] == name:
+                row["effective_num_municipalities"] = eff
+
+        # Information criteria
+        try:
+            waic_result = az.waic(idata, var_name="p_natl")  # type: ignore[reportUnknownMemberType]
+            loo_result = az.loo(idata, var_name="p_natl")  # type: ignore[reportUnknownMemberType]
+            waic_val = float(waic_result.waic)  # type: ignore[reportUnknownMemberType]
+            loo_val = float(loo_result.loo)  # type: ignore[reportUnknownMemberType]
+        except Exception:
+            logger.exception(
+                "run_sensitivity_ablation: WAIC/LOO computation failed for '%s'",
+                name,
+            )
+            waic_val = float("nan")
+            loo_val = float("nan")
+
+        for row in rows:
+            if row["configuration"] == name:
+                row["waic"] = waic_val
+                row["loo"] = loo_val
+
+    return pd.DataFrame(rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════
