@@ -51,14 +51,22 @@ from co_president.ingestion.ingest_sabaneta import (
     load_sabaneta_camara,
     validate_sabaneta,
 )
+from co_president.ingestion.ingest_trends import (
+    compute_prop_fav,
+    fetch_trends,
+)
 from co_president.ingestion.report import (
     generate_coverage_markdown,
     generate_coverage_report,
     verify_legislative_schemas,
     write_coverage_report,
 )
+from co_president.ingestion.trends_keywords import (
+    CANDIDATE_QUERY_MAP_2026,
+)
 
 __all__ = [
+    "CANDIDATE_QUERY_MAP_2026",
     "build_cnpv_features",
     "build_feature_matrix",
     "build_fiscal_features",
@@ -66,6 +74,8 @@ __all__ = [
     "build_nbi_features",
     "build_population_features",
     "build_sabaneta_camara_matrix",
+    "compute_prop_fav",
+    "fetch_trends",
     "generate_coverage_markdown",
     "generate_coverage_report",
     "generate_data_dictionary",
