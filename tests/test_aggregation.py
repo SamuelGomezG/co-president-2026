@@ -517,3 +517,23 @@ class TestEvolutionSeries:
             df, ["gustavo_petro"], ELECTION_DATE_ROUND1, POLLSTER_RATINGS, n_snapshots=3
         )
         assert np.issubdtype(result["weighted_average"].dtype, np.floating)
+
+    def test_includes_trends_column_when_trends_df_provided(self, df: pd.DataFrame) -> None:
+        """When ``trends_df`` is provided, result includes a ``trends`` column."""
+        candidates = ["gustavo_petro", "federico_gutierrez"]
+        trends_df = pd.DataFrame(
+            {
+                "as_of_date": [date(2022, 5, 29), date(2022, 5, 29)],
+                "candidate": ["gustavo_petro", "federico_gutierrez"],
+                "prop_fav": [0.6, 0.4],
+            }
+        )
+        result = evolution_series(
+            df,
+            candidates,
+            ELECTION_DATE_ROUND1,
+            POLLSTER_RATINGS,
+            n_snapshots=5,
+            trends_df=trends_df,
+        )
+        assert "trends" in result.columns
