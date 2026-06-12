@@ -254,6 +254,7 @@ This project has access to custom sub-agents (via the `task` tool) and skills (v
 | `code-review` | AI-powered code review. Trigger by asking "review my code" or "check for issues" | Requires `coderabbit` CLI. Actual review is run manually by the user per §9 |
 | `autofix` | Apply CodeRabbit PR review feedback with per-change approval | Requires `gh` CLI and open PR |
 | `find-skills` | Discovering and installing new skills from the open ecosystem | Search at https://skills.sh/ |
+| `graphify` | Codebase questions when `graphify-out/` exists — query, path-finding, and concept explanation | Installed via `uv tool install graphifyy`; auto-setup on first use |
 
 #### GitHub Workflow (global, pre-installed)
 
@@ -326,3 +327,18 @@ The `autofix` skill fetches unresolved CodeRabbit review threads and applies fix
 ### Invocation pattern
 
 When a task matches one of the above descriptions, load the skill or delegate to the sub-agent. Sub-agents run in their own context — provide them with a clear, self-contained prompt specifying what to return and how to verify their work.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+**Installation:** `graphify` is a global skill loaded via `skill: "graphify"`. If the `graphify` CLI is missing on first use, the skill handles auto-install via `uv tool install --upgrade graphifyy` (or `pip install graphifyy` as fallback). No manual setup required. If graphify is unavailable, agents should fall back to conventional file search (grep/glob).
