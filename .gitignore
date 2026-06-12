@@ -54,3 +54,5 @@ data/2026-polls/
 data/campaign_finance/
 data/conflict/
 data/digital_signals/
+
+graphify-out/
