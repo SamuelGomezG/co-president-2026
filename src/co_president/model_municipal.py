@@ -28,6 +28,7 @@ from co_president.config import (
 from co_president.fundamentals.features import clr
 
 if TYPE_CHECKING:
+    import pytensor.tensor as pt
     from xarray import DataTree
 
     from co_president.config import ModelConfig
@@ -112,12 +113,12 @@ def _clr_nbi_array(nbi: np.ndarray) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _horseshoe_beta(
+def _horseshoe_beta(  # type: ignore[reportUnknownParameterType, reportMissingTypeArgument, reportPrivateImportUsage]
     name: str,
-    tau: object,
+    tau: pt.TensorVariable,  # type: ignore[reportMissingTypeArgument, reportPrivateImportUsage]
     sigma: float,
     shape: int,
-) -> object:
+) -> pt.TensorVariable:  # type: ignore[reportMissingTypeArgument, reportPrivateImportUsage]
     """Build a horseshoe-prior beta coefficient with non-centered parameterization.
 
     Args:

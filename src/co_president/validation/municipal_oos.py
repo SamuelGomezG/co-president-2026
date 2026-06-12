@@ -577,6 +577,9 @@ def leave_2022_out(  # noqa: C901, PLR0913
             raise ValueError(msg)
 
     # ── Gating: 94% HDI for Gustavo Petro must contain 40.34 % ──────────────
+    if "gustavo_petro" not in candidate_keys:
+        msg = f"Candidate 'gustavo_petro' not found in candidate_keys={candidate_keys}"
+        raise ValueError(msg)
     petro_idx = candidate_keys.index("gustavo_petro")
     petro_draws = idata.posterior["p_natl"].to_numpy()[:, :, petro_idx].flatten()
     hdi_94 = az.hdi(petro_draws, hdi_prob=0.94)  # type: ignore[reportUnknownMemberType]
@@ -735,7 +738,9 @@ def run_sensitivity_ablation(
     for cfg in configurations:
         name = str(cfg["name"])
         cfg_obj = cfg["config"]
-        assert isinstance(cfg_obj, ModelConfig)  # noqa: S101
+        if not isinstance(cfg_obj, ModelConfig):
+            msg = f"Expected a ModelConfig instance, got {type(cfg_obj).__name__}"
+            raise TypeError(msg)
 
         logger.info("run_sensitivity_ablation: building model for '%s'", name)
         model = build_municipal_model(features, polls, results, cfg_obj, target_year=2022)

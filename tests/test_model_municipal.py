@@ -379,10 +379,11 @@ class TestComputeEffectiveNumMunicipalities:
         assert eff == 0
 
     def test_partial_shrinkage(self) -> None:
-        """When posterior variance is half of prior, effective count is ~1.5."""
+        """When posterior variance is half of prior, effective count is ~1.5 (rounded 1 or 2)."""
         idata = _make_dummy_idata(n_muni=3, var_mult=(0.95**2) * 0.5)
         eff = compute_effective_num_municipalities(idata, pool_alpha=0.95)
-        assert eff == 1  # np.round(1.5) = 2? Actually (1 - 0.5) * 3 = 1.5 → rounded = 2
+        # shrinkage = 0.5 → sum = 1.5 → np.round(1.5) = 2 (banker's rounding)
+        # Sampling noise in variance estimate can shift result to 1 or 2
         assert eff in (1, 2)
 
 
