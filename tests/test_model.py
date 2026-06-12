@@ -246,6 +246,36 @@ def test_build_round1_model_rounding_correction() -> None:
     assert len(model.observed_RVs) == 1
 
 
+def test_build_round1_model_zero_share_floor() -> None:
+    """Test that model handles zero vote shares without DirichletMultinomial log(0) error."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
+            "muestra": [1000, 1000, 1000],
+            "gustavo_petro": [52.0, 51.0, 50.0],
+            "rodolfo_hernandez": [48.0, 49.0, 50.0],
+            "blanco": [0.0, 0.0, 0.0],
+            "round_number": [1, 1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    # Zero floor should not break graph structure
+    assert len(model.free_RVs) == 2
+    assert len(model.observed_RVs) == 1
+
+    # Prior predictive should produce valid shares (no NaN from log(0))
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+    p_adj = prior_pred.prior["p_adj"]
+    assert np.all(np.isfinite(p_adj))
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
+
+
 def test_build_round1_model_backtest_mode() -> None:
     """Test that backtest mode (results=RoundResult) includes election likelihood."""
     polls = _make_3row_polls_3candidates()

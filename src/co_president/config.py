@@ -124,6 +124,7 @@ class ModelConfig:
     sigma_m_prior: float = 0.3
     pool_alpha: float = 0.95
     enable_population_weighting: bool = True
+    clr_target: bool = False
 
     @property
     def computed_consultation_prior_strengths(self) -> dict[str, float]:

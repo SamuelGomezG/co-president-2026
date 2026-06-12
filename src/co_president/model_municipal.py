@@ -351,6 +351,11 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
             pm.math.softmax(logit_p, axis=-1),  # type: ignore
         )
 
+        if config.clr_target:
+            log_p_muni = pm.math.log(p_municipal + _EPSILON)  # type: ignore[operator]
+            log_geom_mean = pm.math.mean(log_p_muni, axis=-1, keepdims=True)  # type: ignore
+            pm.Deterministic("p_municipal_clr", log_p_muni - log_geom_mean)  # type: ignore
+
         # ── Layer B: National poll likelihood ─────────────────────────
 
         # Turnout-weighted national rollup (n_candidates,)
