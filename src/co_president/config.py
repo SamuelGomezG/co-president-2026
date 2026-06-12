@@ -35,6 +35,7 @@ __all__ = [
     "ELECTION_DATE_ROUND1",
     "ELECTION_DATE_ROUND2",
     "FIRST_ROUND_CANDIDATES",
+    "FIRST_ROUND_CANDIDATES_2026",
     "HISTORICAL_CANDIDATE_IDEOLOGY",
     "HISTORICAL_ROUND2_IDEOLOGY",
     "HISTORICAL_TURNOUT_SOURCE",
@@ -203,6 +204,12 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
     ),
 }
 
+# Placeholder for 2026 first-round candidates.  Official candidate list is
+# not yet published.  Once known, replace with real Candidate objects.
+# Until populated, forecasts default to FIRST_ROUND_CANDIDATES for
+# candidate-agnostic feature space.
+FIRST_ROUND_CANDIDATES_2026: dict[str, Candidate] = {}
+
 # "nulos" and "no_marcados" are mapped for the data loader (SPEC-03) to
 # recognise but are NOT candidates in FIRST_ROUND_CANDIDATES — they are
 # tracked separately and excluded from valid vote share per the spec.
@@ -355,11 +362,15 @@ def get_default_pollster_weight() -> float:
 
 def get_active_candidates(
     round_number: Literal[1, 2],
+    year: int = 2022,
 ) -> list[Candidate]:
     """Return candidates active in a given election round.
 
     Args:
         round_number: 1 for first round, 2 for runoff.
+        year: Election year (default 2022).  When 2026, uses
+            ``FIRST_ROUND_CANDIDATES_2026`` if populated, otherwise
+            falls back to ``FIRST_ROUND_CANDIDATES``.
 
     Returns:
         List of Candidate objects active in that round.
@@ -378,15 +389,20 @@ def get_active_candidates(
         True
 
     """
+    candidates = (
+        FIRST_ROUND_CANDIDATES_2026
+        if year == 2026 and FIRST_ROUND_CANDIDATES_2026  # noqa: PLR2004
+        else FIRST_ROUND_CANDIDATES
+    )
     if round_number == _ROUND_FIRST:
-        return [c for c in FIRST_ROUND_CANDIDATES.values() if c.first_round]
+        return [c for c in candidates.values() if c.first_round]
     if round_number == _ROUND_SECOND:
-        return [c for c in FIRST_ROUND_CANDIDATES.values() if c.runoff]
+        return [c for c in candidates.values() if c.runoff]
     msg = f"round_number must be 1 or 2, got {round_number!r}"
     raise ValueError(msg)
 
 
-def get_candidate_column_map() -> dict[str, str]:
+def get_candidate_column_map(year: int = 2022) -> dict[str, str]:
     """Return mapping from CSV column names to candidate keys.
 
     All keys in ``FIRST_ROUND_CANDIDATES`` are identity-mapped (CSV column
@@ -396,6 +412,10 @@ def get_candidate_column_map() -> dict[str, str]:
         Currently an identity mapping (CSV column names equal candidate
         keys). If the actual CSV data uses different column names, this
         function must be updated.
+
+    Args:
+        year: Election year (default 2022).  When 2026, uses
+            ``FIRST_ROUND_CANDIDATES_2026`` if populated.
 
     Returns:
         Dict mapping CSV column name to candidate key.
@@ -408,7 +428,12 @@ def get_candidate_column_map() -> dict[str, str]:
         7
 
     """
-    return {key: key for key in FIRST_ROUND_CANDIDATES}
+    candidates = (
+        FIRST_ROUND_CANDIDATES_2026
+        if year == 2026 and FIRST_ROUND_CANDIDATES_2026  # noqa: PLR2004
+        else FIRST_ROUND_CANDIDATES
+    )
+    return {key: key for key in candidates}
 
 
 # Historical candidate ideology registry for the 2002-2022 elections.
