@@ -107,6 +107,35 @@ def _clr_nbi_array(nbi: np.ndarray) -> np.ndarray:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Prior helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _horseshoe_beta(
+    name: str,
+    tau: object,
+    sigma: float,
+    shape: int,
+) -> object:
+    """Build a horseshoe-prior beta coefficient with non-centered parameterization.
+
+    Args:
+        name: Variable name prefix.
+        tau: Global shrinkage parameter (shared across all beta groups).
+        sigma: Prior scale (``beta_coefficient_prior_sigma``).
+        shape: Number of candidates.
+
+    Returns:
+        Deterministic ``name`` tensor of shape ``(shape,)`` with the
+        horseshoe-shrunk coefficient.
+
+    """
+    lam = pm.HalfCauchy(f"{name}_lam", beta=1.0, shape=shape)  # type: ignore[reportUnknownMemberType]
+    z = pm.Normal(f"{name}_z", mu=0, sigma=1.0, shape=shape)  # type: ignore[reportUnknownMemberType]
+    return pm.Deterministic(name, z * tau * lam * sigma)  # type: ignore[reportUnknownMemberType]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Model building
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -279,42 +308,23 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
         alpha = pm.Normal("alpha", mu=0, sigma=1.0, shape=n_candidates)  # type: ignore
 
         # Shared beta coefficients (one per candidate per feature group)
-        beta_historical = pm.Normal(  # type: ignore
-            "beta_historical",
-            mu=0,
-            sigma=config.beta_coefficient_prior_sigma,
-            shape=n_candidates,
-        )
-        beta_ethnicity = pm.Normal(  # type: ignore
-            "beta_ethnicity",
-            mu=0,
-            sigma=config.beta_coefficient_prior_sigma,
-            shape=n_candidates,
-        )
-        beta_poverty = pm.Normal(  # type: ignore
-            "beta_poverty",
-            mu=0,
-            sigma=config.beta_coefficient_prior_sigma,
-            shape=n_candidates,
-        )
-        beta_rural = pm.Normal(  # type: ignore
-            "beta_rural",
-            mu=0,
-            sigma=config.beta_coefficient_prior_sigma,
-            shape=n_candidates,
-        )
-        beta_education = pm.Normal(  # type: ignore
-            "beta_education",
-            mu=0,
-            sigma=config.beta_coefficient_prior_sigma,
-            shape=n_candidates,
-        )
-        beta_risk = pm.Normal(  # type: ignore
-            "beta_risk",
-            mu=0,
-            sigma=config.beta_coefficient_prior_sigma,
-            shape=n_candidates,
-        )
+        # Normal(0, 0.5) default; Horseshoe option for aggressive shrinkage.
+        _sigma = config.beta_coefficient_prior_sigma
+        if config.use_horseshoe_prior:
+            tau_hs = pm.HalfCauchy("tau_horseshoe", beta=1.0)  # type: ignore[reportUnknownMemberType]
+            beta_historical = _horseshoe_beta("beta_historical", tau_hs, _sigma, n_candidates)  # type: ignore[reportUnknownVariableType]
+            beta_ethnicity = _horseshoe_beta("beta_ethnicity", tau_hs, _sigma, n_candidates)  # type: ignore[reportUnknownVariableType]
+            beta_poverty = _horseshoe_beta("beta_poverty", tau_hs, _sigma, n_candidates)  # type: ignore[reportUnknownVariableType]
+            beta_rural = _horseshoe_beta("beta_rural", tau_hs, _sigma, n_candidates)  # type: ignore[reportUnknownVariableType]
+            beta_education = _horseshoe_beta("beta_education", tau_hs, _sigma, n_candidates)  # type: ignore[reportUnknownVariableType]
+            beta_risk = _horseshoe_beta("beta_risk", tau_hs, _sigma, n_candidates)  # type: ignore[reportUnknownVariableType]
+        else:
+            beta_historical = pm.Normal("beta_historical", mu=0, sigma=_sigma, shape=n_candidates)  # type: ignore[reportUnknownMemberType]
+            beta_ethnicity = pm.Normal("beta_ethnicity", mu=0, sigma=_sigma, shape=n_candidates)  # type: ignore[reportUnknownMemberType]
+            beta_poverty = pm.Normal("beta_poverty", mu=0, sigma=_sigma, shape=n_candidates)  # type: ignore[reportUnknownMemberType]
+            beta_rural = pm.Normal("beta_rural", mu=0, sigma=_sigma, shape=n_candidates)  # type: ignore[reportUnknownMemberType]
+            beta_education = pm.Normal("beta_education", mu=0, sigma=_sigma, shape=n_candidates)  # type: ignore[reportUnknownMemberType]
+            beta_risk = pm.Normal("beta_risk", mu=0, sigma=_sigma, shape=n_candidates)  # type: ignore[reportUnknownMemberType]
 
         # Non-centered municipal-level random effects
         sigma_m = pm.HalfNormal("sigma_m", sigma=config.sigma_m_prior, shape=n_candidates)  # type: ignore
@@ -323,14 +333,14 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
         )
 
         # Linear predictor: logit(p_mk) = alpha_k + Σ beta_g[k] · z_m + sigma_m[k] · mu_raw[m,k]
-        logit_p = (  # type: ignore
+        logit_p = (  # type: ignore[operator, index]
             alpha[None, :]
-            + beta_historical[None, :] * clr_left_z[:, None]
-            + beta_ethnicity[None, :] * pct_afro_z[:, None]
-            + beta_poverty[None, :] * clr_nbi_z[:, None]
-            + beta_rural[None, :] * pct_rural_z[:, None]
-            + beta_education[None, :] * years_schooling_z[:, None]
-            + beta_risk[None, :] * high_risk[:, None]
+            + beta_historical[None, :] * clr_left_z[:, None]  # type: ignore[index]
+            + beta_ethnicity[None, :] * pct_afro_z[:, None]  # type: ignore[index]
+            + beta_poverty[None, :] * clr_nbi_z[:, None]  # type: ignore[index]
+            + beta_rural[None, :] * pct_rural_z[:, None]  # type: ignore[index]
+            + beta_education[None, :] * years_schooling_z[:, None]  # type: ignore[index]
+            + beta_risk[None, :] * high_risk[:, None]  # type: ignore[index]
             + sigma_m[None, :] * mu_m_raw
         )
 
