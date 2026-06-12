@@ -6,7 +6,7 @@ import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
 import pytest
 
-from co_president.config import FIRST_ROUND_CANDIDATES, ModelConfig
+from co_president.config import ELECTION_DATES, FIRST_ROUND_CANDIDATES, ModelConfig
 from co_president.data import (
     CandidateResult,
     RoundResult,
@@ -14,8 +14,10 @@ from co_president.data import (
 from co_president.model_round1 import (
     CandidateForecast,
     Round1Forecast,
+    build_multi_election_model,
     build_round1_model,
     forecast_round1,
+    predict_year,
     sample_round1,
     simulate_elections,
 )
@@ -93,6 +95,231 @@ def _make_round1_result() -> RoundResult:
         null_votes=200_000,
         unmarked_votes=30_000,
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-election model helpers and tests (SPEC-40)
+# ---------------------------------------------------------------------------
+
+
+def _make_polls_year_3candidates(year: int) -> pd.DataFrame:
+    """Return 4-row synthetic DataFrame for a specific election year.
+
+    Creates 2 time points per year with 2 pollsters and 3 candidate columns
+    (Petro, Hernandez, blanco) that overlap with ``FIRST_ROUND_CANDIDATES``.
+    Poll dates are set for election-day and 14 days before.
+    """
+    if year not in set(ELECTION_DATES):
+        msg = f"Unsupported year: {year}"
+        raise ValueError(msg)
+
+    election_date = ELECTION_DATES[year]
+    date_14_before = election_date - pd.Timedelta(days=14)
+
+    return pd.DataFrame(
+        {
+            "fecha": [
+                str(date_14_before),
+                str(date_14_before),
+                str(election_date),
+                str(election_date),
+            ],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterA", "PollsterB"],
+            "muestra": [1000, 1000, 1000, 1000],
+            "gustavo_petro": [48.0, 52.0, 50.0, 50.0],
+            "rodolfo_hernandez": [42.0, 38.0, 40.0, 40.0],
+            "blanco": [10.0, 10.0, 10.0, 10.0],
+            "round_number": [1, 1, 1, 1],
+        }
+    )
+
+
+CANDIDATES_3 = ["gustavo_petro", "rodolfo_hernandez", "blanco"]
+
+
+def test_build_multi_election_model_graph() -> None:
+    """Test multi-election model graph builds correctly with 2 years.
+
+    Builds with 2018 + 2022 data, 2 time points, 2 pollsters, house effects.
+    Free RVs: sigma_rw, sigma_house, phi_poll (3 shared)
+             + 2 theta per year * 2 years = 4
+             + raw_house per year * 2 years = 2
+             = 9 total
+    Deterministics: p_time, house_effects, p_adj, phi_poll_n per year * 2 = 8
+    Observed: poll_likelihood per year * 2 = 2
+    """
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+    )
+
+    assert len(model.free_RVs) == 9
+    det_names = {d.name for d in model.deterministics}
+    expected_dets = {
+        "2018_p_time",
+        "2022_p_time",
+        "2018_house_effects",
+        "2022_house_effects",
+        "2018_p_adj",
+        "2022_p_adj",
+        "2018_phi_poll_n",
+        "2022_phi_poll_n",
+    }
+    assert det_names == expected_dets
+    assert len(model.observed_RVs) == 2
+    obs_names = {o.name for o in model.observed_RVs}
+    assert obs_names == {"2018_poll_likelihood", "2022_poll_likelihood"}
+
+
+def test_build_multi_election_model_prior_predictive() -> None:
+    """Test multi-election prior predictive samples are valid.
+
+    p_time and p_adj should be in [0, 1] and sum to 1 per time point.
+    """
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+    )
+
+    with model:
+        prior = pm.sample_prior_predictive(draws=200, random_seed=config.seed)
+
+    for year in (2018, 2022):
+        p_time = prior.prior[f"{year}_p_time"]
+        p_adj = prior.prior[f"{year}_p_adj"]
+        assert (p_time >= 0.0).all(), f"{year}_p_time has negative values"
+        assert (p_time <= 1.0).all(), f"{year}_p_time has values > 1"
+        assert (p_adj >= 0.0).all(), f"{year}_p_adj has negative values"
+        assert (p_adj <= 1.0).all(), f"{year}_p_adj has values > 1"
+        np.testing.assert_allclose(
+            p_time.sum(axis=-1).to_numpy(),
+            1.0,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            p_adj.sum(axis=-1).to_numpy(),
+            1.0,
+            atol=1e-6,
+        )
+
+
+def test_build_multi_election_model_backtest() -> None:
+    """Test multi-election model with results for one year (backtest mode).
+
+    With results for 2022, there should be 1 extra free RV (phi_elec_2022),
+    1 extra deterministic (p_elec_2022), and 1 extra observed RV.
+    """
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    results_2022 = _make_round1_result()
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {2022: results_2022},
+        config,
+    )
+
+    # Free RVs: 9 (shared + per-year) + 1 (phi_elec) = 10
+    assert len(model.free_RVs) == 10
+    det_names = {d.name for d in model.deterministics}
+    assert "2022_p_elec" in det_names
+    assert "2018_p_elec" not in det_names  # no results for 2018
+    # Observed: 2 poll_likelihood + 1 election_likelihood = 3
+    assert len(model.observed_RVs) == 3
+    obs_names = {o.name for o in model.observed_RVs}
+    assert obs_names == {
+        "2018_poll_likelihood",
+        "2022_poll_likelihood",
+        "2022_election_likelihood",
+    }
+
+
+def test_build_multi_election_model_no_house_effects() -> None:
+    """Test multi-election model without house effects.
+
+    No sigma_house, phi_poll, raw_house, or house_effects.
+    Shared: sigma_rw only.
+    Per-year: 2 theta vars * 2 = 4
+    Total free RVs = 1 + 4 = 5
+    Deterministics: p_time, p_adj per year * 2 = 4
+    """
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    config = ModelConfig(random_walk_sigma_prior=0.5)
+
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+        no_house_effects=True,
+    )
+
+    assert len(model.free_RVs) == 5
+    det_names = {d.name for d in model.deterministics}
+    expected_dets = {
+        "2018_p_time",
+        "2022_p_time",
+        "2018_p_adj",
+        "2022_p_adj",
+    }
+    assert det_names == expected_dets
+    assert len(model.observed_RVs) == 2
+
+
+def test_predict_year_synthetic() -> None:
+    """Test predict_year on a synthetic multi-election posterior.
+
+    Creates a synthetic InferenceData with {year}_p_time variables and
+    verifies that predict_year returns a valid Round1Forecast.
+    """
+    n_chains, n_draws = 2, 200
+    alphas = np.array([52, 38, 10], dtype=float)
+
+    rng = np.random.default_rng(42)
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 2, 3))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"2022_p_time": p_time}},
+        dims={"2022_p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    forecast = predict_year(2022, idata, CANDIDATES_3)
+    assert isinstance(forecast, Round1Forecast)
+    assert len(forecast.candidates) == 3
+    assert forecast.round_number == 1
+    assert 0.0 <= forecast.prob_runoff <= 1.0
+
+    petro = next(c for c in forecast.candidates if c.candidate_key == "gustavo_petro")
+    hernandez = next(c for c in forecast.candidates if c.candidate_key == "rodolfo_hernandez")
+    blanco = next(c for c in forecast.candidates if c.candidate_key == "blanco")
+    assert petro.mean_share > hernandez.mean_share > blanco.mean_share
+    assert 0.0 < petro.ci_50[0] < petro.ci_50[1] < 1.0
+    assert 0.0 < petro.ci_95[0] < petro.ci_95[1] < 1.0
+
+
+def test_predict_year_missing_variable() -> None:
+    """Test predict_year raises ValueError for missing year."""
+    rng = np.random.default_rng(42)
+    raw = rng.gamma(np.array([1, 1, 1]), 1, size=(2, 100, 2, 3))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+    idata = az.from_dict(
+        data={"posterior": {"2018_p_time": p_time}},
+        dims={"2018_p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+    with pytest.raises(ValueError, match="Posterior does not contain '2022_p_time'"):
+        predict_year(2022, idata, CANDIDATES_3)
 
 
 def test_build_round1_model_house_effects() -> None:

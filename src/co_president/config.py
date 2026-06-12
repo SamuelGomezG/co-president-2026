@@ -32,6 +32,7 @@ __all__ = [
     "CONSULTATION_DATE",
     "CONSULTATION_KEY_MAP",
     "CONSULTATION_VOTES",
+    "ELECTION_DATES",
     "ELECTION_DATE_ROUND1",
     "ELECTION_DATE_ROUND2",
     "FIRST_ROUND_CANDIDATES",
@@ -231,6 +232,18 @@ COALITION_TO_CANDIDATE: dict[str, str] = {
 ELECTION_DATE_ROUND1: date = date(2022, 5, 29)
 ELECTION_DATE_ROUND2: date = date(2022, 6, 19)
 CONSULTATION_DATE: date = date(2022, 3, 13)
+
+# Election dates for the first round of each presidential election since 2002.
+# Used by ``build_multi_election_model`` (SPEC-40) for per-year time indexing.
+ELECTION_DATES: dict[int, date] = {
+    2002: date(2002, 5, 26),
+    2006: date(2006, 5, 28),
+    2010: date(2010, 5, 30),
+    2014: date(2014, 5, 25),
+    2018: date(2018, 5, 27),
+    2022: date(2022, 5, 29),
+    2026: date(2026, 5, 31),
+}
 
 _ROUND_FIRST = 1
 _ROUND_SECOND = 2
