@@ -1374,14 +1374,20 @@ def _validate_before_2026_forecast(config: ModelConfig) -> None:
 
     try:
         leave_2022_out(features, clean_polls.round1, results_r1, config)
-    except ValueError:
-        logger.exception(
-            "FAIL: model cannot operate under sparse-poll / "
-            "heavy-fundamentals deployment mode — check "
-            "fundamentals_mode and sigma_m_prior",
-        )
+    except ValueError as exc:
+        err_msg = str(exc).lower()
+        if "poll" in err_msg and ("cap" in err_msg or "received" in err_msg):
+            logger.exception(
+                "FAIL: leave_2022_out received too many polls — "
+                "ensure the input is pre-sampled to ≤ 10 polls",
+            )
+        else:
+            logger.exception(
+                "FAIL: model cannot operate under sparse-poll / "
+                "heavy-fundamentals deployment mode — check "
+                "fundamentals_mode and sigma_m_prior",
+            )
         sys.exit(1)
-
     logger.info("PASS: leave_2022_out — model viable under sparse-poll regime")
 
     # -- year 2018 holdout (cross-alignment beta transfer) ---------------
