@@ -254,6 +254,7 @@ This project has access to custom sub-agents (via the `task` tool) and skills (v
 | `code-review` | AI-powered code review. Trigger by asking "review my code" or "check for issues" | Requires `coderabbit` CLI. Actual review is run manually by the user per §9 |
 | `autofix` | Apply CodeRabbit PR review feedback with per-change approval | Requires `gh` CLI and open PR |
 | `find-skills` | Discovering and installing new skills from the open ecosystem | Search at https://skills.sh/ |
+| `graphify` | Codebase questions when `graphify-out/` exists — query, path-finding, and concept explanation | Installed via `uv tool install graphifyy`; auto-setup on first use |
 
 #### GitHub Workflow (global, pre-installed)
 
@@ -339,3 +340,5 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+**Installation:** `graphify` is a global skill loaded via `skill: "graphify"`. If the `graphify` CLI is missing on first use, the skill handles auto-install via `uv tool install --upgrade graphifyy` (or `pip install graphifyy` as fallback). No manual setup required. If graphify is unavailable, agents should fall back to conventional file search (grep/glob).
