@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help check fmt fmt-check lint lint-fix typecheck test test-fast test-model test-model-slow \
-        dev sync install setup clean sec ci download-cnpv fundamentals cnpv nbi ipm population
+        dev sync install setup clean sec ci download-cnpv fundamentals cnpv nbi ipm population \
+        benchmark-fnn-clr
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -72,6 +73,9 @@ clean:  ## Remove all caches, build artifacts, and coverage data
 
 download-cnpv:  ## Download raw CNPV 2018 ZIP archives
 	@uv run python scripts/download_cnpv_2018.py
+
+benchmark-fnn-clr:  ## Run SPEC-41 FNN+CLR ML benchmark (15 model-transform combinations)
+	@uv run python -m co_president benchmark-fnn-clr
 
 fundamentals: cnpv nbi ipm population  ## Ingest all fundamental datasets
 

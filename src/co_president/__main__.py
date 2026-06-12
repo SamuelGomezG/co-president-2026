@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
     from xarray import DataTree
 
+from co_president.benchmarks.runner import run_benchmarks, write_csv
 from co_president.config import (
     CONSULTATION_DATE,
     ELECTION_DATE_ROUND1,
@@ -189,6 +190,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("config", help="Print current configuration")
+
+    bm_parser = subparsers.add_parser(
+        "benchmark-fnn-clr",
+        help="Run FNN+CLR ML benchmark (SPEC-41)",
+    )
+    bm_parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run with synthetic 3-row data instead of full historical dataset",
+    )
 
     return parser
 
@@ -1720,12 +1731,19 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
+    """Run the SPEC-41 FNN+CLR ML benchmark on historical data."""
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    results = run_benchmarks(smoke=args.smoke)
+    write_csv(results)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Main entry point
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901
     """Parse CLI arguments and dispatch to the appropriate subcommand."""
     parser = _build_parser()
     args = parser.parse_args()
@@ -1747,6 +1765,8 @@ def main() -> None:
             _cmd_plot(args.output_dir)
         elif args.command == "forecast":
             _cmd_forecast(args)
+        elif args.command == "benchmark-fnn-clr":
+            _cmd_benchmark_fnn_clr(args)
         else:
             parser.print_help()
             sys.exit(1)
