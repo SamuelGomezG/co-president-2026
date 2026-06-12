@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import arviz as az  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd
 
@@ -453,7 +454,7 @@ def year_2018_holdout(
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def leave_2022_out(  # noqa: PLR0913
+def leave_2022_out(  # noqa: C901, PLR0913
     features: pd.DataFrame,
     polls_2022: pd.DataFrame,
     results_2022: RoundResult,
@@ -554,15 +555,34 @@ def leave_2022_out(  # noqa: PLR0913
     abs_errors = np.array([float(e["abs_error"]) for e in errors])
     mae = float(abs_errors.mean())
 
-    top3_errors = sorted(errors, key=lambda x: float(x["abs_error"]), reverse=True)[:3]
-    for e in top3_errors:
+    # ── Gating: top-3 candidates by actual vote share must have MAE < 5 pp ──
+    sorted_by_share = sorted(
+        errors,
+        key=lambda x: float(x["actual_share"]),
+        reverse=True,
+    )
+    top3_by_share = sorted_by_share[:3]
+    for e in top3_by_share:
         if float(e["abs_error"]) > _MAE_PP_THRESHOLD:
-            logger.warning(
-                "leave_2022_out: candidate %s abs_error=%.4f exceeds %.0f pp threshold",
-                e["candidate"],
-                float(e["abs_error"]),
-                _MAE_PP_THRESHOLD * 100,
+            msg = (
+                f"leave_2022_out: candidate {e['candidate']} "
+                f"(actual {float(e['actual_share']):.4f}) "
+                f"abs_error={float(e['abs_error']):.4f} exceeds "
+                f"{_MAE_PP_THRESHOLD * 100:.0f} pp threshold"
             )
+            raise ValueError(msg)
+
+    # ── Gating: 94% HDI for Gustavo Petro must contain 40.34 % ──────────────
+    petro_idx = candidate_keys.index("gustavo_petro")
+    petro_draws = idata.posterior["p_natl"].to_numpy()[:, :, petro_idx].flatten()
+    hdi_94 = az.hdi(petro_draws, hdi_prob=0.94)  # type: ignore[reportUnknownMemberType]
+    petro_actual = 0.4034
+    if not (hdi_94[0] <= petro_actual <= hdi_94[1]):
+        msg = (
+            f"leave_2022_out: 94% HDI for Gustavo Petro [{hdi_94[0]:.4f}, {hdi_94[1]:.4f}] "
+            f"does not contain actual share {petro_actual}"
+        )
+        raise ValueError(msg)
 
     logger.info(
         "leave_2022_out: R²=%.4f, MAE=%.4f (strategy=%s, n_polls=%d)",
