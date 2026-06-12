@@ -10,11 +10,13 @@ from pathlib import Path
 import tempfile
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from co_president.benchmarks.runner import (
     _r2_rmse_per_class,
     _train_test_split,
+    report_benchmark_baseline,
     run_benchmarks,
     write_csv,
 )
@@ -103,3 +105,62 @@ class TestRunBenchmarks:
         """Calling run_benchmarks without X/y and smoke=False raises."""
         with pytest.raises(ValueError, match="Provide X/y or pass smoke"):
             run_benchmarks()
+
+
+class TestFullScale:
+    """Tests with larger synthetic datasets (marked ``slow``)."""
+
+    @pytest.mark.slow
+    def test_100_rows_no_none_r2(self) -> None:
+        """100-row dataset: all 75 result rows have finite R²/RMSE."""
+        rng = np.random.default_rng(42)
+        X = rng.dirichlet(np.ones(5), size=100).astype(np.float64)
+        y = rng.dirichlet(np.ones(5), size=100).astype(np.float64)
+        results = run_benchmarks(X, y)
+        assert len(results) == 75
+        assert all(r["r2"] is not None for r in results)
+        assert all(r["rmse"] is not None for r in results)
+
+    @pytest.mark.slow
+    def test_100_rows_deterministic(self) -> None:
+        """100-row results are reproducible."""
+        rng = np.random.default_rng(42)
+        X = rng.dirichlet(np.ones(5), size=100).astype(np.float64)
+        y = rng.dirichlet(np.ones(5), size=100).astype(np.float64)
+        r1 = run_benchmarks(X, y)
+        r2 = run_benchmarks(X, y)
+        assert r1 == r2
+
+
+class TestReportBenchmarkBaseline:
+    """Tests for the SPEC-26 baseline reporter."""
+
+    def test_missing_y_cols_returns_empty(self) -> None:
+        """DataFrame without y_* columns returns early."""
+        df = pd.DataFrame({"x1": [1.0, 2.0]})
+        result = report_benchmark_baseline(df)
+        assert result["n_rows"] == 0
+
+    def test_with_y_cols_runs_all_combos(self) -> None:
+        """DataFrame with all 5 y_* columns runs all combos."""
+        rng = np.random.default_rng(42)
+        y_raw = rng.dirichlet(np.ones(5), size=10)
+        cols: dict[str, np.ndarray] = {
+            "x_feat1": rng.random(10),
+            "x_feat2": rng.random(10),
+        }
+        for i, cls in enumerate(
+            [
+                "Izquierda",
+                "Centro_Izquierda",
+                "Centro",
+                "Centro_Derecha",
+                "Derecha",
+            ]
+        ):
+            cols[f"y_{cls}"] = y_raw[:, i]
+        df = pd.DataFrame(cols)
+        result = report_benchmark_baseline(df)
+        assert result["n_rows"] > 0
+        assert result["n_models"] == 5
+        assert result["n_transforms"] == 3

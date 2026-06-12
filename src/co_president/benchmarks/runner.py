@@ -13,9 +13,12 @@ import importlib
 import logging
 from pathlib import Path
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
 from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
     r2_score,  # type: ignore[reportUnknownVariableType]
     root_mean_squared_error,  # type: ignore[reportUnknownVariableType]
@@ -335,9 +338,9 @@ def _load_historical_data() -> tuple[np.ndarray, np.ndarray]:
         n = df.shape[0]
         y_synth = np.abs(rng.standard_normal((n, 5)))
         y_synth = y_synth / y_synth.sum(axis=1, keepdims=True)
-        return df[X_cols].values.astype(np.float64), y_synth
+        return df[X_cols].to_numpy(np.float64), y_synth
 
-    return df[X_cols].values.astype(np.float64), df[available_y].values.astype(np.float64)
+    return df[X_cols].to_numpy(np.float64), df[available_y].to_numpy(np.float64)
 
 
 def _print_summary(results: list[dict[str, Any]], path: Path) -> None:
@@ -351,6 +354,79 @@ def _print_summary(results: list[dict[str, Any]], path: Path) -> None:
         r2s = [r["r2"] for r in m_rows if r["r2"] is not None]
         if r2s:
             print(f"  {m_name}: mean R² = {np.mean(r2s):.4f} (n={len(r2s)})")
+
+
+def report_benchmark_baseline(
+    features: pd.DataFrame,
+    *,
+    model_names: tuple[str, ...] = ("svr", "rfr", "gbr", "knn", "fnn"),
+    transform_names: tuple[str, ...] = ("alr", "clr", "ilr"),
+) -> dict[str, Any]:
+    """Run benchmarks on a features DataFrame and log a summary.
+
+    Extracts feature columns and 5-class ideology target columns from
+    *features*, runs all *model_names* × *transform_names* combinations, and
+    logs per-model mean R².  Intended as an informational reference baseline
+    inside the SPEC-26 OOS validation pipeline (does **not** gate).
+
+    If the target columns are not present in *features*, the function logs a
+    warning and returns early with an empty results list.
+
+    Args:
+        features: DataFrame containing feature columns and ``y_Izquierda``,
+            ``y_Centro_Izquierda``, ``y_Centro``, ``y_Centro_Derecha``,
+            ``y_Derecha`` target columns.
+        model_names: Models to evaluate (registry keys).
+        transform_names: Transforms to evaluate.
+
+    Returns:
+        Dict with keys ``n_rows``, ``n_models``, ``n_transforms`` and
+        ``results`` (the raw list of result dicts from ``run_benchmarks``).
+
+    """
+    y_cols = [f"y_{cls}" for cls in _IDEOLOGY_CLASSES]
+    available_y = [c for c in y_cols if c in features.columns]
+    if len(available_y) < 5:
+        logger.warning(
+            "Benchmark baseline: 5-class y columns not found in features. "
+            "Expected: %s. Found: %s. Skipping.",
+            ", ".join(y_cols),
+            ", ".join(available_y),
+        )
+        return {"n_rows": 0, "n_models": 0, "n_transforms": 0, "results": []}
+
+    X_cols = [
+        c
+        for c in features.columns
+        if c not in ("year", "divipola", "municipio") and c not in y_cols
+    ]
+    X = features[X_cols].to_numpy(np.float64)
+    y = features[available_y].to_numpy(np.float64)
+
+    results = run_benchmarks(X, y, model_names=model_names, transform_names=transform_names)
+    _log_baseline_summary(results)
+
+    return {
+        "n_rows": len(results),
+        "n_models": len(model_names),
+        "n_transforms": len(transform_names),
+        "results": results,
+    }
+
+
+def _log_baseline_summary(results: list[dict[str, Any]]) -> None:
+    """Log per-model mean R² from benchmark results."""
+    by_model: dict[str, list[float]] = {}
+    for r in results:
+        by_model.setdefault(str(r["model"]), []).append(
+            float(r["r2"]) if r["r2"] is not None else float("nan")
+        )  # type: ignore[arg-type]
+    for m_name, r2s in sorted(by_model.items()):
+        valid = [v for v in r2s if not np.isnan(v)]
+        if valid:
+            logger.info("  %s: mean R² = %.4f (n=%d)", m_name, np.mean(valid), len(valid))
+        else:
+            logger.info("  %s: R² all NaN (too few samples?)", m_name)
 
 
 if __name__ == "__main__":

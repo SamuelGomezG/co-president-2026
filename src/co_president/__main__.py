@@ -1430,6 +1430,21 @@ def _validate_before_2026_forecast(config: ModelConfig) -> None:
                 "PASS: year_2018_holdout — beta coefficients transfer across coalition alignments",
             )
 
+    # -- ML benchmark baseline (informational, not gating) -----------------
+    try:
+        from co_president.benchmarks.runner import report_benchmark_baseline  # noqa: PLC0415
+
+        summary = report_benchmark_baseline(features)
+        if summary["n_rows"] > 0:
+            logger.info(
+                "Benchmark baseline: %d rows (%d models x %d transforms)",
+                summary["n_rows"],
+                summary["n_models"],
+                summary["n_transforms"],
+            )
+    except Exception:
+        logger.exception("Benchmark baseline skipped (non-fatal)")
+
     logger.info("2026 gating tests complete")
 
 
