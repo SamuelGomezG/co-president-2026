@@ -1449,7 +1449,7 @@ def _load_results_2018() -> RoundResult | None:
         CandidateResult(
             candidate_key=k,
             votes=int(totals[k]),
-            vote_share=int(totals[k]) / total_votes,
+            vote_share=float(totals[k]) / total_votes,
         )
         for k in vote_cols
     )
@@ -1494,12 +1494,24 @@ def _load_polls_to_2014() -> pd.DataFrame | None:
     frames: list[pd.DataFrame] = []
     for p in csv_files:
         try:
-            frames.append(pd.read_csv(p))
+            frames.append(pd.read_csv(p, encoding="utf-8", encoding_errors="replace"))
         except (OSError, ValueError):
             logger.warning("Could not read %s", str(p))
     if not frames:
         return None
     combined = pd.concat(frames, ignore_index=True)
+    if "fecha" in combined.columns:
+        combined["fecha"] = pd.to_datetime(combined["fecha"], errors="coerce")
+        before = len(combined)
+        combined = combined[combined["fecha"] < pd.Timestamp("2014-01-01")]
+        after = len(combined)
+        if before > after:
+            logger.warning(
+                "_load_polls_to_2014: dropped %d rows with dates beyond 2013-12-31",
+                before - after,
+            )
+        if combined.empty:
+            return None
     expected = set(candidates)
     available = set(combined.columns) & expected
     if not available:
