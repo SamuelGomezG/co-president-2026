@@ -8,6 +8,7 @@ prevents overfitting to 2022 data by failing the build with a
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -19,12 +20,14 @@ import pandas as pd
 from co_president.config import FIRST_ROUND_CANDIDATES, POLLSTER_RATINGS
 from co_president.model_municipal import (
     build_municipal_model,
+    compute_effective_num_municipalities,
     sample_municipal_model,
 )
 
 if TYPE_CHECKING:
-    from co_president.config import ModelConfig
     from co_president.data import RoundResult
+
+from co_president.config import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,7 @@ __all__ = [
     "compare_modes",
     "leave_2022_out",
     "leave_one_year_out",
+    "run_sensitivity_ablation",
     "sample_all_low_polls",
     "sample_bootstrap_polls",
     "sample_stratified_polls",
@@ -654,6 +658,131 @@ def compare_modes(
             )
 
     return diffs
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Sensitivity ablation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def run_sensitivity_ablation(
+    features: pd.DataFrame,
+    polls: pd.DataFrame,
+    results: RoundResult | None,
+    config: ModelConfig,
+) -> pd.DataFrame:
+    """Run sensitivity ablation across three prior configurations.
+
+    Compares:
+    - ``"off"`` (flat): ``beta_coefficient_prior_sigma = 10.0``,
+      approximate uninformative prior.
+    - ``"normal"`` (default): ``Normal(0, 0.5)`` on beta coefficients.
+    - ``"horseshoe"``: Horseshoe prior on beta coefficients (aggressive
+      local + global shrinkage).
+
+    For each configuration, builds and samples the model, then reports
+    posterior means, effective number of municipalities, WAIC, and LOO.
+
+    Args:
+        features: Municipal feature matrix.
+        polls: Poll DataFrame.
+        results: Optional election result (passed through to model).
+        config: Base ``ModelConfig`` (will be modified per configuration).
+
+    Returns:
+        DataFrame with columns: ``configuration``, ``candidate``,
+        ``posterior_mean``, ``effective_num_municipalities``,
+        ``waic``, ``loo``.
+
+    Raises:
+        ValueError: If the model fails to sample for any configuration.
+
+    """
+    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
+    if not candidate_keys:
+        msg = "run_sensitivity_ablation: no candidate columns overlap with polls"
+        raise ValueError(msg)
+
+    configurations: list[dict[str, object]] = [
+        {
+            "name": "off",
+            "config": dataclasses.replace(
+                config,
+                beta_coefficient_prior_sigma=10.0,
+                use_horseshoe_prior=False,
+            ),
+        },
+        {
+            "name": "normal",
+            "config": dataclasses.replace(
+                config,
+                beta_coefficient_prior_sigma=0.5,
+                use_horseshoe_prior=False,
+            ),
+        },
+        {
+            "name": "horseshoe",
+            "config": dataclasses.replace(
+                config,
+                beta_coefficient_prior_sigma=0.5,
+                use_horseshoe_prior=True,
+            ),
+        },
+    ]
+
+    rows: list[dict[str, object]] = []
+
+    for cfg in configurations:
+        name = str(cfg["name"])
+        cfg_obj = cfg["config"]
+        assert isinstance(cfg_obj, ModelConfig)  # noqa: S101
+
+        logger.info("run_sensitivity_ablation: building model for '%s'", name)
+        model = build_municipal_model(features, polls, results, cfg_obj, target_year=2022)
+        idata = sample_municipal_model(model, cfg_obj)
+
+        # Posterior means
+        p_natl = idata.posterior["p_natl"].to_numpy()
+        means = p_natl.mean(axis=(0, 1))
+
+        for i, key in enumerate(candidate_keys):
+            rows.append(
+                {
+                    "configuration": name,
+                    "candidate": key,
+                    "posterior_mean": float(means[i]),
+                    "effective_num_municipalities": -1,
+                    "waic": float("nan"),
+                    "loo": float("nan"),
+                }
+            )
+
+        # Effective number of municipalities
+        eff = compute_effective_num_municipalities(idata, cfg_obj.pool_alpha)
+        for row in rows:
+            if row["configuration"] == name:
+                row["effective_num_municipalities"] = eff
+
+        # Information criteria
+        try:
+            waic_result = az.waic(idata, var_name="p_natl")  # type: ignore[reportUnknownMemberType]
+            loo_result = az.loo(idata, var_name="p_natl")  # type: ignore[reportUnknownMemberType]
+            waic_val = float(waic_result.waic)  # type: ignore[reportUnknownMemberType]
+            loo_val = float(loo_result.loo)  # type: ignore[reportUnknownMemberType]
+        except Exception:
+            logger.exception(
+                "run_sensitivity_ablation: WAIC/LOO computation failed for '%s'",
+                name,
+            )
+            waic_val = float("nan")
+            loo_val = float("nan")
+
+        for row in rows:
+            if row["configuration"] == name:
+                row["waic"] = waic_val
+                row["loo"] = loo_val
+
+    return pd.DataFrame(rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════
