@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import sys
 from typing import Any
+import warnings
 
 import numpy as np
 import pandas as pd  # type: ignore[reportMissingTypeStubs]
@@ -28,6 +29,7 @@ from sklearn.multioutput import (  # type: ignore[reportMissingTypeStubs]
 from sklearn.pipeline import Pipeline  # type: ignore[reportMissingTypeStubs]
 from sklearn.preprocessing import StandardScaler  # type: ignore[reportMissingTypeStubs]
 
+from co_president.benchmarks.terridata import load_fiscal_features as _load_fiscal_features
 from co_president.benchmarks.transforms import (
     alr_inv_transform,
     alr_transform,
@@ -71,6 +73,9 @@ _TRANSFORM_REGISTRY: dict[str, str] = {
     "clr": "clr",
     "ilr": "ilr",
 }
+
+_ELECTION_YEARS: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018, 2022)
+_FISCAL_YEAR_SET: set[int] = set(_ELECTION_YEARS)
 
 _IDEOLOGY_CLASSES: list[str] = [
     "Izquierda",
@@ -324,6 +329,19 @@ def _apply_inverse_transform(name: str, y: np.ndarray) -> np.ndarray:
     raise ValueError(msg)
 
 
+def _standardize_columns(arrays: list[np.ndarray]) -> list[np.ndarray]:
+    """Pad arrays to the same column count with zeros."""
+    max_cols = max(arr.shape[1] for arr in arrays)
+    result: list[np.ndarray] = []
+    for arr in arrays:
+        if arr.shape[1] < max_cols:
+            pad = np.zeros((arr.shape[0], max_cols - arr.shape[1]))
+            result.append(np.hstack([arr, pad]))
+        else:
+            result.append(arr)
+    return result
+
+
 def _train_test_split(
     X: np.ndarray,
     y: np.ndarray,
@@ -481,18 +499,21 @@ def run_benchmarks(
 
 def _prepare_year_data(
     df: pd.DataFrame,
-    year: int,  # noqa: ARG001
+    year: int,
     n_classes: int,
     *,
     exclude_year: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute features + class targets for a single election year.
 
+    Static features (no year suffix) are taken from the feature matrix.
+    Year-specific fiscal indicators from TerriData are merged in when
+    the year is one of the six presidential election years.
+
     Args:
         df: Full feature matrix with ``vote_share_*`` columns.
-        year: Target election year.  Added as a numeric feature so the
-            model can capture temporal drift (year index normalised to
-            0..1 across the available year range).
+        year: Target election year.  Used to select year-specific
+            fiscal features.
         n_classes: 3 or 5.
         exclude_year: If set, exclude feature columns that contain
             this year suffix (prevents target leakage in holdout
@@ -507,7 +528,7 @@ def _prepare_year_data(
     y_cols = [f"y_{cls}" for cls in (_3CLASS_CLASSES if is_3class else _IDEOLOGY_CLASSES)]
 
     leaked_suffix = str(exclude_year) if exclude_year else None
-    demog_cols = [
+    static_cols = [
         c
         for c in df.columns
         if not re.match(r"vote_share_", c)
@@ -515,17 +536,35 @@ def _prepare_year_data(
         and not c.startswith("y_")
         and pd.api.types.is_numeric_dtype(df[c])
         and (leaked_suffix is None or leaked_suffix not in c)
-        # Exclude fiscal features that incorporate 2022+ data
         and not c.startswith("pop_")
         and not c.startswith("ipm_")
+        and not any(re.search(rf"_{y}$", c) for y in _ELECTION_YEARS)
     ]
-    x_mat = df[demog_cols].to_numpy(np.float64)
+
+    x_df = df[static_cols].copy()
+
+    if year in _FISCAL_YEAR_SET:
+        try:
+            fiscal_df = _load_fiscal_features()
+            fiscal_yr = fiscal_df.copy()
+            muni_codes = df["codigo_municipio"].astype(int).to_numpy()
+            fiscal_yr = fiscal_yr.reindex(muni_codes)
+            x_df = pd.concat([x_df, fiscal_yr.reset_index(drop=True)], axis=1)
+        except (FileNotFoundError, ImportError):
+            pass
+
+    x_mat = x_df.to_numpy(np.float64)
 
     y = y_df[y_cols].to_numpy(np.float64)
 
     x_nan = np.isnan(x_mat)
     if x_nan.any():
-        col_median = np.nanmedian(x_mat, axis=0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
+            col_median = np.nanmedian(x_mat, axis=0)
+        all_nan = np.isnan(col_median)
+        if all_nan.any():
+            col_median[all_nan] = 1e-10
         x_mat = np.where(x_nan, col_median, x_mat)
 
     eps = 1e-12
@@ -554,7 +593,7 @@ def _detect_available_rounds(df: pd.DataFrame, year: int) -> list[int]:
     return sorted(rounds)
 
 
-def _prepare_combined_data(
+def _prepare_combined_data(  # noqa: C901, PLR0915
     df: pd.DataFrame,
     year: int,
     n_classes: int,
@@ -592,7 +631,7 @@ def _prepare_combined_data(
         return _prepare_year_data(df, year, n_classes, exclude_year=exclude_year)
 
     leaked_suffix = str(exclude_year) if exclude_year else None
-    demog_cols = [
+    static_cols = [
         c
         for c in df.columns
         if not re.match(r"vote_share_", c)
@@ -602,7 +641,20 @@ def _prepare_combined_data(
         and (leaked_suffix is None or leaked_suffix not in c)
         and not c.startswith("pop_")
         and not c.startswith("ipm_")
+        and not any(re.search(rf"_{y}$", c) for y in _ELECTION_YEARS)
     ]
+
+    x_base = df[static_cols].copy()
+
+    if year in _FISCAL_YEAR_SET:
+        try:
+            fiscal_df = _load_fiscal_features()
+            fiscal_yr = fiscal_df.copy()
+            muni_codes = df["codigo_municipio"].astype(int).to_numpy()
+            fiscal_yr = fiscal_yr.reindex(muni_codes)
+            x_base = pd.concat([x_base, fiscal_yr.reset_index(drop=True)], axis=1)
+        except (FileNotFoundError, ImportError):
+            pass
 
     x_rows: list[pd.DataFrame] = []
     y_rows: list[pd.DataFrame] = []
@@ -630,7 +682,7 @@ def _prepare_combined_data(
             col = f"y_{cls}"
             y_round.loc[mapped_mask, col] = y_round.loc[mapped_mask, col] / mapped.loc[mapped_mask]
 
-        round_x = df[demog_cols].copy()
+        round_x = x_base.copy()
         round_x["periodo"] = round_num
 
         x_rows.append(round_x)
@@ -644,7 +696,12 @@ def _prepare_combined_data(
 
     x_nan = np.isnan(x_mat)
     if x_nan.any():
-        col_median = np.nanmedian(x_mat, axis=0)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
+            col_median = np.nanmedian(x_mat, axis=0)
+        all_nan = np.isnan(col_median)
+        if all_nan.any():
+            col_median[all_nan] = 1e-10
         x_mat = np.where(x_nan, col_median, x_mat)
 
     eps = 1e-12
@@ -796,7 +853,7 @@ def run_random_benchmarks(
         train_arrays.append(X_y)
         train_targets.append(y_y)
 
-    X_all = np.vstack(train_arrays)
+    X_all = np.vstack(_standardize_columns(train_arrays))
     y_all = np.vstack(train_targets)
     X_train, X_test, y_train, y_test = _train_test_split(X_all, y_all, train_ratio=train_ratio)
 
