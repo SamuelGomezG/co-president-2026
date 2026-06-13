@@ -453,7 +453,7 @@ def run_benchmarks(
 
 def _prepare_year_data(
     df: pd.DataFrame,
-    _year: int,
+    year: int,  # noqa: ARG001
     n_classes: int,
     *,
     exclude_year: int | None = None,
@@ -462,7 +462,9 @@ def _prepare_year_data(
 
     Args:
         df: Full feature matrix with ``vote_share_*`` columns.
-        _year: Target election year (reserved for future use).
+        year: Target election year.  Added as a numeric feature so the
+            model can capture temporal drift (year index normalised to
+            0..1 across the available year range).
         n_classes: 3 or 5.
         exclude_year: If set, exclude feature columns that contain
             this year suffix (prevents target leakage in holdout
@@ -490,6 +492,7 @@ def _prepare_year_data(
         and not c.startswith("ipm_")
     ]
     x_mat = df[demog_cols].to_numpy(np.float64)
+
     y = y_df[y_cols].to_numpy(np.float64)
 
     x_nan = np.isnan(x_mat)
@@ -587,6 +590,102 @@ def run_holdout_benchmarks(
                 )
             except Exception:
                 logger.exception("Model %s + transform %s failed (holdout)", m_name, t_name)
+                rows.extend(
+                    {
+                        "model": m_name,
+                        "transform": t_name,
+                        "class_name": cname,
+                        "r2": None,
+                        "rmse": None,
+                        "n_train": X_train.shape[0],
+                        "n_test": X_test.shape[0],
+                    }
+                    for cname in class_names
+                )
+    return rows
+
+
+def run_random_benchmarks(
+    n_classes: int = 5,
+    train_years: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018, 2022),
+    train_ratio: float = 0.7,
+) -> list[dict[str, Any]]:
+    """Random 70/30 split of stacked (muni, year) observations.
+
+    Mirrors USANTOMAS's methodology: stack all years into long format,
+    randomly split 70/30 (no year separation).  Test set has the same
+    distribution as training (in-distribution validation).
+
+    Args:
+        n_classes: Number of ideology classes (3 or 5).
+        train_years: Years to stack.
+        train_ratio: Fraction of rows for training.
+
+    Returns:
+        Same format as :func:`run_benchmarks`.
+
+    """
+    logger.info(
+        "Random 70/30 split (USANTOMAS-style): train on %s (n_classes=%d)",
+        train_years,
+        n_classes,
+    )
+
+    try:
+        df = load_features()
+    except ValueError:
+        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
+        if not parquet_path.exists():
+            parquet_path = (
+                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
+            )
+        df = pd.read_parquet(str(parquet_path))
+
+    train_arrays: list[np.ndarray] = []
+    train_targets: list[np.ndarray] = []
+    for y in train_years:
+        X_y, y_y = _prepare_year_data(df, y, n_classes)
+        train_arrays.append(X_y)
+        train_targets.append(y_y)
+
+    X_all = np.vstack(train_arrays)
+    y_all = np.vstack(train_targets)
+    X_train, X_test, y_train, y_test = _train_test_split(X_all, y_all, train_ratio=train_ratio)
+
+    logger.info(
+        "Random split train shape %s, test shape %s",
+        X_train.shape,
+        X_test.shape,
+    )
+
+    class_names = _3CLASS_CLASSES if n_classes == 3 else _IDEOLOGY_CLASSES
+    rows: list[dict[str, Any]] = []
+
+    for t_name in ("alr", "clr", "ilr"):
+        y_train_t = _apply_transform(t_name, y_train)
+
+        for m_name in ("svr", "rfr", "gbr", "knn", "fnn"):
+            model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
+            try:
+                model.fit(X_train, y_train_t)
+                y_pred_t = model.predict(X_test)
+                y_pred = _apply_inverse_transform(t_name, y_pred_t)
+                per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
+
+                rows.extend(
+                    {
+                        "model": m_name,
+                        "transform": t_name,
+                        "class_name": pc["class_name"],
+                        "r2": pc["r2"],
+                        "rmse": pc["rmse"],
+                        "n_train": X_train.shape[0],
+                        "n_test": X_test.shape[0],
+                    }
+                    for pc in per_class
+                )
+            except Exception:
+                logger.exception("Model %s + transform %s failed (random)", m_name, t_name)
                 rows.extend(
                     {
                         "model": m_name,
