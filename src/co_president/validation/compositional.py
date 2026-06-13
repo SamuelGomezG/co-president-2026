@@ -93,7 +93,7 @@ def composite_r2(
     ss_tot = np.sum((ilr_true - ilr_true.mean(axis=0, keepdims=True)) ** 2)
 
     if ss_tot == 0:
-        return 1.0 if ss_res == 0 else 0.0
+        return float("nan")
 
     return float(1.0 - ss_res / ss_tot)
 

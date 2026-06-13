@@ -51,10 +51,17 @@ class TestCompositeR2:
         assert r2 == pytest.approx(1.0)
 
     def test_1d_perfect(self) -> None:
-        """ILR R² is 1.0 for single-row perfect match."""
+        """ILR R² is NaN for single-row (undefined, ss_tot==0)."""
         x = np.array([0.2, 0.3, 0.5])
         r2 = composite_r2(x, x)
-        assert r2 == pytest.approx(1.0)
+        assert np.isnan(r2)
+
+    def test_1d_imperfect_returns_nan(self) -> None:
+        """ILR R² is NaN for single-row imperfect prediction (ss_tot==0)."""
+        y_true = np.array([0.2, 0.3, 0.5])
+        y_pred = np.array([0.3, 0.3, 0.4])
+        r2 = composite_r2(y_true, y_pred)
+        assert np.isnan(r2)
 
     def test_random_prediction_lower_than_perfect(self) -> None:
         """Random prediction yields lower ILR R² than perfect."""
