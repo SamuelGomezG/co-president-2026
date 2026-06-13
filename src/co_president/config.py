@@ -100,6 +100,7 @@ class ModelConfig:
         sigma_m_prior: HalfNormal sigma for municipal random-effect scale.
         pool_alpha: Global shrinkage on non-centered mu_m_raw.
         enable_population_weighting: Turnout-weighted effective population.
+        clr_target: Use CLR-transformed targets in municipal model.
 
     """
 
