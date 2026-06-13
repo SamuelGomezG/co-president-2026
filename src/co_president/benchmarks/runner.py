@@ -451,6 +451,157 @@ def run_benchmarks(
     return rows
 
 
+def _prepare_year_data(
+    df: pd.DataFrame,
+    _year: int,
+    n_classes: int,
+    *,
+    exclude_year: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute features + class targets for a single election year.
+
+    Args:
+        df: Full feature matrix with ``vote_share_*`` columns.
+        _year: Target election year (reserved for future use).
+        n_classes: 3 or 5.
+        exclude_year: If set, exclude feature columns that contain
+            this year suffix (prevents target leakage in holdout
+            mode, e.g. excluding ``pop_2022`` when predicting 2022).
+
+    Returns:
+        ``(X_year, y_year)`` where each row is one municipality.
+
+    """
+    is_3class = n_classes == 3
+    y_df = _compute_3class_targets(df) if is_3class else _compute_5class_targets(df)
+    y_cols = [f"y_{cls}" for cls in (_3CLASS_CLASSES if is_3class else _IDEOLOGY_CLASSES)]
+
+    leaked_suffix = str(exclude_year) if exclude_year else None
+    demog_cols = [
+        c
+        for c in df.columns
+        if not re.match(r"vote_share_", c)
+        and c not in ("year", "divipola", "municipio", "historical")
+        and not c.startswith("y_")
+        and pd.api.types.is_numeric_dtype(df[c])
+        and (leaked_suffix is None or leaked_suffix not in c)
+        # Exclude fiscal features that incorporate 2022+ data
+        and not c.startswith("pop_")
+        and not c.startswith("ipm_")
+    ]
+    x_mat = df[demog_cols].to_numpy(np.float64)
+    y = y_df[y_cols].to_numpy(np.float64)
+
+    x_nan = np.isnan(x_mat)
+    if x_nan.any():
+        col_median = np.nanmedian(x_mat, axis=0)
+        x_mat = np.where(x_nan, col_median, x_mat)
+
+    eps = 1e-12
+    y = np.clip(y, eps, None)
+    y_sum = y.sum(axis=1, keepdims=True)
+    y = np.divide(y, y_sum, out=np.full_like(y, 1.0 / n_classes), where=y_sum > 0)
+    return x_mat, y
+
+
+def run_holdout_benchmarks(
+    n_classes: int = 5,
+    train_years: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018),
+    test_year: int = 2022,
+) -> list[dict[str, Any]]:
+    """Train on stacked (muni × year) observations, predict test year.
+
+    For each train year, computes class targets from that year's
+    ``vote_share_*`` columns, stacks all training years into one
+    long-format matrix with demographic features, then evaluates all
+    15 model-transform combos on the test year.
+
+    Args:
+        n_classes: Number of ideology classes (3 or 5).
+        train_years: Election years for training.
+        test_year: Election year to predict.
+
+    Returns:
+        Same format as :func:`run_benchmarks`.
+
+    """
+    logger.info(
+        "Holdout: train on %s (n_classes=%d), test on %d",
+        train_years,
+        n_classes,
+        test_year,
+    )
+
+    try:
+        df = load_features()
+    except ValueError:
+        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
+        if not parquet_path.exists():
+            parquet_path = (
+                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
+            )
+        df = pd.read_parquet(str(parquet_path))
+
+    train_arrays: list[np.ndarray] = []
+    train_targets: list[np.ndarray] = []
+    for y in train_years:
+        X_y, y_y = _prepare_year_data(df, y, n_classes, exclude_year=test_year)
+        train_arrays.append(X_y)
+        train_targets.append(y_y)
+
+    X_train = np.vstack(train_arrays)
+    y_train = np.vstack(train_targets)
+    X_test, y_test = _prepare_year_data(df, test_year, n_classes, exclude_year=test_year)
+
+    logger.info(
+        "Holdout train shape %s, test shape %s",
+        X_train.shape,
+        X_test.shape,
+    )
+
+    class_names = _3CLASS_CLASSES if n_classes == 3 else _IDEOLOGY_CLASSES
+    rows: list[dict[str, Any]] = []
+
+    for t_name in ("alr", "clr", "ilr"):
+        y_train_t = _apply_transform(t_name, y_train)
+
+        for m_name in ("svr", "rfr", "gbr", "knn", "fnn"):
+            model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
+            try:
+                model.fit(X_train, y_train_t)
+                y_pred_t = model.predict(X_test)
+                y_pred = _apply_inverse_transform(t_name, y_pred_t)
+                per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
+
+                rows.extend(
+                    {
+                        "model": m_name,
+                        "transform": t_name,
+                        "class_name": pc["class_name"],
+                        "r2": pc["r2"],
+                        "rmse": pc["rmse"],
+                        "n_train": X_train.shape[0],
+                        "n_test": X_test.shape[0],
+                    }
+                    for pc in per_class
+                )
+            except Exception:
+                logger.exception("Model %s + transform %s failed (holdout)", m_name, t_name)
+                rows.extend(
+                    {
+                        "model": m_name,
+                        "transform": t_name,
+                        "class_name": cname,
+                        "r2": None,
+                        "rmse": None,
+                        "n_train": X_train.shape[0],
+                        "n_test": X_test.shape[0],
+                    }
+                    for cname in class_names
+                )
+    return rows
+
+
 def write_csv(rows: list[dict[str, Any]], path: Path = _OUTPUT_CSV) -> Path:
     """Write benchmark results to CSV.
 

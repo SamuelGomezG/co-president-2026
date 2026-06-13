@@ -34,6 +34,7 @@ from co_president.benchmarks.runner import (
     IDEOLOGY_CLASSES_5,
     load_historical_data,
     run_benchmarks,
+    run_holdout_benchmarks,
     write_csv,
 )
 from co_president.config import (
@@ -212,6 +213,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=5,
         choices=(3, 5),
         help="Number of ideology classes (3 or 5; default 5)",
+    )
+    bm_parser.add_argument(
+        "--mode",
+        type=str,
+        default="split",
+        choices=("split", "holdout"),
+        help="split=70/30 random; holdout=train 2002-2018 test 2022 (default: split)",
     )
 
     return parser
@@ -1767,9 +1775,12 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
     """Run the SPEC-41 FNN+CLR ML benchmark on historical data."""
     n_classes: int = getattr(args, "n_classes", 5)
+    mode: str = getattr(args, "mode", "split")
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     if args.smoke:
         results = run_benchmarks(smoke=True)
+    elif mode == "holdout":
+        results = run_holdout_benchmarks(n_classes=n_classes)
     else:
         _n3 = 3
         class_names = IDEOLOGY_CLASSES_3 if n_classes == _n3 else IDEOLOGY_CLASSES_5
