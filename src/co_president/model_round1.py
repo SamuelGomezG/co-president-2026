@@ -140,11 +140,13 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
 
     # Zero floor — replace 0 with 1, subtract excess from max column
     # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
+    # IMPORTANT: max_idx computed from ORIGINAL counts before mutation;
+    # otherwise argmax after setting 0→1 may pick wrong column (ties).
     zero_mask = observed_counts == 0
     if np.any(zero_mask):
         n_zeros_per_row = zero_mask.sum(axis=1)
-        observed_counts[zero_mask] = 1
         max_idx = np.argmax(observed_counts, axis=1)
+        observed_counts[zero_mask] = 1
         observed_counts[np.arange(len(observed_counts)), max_idx] -= n_zeros_per_row
 
     # Sample-size-dependent concentration multiplier:
