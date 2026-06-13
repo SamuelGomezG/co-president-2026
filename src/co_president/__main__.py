@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
     from xarray import DataTree
 
-from co_president.benchmarks.runner import run_benchmarks, write_csv
+from co_president.benchmarks.runner import load_historical_data, run_benchmarks, write_csv
 from co_president.config import (
     CONSULTATION_DATE,
     ELECTION_DATE_ROUND1,
@@ -1749,7 +1749,11 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
     """Run the SPEC-41 FNN+CLR ML benchmark on historical data."""
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
-    results = run_benchmarks(smoke=args.smoke)
+    if args.smoke:
+        results = run_benchmarks(smoke=True)
+    else:
+        x_arr, y_arr = load_historical_data()
+        results = run_benchmarks(x_arr, y_arr)
     write_csv(results)
 
 

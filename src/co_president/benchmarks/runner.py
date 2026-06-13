@@ -12,13 +12,12 @@ import csv
 import importlib
 import logging
 from pathlib import Path
+import re
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
-
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd  # type: ignore[reportMissingTypeStubs]
 from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
     r2_score,  # type: ignore[reportUnknownVariableType]
     root_mean_squared_error,  # type: ignore[reportUnknownVariableType]
@@ -27,7 +26,14 @@ from sklearn.multioutput import (  # type: ignore[reportMissingTypeStubs]
     MultiOutputRegressor,  # type: ignore[reportUnknownVariableType]
 )
 
-from co_president.benchmarks.transforms import alr_transform, clr_transform, ilr_transform
+from co_president.benchmarks.transforms import (
+    alr_inv_transform,
+    alr_transform,
+    clr_inv_transform,
+    clr_transform,
+    ilr_inv_transform,
+    ilr_transform,
+)
 from co_president.fundamentals.features import load_features
 
 logger = logging.getLogger(__name__)
@@ -70,6 +76,118 @@ _IDEOLOGY_CLASSES: list[str] = [
     "Centro_Derecha",
     "Derecha",
 ]
+
+# Raw-column-suffix → ideology class mapping for each (year, round).
+# Keys match the feature matrix column name after ``vote_share_{year}_r{round}_``.
+# Expert-derived based on Colombian political tradition.
+_CANDIDATE_5CLASS_MAP: dict[tuple[int, int], dict[str, str]] = {
+    (2002, 1): {
+        "alvaro_uribe": "Derecha",
+        "horacio_serpa": "Centro",
+        "luis_eduardo_garzon": "Izquierda",
+        "ingrid_betancourt": "Centro",
+        "noemi_sanin": "Centro_Derecha",
+    },
+    (2006, 1): {
+        "alvaro_uribe": "Derecha",
+        "carlos_gaviria": "Izquierda",
+        "horacio_serpa": "Centro",
+        "antanas_mockus": "Centro",
+    },
+    (2010, 1): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "antanas_mockus": "Centro",
+        "gustavo_petro": "Izquierda",
+        "noemi_sanin": "Centro_Derecha",
+    },
+    (2014, 1): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "oscar_ivan_zuluaga": "Derecha",
+        "enrique_penalosa": "Centro",
+        "LOPEZ": "Izquierda",
+    },
+    (2018, 1): {
+        "ivan_duque": "Derecha",
+        "gustavo_petro": "Izquierda",
+        "sergio_fajardo": "Centro",
+        "DE LA CALLE": "Centro_Izquierda",
+    },
+    (2022, 1): {
+        "GUSTAVO PETRO": "Izquierda",
+        "RODOLFO HERNÁNDEZ": "Derecha",
+        "FEDERICO GUTIÉRREZ": "Centro_Derecha",
+        "SERGIO FAJARDO": "Centro",
+        "INGRID BETANCOURT": "Centro",
+        "JOHN MILTON RODRÍGUEZ": "Derecha",
+        "LUIS PÉREZ": "Centro_Derecha",
+    },
+}
+
+
+def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901  type: ignore[name-defined]
+    """Add 5-class ideology target columns to the feature matrix.
+
+    Parses ``vote_share_{year}_r{round}_{candidate}`` columns, maps
+    each candidate to an ideological class, and sums vote shares per
+    class to produce ``y_Izquierda``, ``y_Centro_Izquierda``,
+    ``y_Centro``, ``y_Centro_Derecha``, ``y_Derecha``.
+
+    Only the **most recent available year** is used for targets to
+    avoid target leakage across multiple years in the feature matrix.
+    Vote-share columns for the target year are excluded from the
+    feature set by ``load_historical_data``.
+
+    Args:
+        df: Feature matrix from ``load_features()``.
+
+    Returns:
+        DataFrame with added ``y_*`` columns (or synthetic fallback
+
+    """
+    result = df.copy()
+
+    all_years: set[int] = set()
+    for col in df.columns:
+        m = re.match(r"vote_share_(\d{4})_r(\d)_(.+)", col)
+        if m:
+            all_years.add(int(m.group(1)))
+
+    if not all_years:
+        rng = np.random.default_rng(42)
+        n = df.shape[0]
+        for cls in _IDEOLOGY_CLASSES:
+            result[f"y_{cls}"] = 0.0
+        y_synth = np.abs(rng.standard_normal((n, 5)))
+        y_synth = y_synth / y_synth.sum(axis=1, keepdims=True)
+        for i, cls in enumerate(_IDEOLOGY_CLASSES):
+            result[f"y_{cls}"] = y_synth[:, i]
+        return result
+
+    target_year = max(all_years)
+    target_map = _CANDIDATE_5CLASS_MAP.get((target_year, 1), {})
+
+    class_cols: dict[str, list[str]] = {cls: [] for cls in _IDEOLOGY_CLASSES}
+    for col in df.columns:
+        m = re.match(rf"vote_share_{target_year}_r1_(.+)", col)
+        if m:
+            suffix = m.group(1)
+            cls = target_map.get(suffix)
+            if cls:
+                class_cols[cls].append(col)
+
+    for cls in _IDEOLOGY_CLASSES:
+        if class_cols[cls]:
+            result[f"y_{cls}"] = df[class_cols[cls]].sum(axis=1)
+        else:
+            result[f"y_{cls}"] = 0.0
+
+    mapped = result[[f"y_{cls}" for cls in _IDEOLOGY_CLASSES]].sum(axis=1)
+    mapped_mask = mapped > 0
+    for cls in _IDEOLOGY_CLASSES:
+        col = f"y_{cls}"
+        result.loc[mapped_mask, col] = result.loc[mapped_mask, col] / mapped.loc[mapped_mask]
+
+    return result
 
 
 def _make_sklearn_model(name: str, n_train: int = 0) -> Any:  # noqa: ANN401
@@ -116,6 +234,18 @@ def _apply_transform(name: str, X: np.ndarray) -> np.ndarray:
         return clr_transform(X)
     if name == "ilr":
         return ilr_transform(X)
+    msg = f"Unknown transform: {name}"
+    raise ValueError(msg)
+
+
+def _apply_inverse_transform(name: str, y: np.ndarray) -> np.ndarray:
+    """Inverse-transform predictions back to the original simplex."""
+    if name == "alr":
+        return alr_inv_transform(y)
+    if name == "clr":
+        return clr_inv_transform(y)
+    if name == "ilr":
+        return ilr_inv_transform(y)
     msg = f"Unknown transform: {name}"
     raise ValueError(msg)
 
@@ -231,16 +361,20 @@ def run_benchmarks(
         class_names = _IDEOLOGY_CLASSES
 
     rows: list[dict[str, Any]] = []
+    X_train, X_test, y_train_full, y_test_full = _train_test_split(X_in, y_in)
+    train_n = X_train.shape[0]
+    test_n = X_test.shape[0]
+
     for t_name in transform_names:
-        X_t = _apply_transform(t_name, X_in)
-        X_train, X_test, y_train, y_test = _train_test_split(X_t, y_in)
+        y_train_t = _apply_transform(t_name, y_train_full)
 
         for m_name in model_names:
-            model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
+            model = _make_sklearn_model(m_name, n_train=train_n)
             try:
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
-                per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
+                model.fit(X_train, y_train_t)
+                y_pred_t = model.predict(X_test)
+                y_pred = _apply_inverse_transform(t_name, y_pred_t)
+                per_class = _r2_rmse_per_class(y_test_full, y_pred, class_names)
 
                 rows.extend(
                     {
@@ -263,8 +397,8 @@ def run_benchmarks(
                         "class_name": cname,
                         "r2": None,
                         "rmse": None,
-                        "n_train": 0,
-                        "n_test": 0,
+                        "n_train": train_n,
+                        "n_test": test_n,
                     }
                     for cname in class_names
                 )
@@ -308,27 +442,51 @@ def main() -> None:
         results = run_benchmarks(smoke=True)
     else:
         logger.info("Running full benchmark on historical data...")
-        X, y = _load_historical_data()
+        X, y = load_historical_data()
         results = run_benchmarks(X, y)
 
     out_path = write_csv(results)
     _print_summary(results, out_path)
 
 
-def _load_historical_data() -> tuple[np.ndarray, np.ndarray]:
+def load_historical_data() -> tuple[np.ndarray, np.ndarray]:
     """Load real historical feature matrix and 5-class ideology targets.
+
+    Computes 5-class ideology target columns from ``vote_share_*`` columns
+    (most recent year), then excludes target-year vote shares from the
+    feature matrix to prevent leakage.
+
+    Falls back to loading the raw Parquet matrix directly if the standard
+    ``load_features()`` pipeline fails (e.g. missing fiscal schema columns).
 
     Returns:
         ``(X, y)`` where ``X.shape == (N, F)`` and ``y.shape == (N, 5)``.
 
     """
-    df = load_features()  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    try:
+        df = load_features()  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    except ValueError:
+        logger.warning("load_features() failed; loading raw Parquet matrix")
+        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
+        if not parquet_path.exists():
+            parquet_path = (
+                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
+            )
+        df = pd.read_parquet(str(parquet_path))
+        logger.info("Loaded raw Parquet matrix: %d rows x %d columns", *df.shape)
 
-    X_cols = [
-        c
-        for c in df.columns
-        if c not in ("year", "divipola", "municipio") and not c.startswith("y_")
-    ]
+    df = _compute_5class_targets(df)
+
+    target_year = _detect_target_year(df)
+
+    def _is_feature(col: str) -> bool:
+        return not (
+            col in ("year", "divipola", "municipio")
+            or col.startswith("y_")
+            or (target_year and re.match(rf"vote_share_{target_year}_r\d_", col))
+        )
+
+    X_cols = [c for c in df.columns if _is_feature(c) and pd.api.types.is_numeric_dtype(df[c])]
     y_cols = [f"y_{cls}" for cls in _IDEOLOGY_CLASSES]
 
     available_y = [c for c in y_cols if c in df.columns]
@@ -340,7 +498,33 @@ def _load_historical_data() -> tuple[np.ndarray, np.ndarray]:
         y_synth = y_synth / y_synth.sum(axis=1, keepdims=True)
         return df[X_cols].to_numpy(np.float64), y_synth
 
-    return df[X_cols].to_numpy(np.float64), df[available_y].to_numpy(np.float64)
+    y = df[available_y].to_numpy(np.float64)
+    EPSILON = 1e-12
+    y = np.clip(y, EPSILON, None)
+    y_sum = y.sum(axis=1, keepdims=True)
+    y = np.divide(y, y_sum, out=np.full_like(y, 1.0 / 5), where=y_sum > 0)
+    y = np.clip(y, EPSILON, None)
+
+    x_mat = df[X_cols].to_numpy(np.float64)
+    nan_mask = np.isnan(x_mat)
+    if nan_mask.any():
+        logger.warning(
+            "Imputing %d feature columns with column medians", int(nan_mask.any(axis=0).sum())
+        )
+        col_median = np.nanmedian(x_mat, axis=0)
+        x_mat = np.where(nan_mask, col_median, x_mat)
+
+    return x_mat, y
+
+
+def _detect_target_year(df: pd.DataFrame) -> int | None:
+    """Detect the most recent election year in the feature matrix."""
+    years: set[int] = set()
+    for col in df.columns:
+        m = re.match(r"vote_share_(\d{4})_r\d_", col)
+        if m:
+            years.add(int(m.group(1)))
+    return max(years) if years else None
 
 
 def _print_summary(results: list[dict[str, Any]], path: Path) -> None:
