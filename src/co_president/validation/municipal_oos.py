@@ -373,6 +373,32 @@ def leave_one_year_out(
     return pd.DataFrame(rows)
 
 
+def _log_ml_baseline_comparison(
+    features: pd.DataFrame,
+    target_year: int,
+    bayesian_r2: float,
+) -> None:
+    """Run the SPEC-41 ML benchmark alongside a Bayesian validation.
+
+    Logs a side-by-side comparison of Bayesian R² vs ML per-class R².
+    """
+    try:
+        from co_president.benchmarks.runner import report_benchmark_baseline  # noqa: PLC0415
+
+        summary = report_benchmark_baseline(features)
+        if summary["n_rows"] > 0:
+            best = summary.get("per_class_best_r2", {})
+            best_str = "; ".join(f"{k}: {v:.4f}" for k, v in best.items() if not np.isnan(float(v)))
+            logger.info(
+                "ML baseline vs Bayesian for %d: Bayesian R² = %.4f. ML best per-class R² -> %s",
+                target_year,
+                bayesian_r2,
+                best_str,
+            )
+    except Exception:
+        logger.exception("ML baseline comparison skipped (non-fatal)")
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Year 2018 holdout test
 # ═══════════════════════════════════════════════════════════════════════
@@ -445,6 +471,9 @@ def year_2018_holdout(
     )
 
     _log_generalization_report(2018, r2, errors)
+
+    # SPEC-41: ML benchmark baseline (informational, not gating).
+    _log_ml_baseline_comparison(features, 2018, r2)
 
     if r2 < _R2_GATE:
         report = _build_missing_data_report(2018, r2, errors)
@@ -602,6 +631,8 @@ def leave_2022_out(  # noqa: C901, PLR0913
         sampling_strategy,
         len(_polls),
     )
+
+    _log_ml_baseline_comparison(features, 2022, r2)
 
     if r2 < _R2_GATE:
         report = _build_missing_data_report(2022, r2, errors)
