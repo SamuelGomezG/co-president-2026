@@ -83,8 +83,18 @@ def _default_psi(d: int) -> np.ndarray:
     return psi
 
 
+_MIN_SUPPORTED_NDIM: int = 1
+_MAX_SUPPORTED_NDIM: int = 2
+
+
 def _to_2d(x: np.ndarray) -> tuple[np.ndarray, bool]:
     """Promote 1-D array to (1, d); return ``(x2d, was_1d)``."""
+    if x.ndim == 0:
+        msg = f"Expected {_MIN_SUPPORTED_NDIM}-D or {_MAX_SUPPORTED_NDIM}-D array, got scalar"
+        raise ValueError(msg)
+    if x.ndim > _MAX_SUPPORTED_NDIM:
+        msg = f"Expected {_MIN_SUPPORTED_NDIM}-D or {_MAX_SUPPORTED_NDIM}-D array, got {x.ndim}-D"
+        raise ValueError(msg)
     if x.ndim == 1:
         return x.reshape(1, -1), True
     return x, False
@@ -119,6 +129,14 @@ def clr_transform(x: np.ndarray) -> np.ndarray:
         ValueError: If *x* contains non-positive, non-finite, or zero values.
         TypeError: If *x* is a scalar.
 
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import clr_transform
+        >>> x = np.array([0.2, 0.3, 0.5])
+        >>> z = clr_transform(x)
+        >>> np.allclose(z.sum(), 0.0)
+        True
+
     """
     xa = np.asarray(x, dtype=np.float64)
     if xa.ndim == 0:
@@ -142,9 +160,19 @@ def inverse_clr(z: np.ndarray) -> np.ndarray:
     Returns:
         Compositional values summing to 1 along the last axis.
 
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import clr_transform, inverse_clr
+        >>> x = np.array([0.2, 0.3, 0.5])
+        >>> z = clr_transform(x)
+        >>> x_rec = inverse_clr(z)
+        >>> np.allclose(x, x_rec)
+        True
+
     """
     za = np.asarray(z, dtype=np.float64)
-    exp_z = np.exp(za)
+    shift = za.max(axis=-1, keepdims=True)
+    exp_z = np.exp(za - shift)
     return cast("np.ndarray", exp_z / exp_z.sum(axis=-1, keepdims=True))
 
 
@@ -199,6 +227,17 @@ def ilr_transform(
         ValueError: If *x* contains non-positive, non-finite, or zero values,
             or if *psi* has incorrect shape.
 
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import ilr_transform, inverse_ilr
+        >>> x = np.array([0.2, 0.3, 0.5])
+        >>> z = ilr_transform(x)
+        >>> z.shape
+        (2,)
+        >>> x_rec = inverse_ilr(z, d=3)
+        >>> np.allclose(x, x_rec)
+        True
+
     """
     z, _ = _compute_ilr(x, psi)
     return z
@@ -226,6 +265,17 @@ def inverse_ilr(
 
     Raises:
         ValueError: If neither *psi* nor *d* is provided.
+
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import ilr_transform, inverse_ilr
+        >>> x = np.array([0.2, 0.3, 0.5])
+        >>> z = ilr_transform(x)
+        >>> x_rec = inverse_ilr(z, d=3)
+        >>> np.allclose(x, x_rec)
+        True
+        >>> np.allclose(x_rec.sum(), 1.0)
+        True
 
     """
     z2d, was_1d = _to_2d(np.asarray(z, dtype=np.float64))
@@ -274,7 +324,18 @@ def impute_zero_shares(
 
     Raises:
         ValueError: If *y* contains negative or non-finite values, or if
-            *delta* is outside ``(0, 1)``.
+            *delta* is outside ``(0, 1)``, or if ``n_zeros * delta >= 1``
+            for any row.
+
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import impute_zero_shares
+        >>> y = np.array([0.5, 0.5, 0.0])
+        >>> y_imp = impute_zero_shares(y)
+        >>> np.allclose(y_imp.sum(), 1.0)
+        True
+        >>> np.all(y_imp > 0)
+        True
 
     """
     y2d, was_1d = _to_2d(np.asarray(y, dtype=np.float64))
@@ -297,6 +358,13 @@ def impute_zero_shares(
     n_zeros = zero_mask.sum(axis=1, keepdims=True)
 
     result = y2d.copy()
+    if np.any(n_zeros * delta >= 1):
+        msg = (
+            f"delta={delta} too large for rows with {int(n_zeros.max())} "
+            f"zeros; must satisfy n_zeros * delta < 1"
+        )
+        raise ValueError(msg)
+
     result[zero_mask] = delta
 
     positive_mask = ~zero_mask
@@ -344,6 +412,16 @@ def aitchison_distance(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     Raises:
         ValueError: If *x* and *y* have different shapes, or contain
             non-positive or non-finite values.
+
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import aitchison_distance
+        >>> x = np.array([0.2, 0.3, 0.5])
+        >>> y = np.array([0.15, 0.35, 0.5])
+        >>> aitchison_distance(x, y) > 0
+        True
+        >>> np.isclose(aitchison_distance(x, x), 0.0)
+        True
 
     """
     xa = np.asarray(x, dtype=np.float64)

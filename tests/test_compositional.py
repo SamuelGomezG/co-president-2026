@@ -173,6 +173,12 @@ class TestILRTransform:
         z = ilr_transform(x)
         assert z.shape == (3,), "D parts → D-1 ilr coordinates"
 
+    def test_3d_input_raises(self) -> None:
+        """ilr_transform raises ValueError on 3-D input (expected 1-D or 2-D)."""
+        x3d = np.ones((2, 3, 4))
+        with pytest.raises(ValueError, match="Expected 1-D or 2-D"):
+            ilr_transform(x3d)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # impute_zero_shares
@@ -245,6 +251,12 @@ class TestImputeZeroShares:
         assert np.isclose(result[0], expected_pos, atol=1e-14)
         assert np.isclose(result[1], expected_zero, atol=1e-14)
         assert np.isclose(result[2], expected_pos, atol=1e-14)
+
+    def test_custom_delta_too_large_raises(self) -> None:
+        """Imputation raises ValueError when n_zeros * delta ≥ 1."""
+        y = np.array([0.5, 0.0, 0.0])
+        with pytest.raises(ValueError, match=r"n_zeros \* delta"):
+            impute_zero_shares(y, delta=0.6)
 
 
 # ═══════════════════════════════════════════════════════════════════════
