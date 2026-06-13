@@ -81,83 +81,97 @@ _DEPT_NAME_FIX: dict[str, str] = {
 }
 
 _MMV_CODE_OVERRIDES: dict[str, str] = {
+    # --- Antioquia ---
     "01031": "05042",
+    "01058": "05101",
     "01082": "05148",
     "01168": "05585",
-    "01300": "05895",
-    "05009": "13052",
-    "05065": "13620",
-    "05113": "13810",
-    "07008": "15047",
+    "01256": "05697",
+    "01300": "05893",
+    # --- Bolívar ---
+    "05009": "13062",
+    "05065": "13600",
     "07139": "15407",
-    "12625": "20450",
-    "15198": "25290",
-    "15232": "25860",
-    "15304": "25843",
-    "17002": "27050",
-    "17006": "27075",
-    "17008": "27073",
-    "17010": "27077",
-    "17011": "27006",
-    "17012": "27425",
-    "17017": "27077",
-    "17026": "27450",
-    "17035": "27600",
-    "17060": "27660",
-    "17263": "27322",
+    # --- Boyacá ---
+    "07031": "15109",
+    # --- Caldas ---
+    # --- Caquetá ---
+    # --- Casanare ---
+    "12625": "20443",
+    # --- Cauca ---
+    # --- Cesar ---
+    # --- Chocó ---
+    "17006": "27025",
+    "17008": "27075",
+    "17011": "27099",
+    "17017": "27135",
+    "17026": "27430",
+    "17060": "27810",
     "17350": "27800",
-    "21012": "47006",
-    "21013": "47170",
-    "21055": "47575",
-    "21095": "47960",
-    "23004": "52079",
-    "23013": "52215",
-    "23022": "52240",
-    "23034": "52385",
-    "23043": "52480",
-    "23047": "52506",
-    "23085": "52612",
-    "23088": "52678",
-    "23091": "52687",
-    "23112": "52685",
-    "23125": "52786",
-    "23127": "52835",
+    # --- Córdoba ---
+    "13040": "23670",
+    # --- Cundinamarca ---
+    "15198": "25530",
+    "15232": "25662",
+    "15304": "25843",
+    # --- Guainía ---
+    "50070": "94343",
+    "50083": "94888",
+    "50087": "94887",
+    # --- Guaviare ---
+    # --- Huila ---
+    # --- La Guajira ---
+    "48005": "44090",
+    # --- Magdalena ---
+    "21012": "47058",
+    "21013": "47161",
+    "21055": "47570",
+    "21095": "47980",
+    # --- Meta ---
+    # --- Nariño ---
+    "23004": "52019",
+    "23013": "52051",
+    "23022": "52203",
+    "23034": "52224",
+    "23043": "52258",
+    "23047": "52520",
+    "23085": "52418",
+    "23088": "52427",
+    "23091": "52435",
+    "23112": "52621",
+    "23125": "52696",
+    "23127": "52699",
     "23139": "52835",
-    "25019": "54239",
-    "25047": "54350",
+    # --- Norte de Santander ---
+    "25019": "54128",
+    # --- Putumayo ---
+    "64004": "86573",
+    "64018": "86757",
+    "64028": "86865",
+    # --- Quindío ---
+    # --- Risaralda ---
+    "52060": "50689",
+    # --- San Andrés ---
+    # --- Santander ---
+    # --- Sucre ---
+    "28030": "70204",
+    "28048": "70235",
+    "28190": "70702",
+    "28300": "70820",
+    "28320": "70823",
+    # --- Tolima ---
+    "29016": "73055",
+    "29097": "73616",
+    # --- Valle del Cauca ---
+    "31016": "76100",
+    "31022": "76111",
+    "31031": "76130",
+    # --- Vaupés ---
+    "68010": "97777",
+    "68013": "97511",
+    # --- Vichada ---
     "27068": "68655",
     "27830": "68705",
-    "28030": "70508",
-    "28048": "70265",
-    "28190": "70204",
-    "28260": "70771",
-    "28300": "70742",
-    "28320": "70820",
-    "29016": "73067",
-    "29097": "73616",
-    "31001": "76001",
-    "31004": "76020",
-    "31007": "76036",
-    "31010": "76041",
-    "31013": "76054",
-    "31016": "76111",
-    "31022": "76113",
-    "31031": "76126",
-    "48005": "44050",
-    "50070": "94343",
-    "50083": "94885",
-    "50087": "94886",
-    "52060": "50689",
-    "56001": "88001",
-    "56004": "88564",
-    "64004": "86860",
-    "64018": "86865",
-    "64028": "86865",
-    "68010": "97777",
-    "68013": "97800",
-    "01058": "05101",
-    "01256": "05697",
-    "07031": "15109",
 }
 
 _CEDAE_BASE_URL = "https://cedae.datasketch.co/api/results"
@@ -392,7 +406,6 @@ def compute_lagged_features(df: pd.DataFrame) -> pd.DataFrame:
                 "left_share": left_share if left_share is not None else float("nan"),
                 "right_share": right_share if right_share is not None else float("nan"),
                 "abstention_rate": abs_rate,
-                "13040": "23670",  # SAN ANDRES DE SOTAVENTO → San Andrés Sotavento
             }
         )
 
@@ -733,7 +746,7 @@ def _get_mmv_muni_names(raw: pd.DataFrame) -> pd.DataFrame:
     return raw[["DEP", "MUN", "MUNNOMBRE"]].drop_duplicates(subset=["DEP", "MUN"]).copy()
 
 
-def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901, PLR0912
+def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901, PLR0912, PLR0915
     """Fetch data for every combination of election year and round.
 
     Priority order:
@@ -756,6 +769,7 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C90
 
     for year in _ELECTION_YEARS:
         for round_num in (1, 2):
+            local_ok = False
             # Level 1: Local CEDAE files
             local_frame = fetch_local_cedae_results(year, round_num, data_dir=data_dir)
             if local_frame is not None and not local_frame.empty:
@@ -766,14 +780,23 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C90
                     round_num,
                     len(local_frame),
                 )
-                continue
+                local_ok = True
 
-            # Level 2: Local 2022 MMV files (only available for 2022)
+            # Level 2: Local 2022 MMV files (append extra munis CEDAE misses)
             if year == _MMV_YEAR:
                 mmv_frame = _fetch_2022_mmv(round_num, data_dir)
                 if mmv_frame is not None and not mmv_frame.empty:
                     all_frames.append(mmv_frame)
-                    continue
+                    logger.info(
+                        "Loaded %s round %d from MMV (%d rows)",
+                        year,
+                        round_num,
+                        len(mmv_frame),
+                    )
+
+            # If local data succeeded, skip remote API
+            if local_ok:
+                continue
 
             # Level 3: Remote CEDAE API
             try:
@@ -821,6 +844,27 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C90
         logger.warning("No historical data fetched for any year/round pair")
         return pd.DataFrame()
     result = pd.concat(all_frames, ignore_index=True)
+
+    # Dedup: when CEDAE + MMV both loaded for same year/round,
+    # prefer CEDAE (first) but keep MMV-only rows (no match)
+    result = result.drop_duplicates(
+        subset=["codigo_municipio", "year", "round", "candidate"],
+        keep="first",
+    )
+
+    # Compute vote_share from votes and total_votes
+    result["vote_share"] = result["votes"] / result["total_votes"]
+
+    # Map known candidate names to canonical keys so pivot creates lowercase columns
+    def _safe_map_candidate(name: str) -> str:
+        try:
+            return map_historical_candidate(name)
+        except ValueError:
+            return name
+
+    result["candidate"] = result["candidate"].apply(
+        lambda x: _safe_map_candidate(x) if pd.notna(x) else x  # type: ignore[reportUnknownArgumentType, reportUnknownLambdaType]
+    )
 
     # Propagate Bogotá D.C. (11001) data to localidad codes (1100101-1100199)
     bogota_localidad = [str(1100100 + i) for i in range(1, 21)] + ["1100199"]
