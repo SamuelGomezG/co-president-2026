@@ -1,20 +1,20 @@
 {
-  "municipalities": 1123,
-  "columns": 129,
-  "null_count": 25499,
-  "null_rate": 0.176,
-  "memory_bytes": 1192034,
-  "memory_mb": 1.14,
+  "municipalities": 1143,
+  "columns": 152,
+  "null_count": 49466,
+  "null_rate": 0.2847,
+  "memory_bytes": 1623230,
+  "memory_mb": 1.55,
   "column_names": [
     {
       "name": "REGION",
-      "dtype": "str",
-      "nulls": 0
+      "dtype": "object",
+      "nulls": 21
     },
     {
       "name": "C\u00d3DIGO DANE DEL DEPARTAMENTO",
-      "dtype": "int64",
-      "nulls": 0
+      "dtype": "object",
+      "nulls": 21
     },
     {
       "name": "departamento",
@@ -32,579 +32,669 @@
       "nulls": 0
     },
     {
+      "name": "comuna_nombre_x",
+      "dtype": "str",
+      "nulls": 1122
+    },
+    {
+      "name": "region",
+      "dtype": "str",
+      "nulls": 1122
+    },
+    {
       "name": "vote_share_2002_r1_BEDOYA",
       "dtype": "float64",
-      "nulls": 13
+      "nulls": 34
     },
     {
       "name": "vote_share_2002_r1_CARDONA",
       "dtype": "float64",
-      "nulls": 72
+      "nulls": 93
     },
     {
       "name": "vote_share_2002_r1_CRISTANCHO",
       "dtype": "float64",
-      "nulls": 58
+      "nulls": 79
     },
     {
       "name": "vote_share_2002_r1_LORA",
       "dtype": "float64",
-      "nulls": 41
+      "nulls": 62
     },
     {
       "name": "vote_share_2002_r1_RINCON",
       "dtype": "float64",
-      "nulls": 116
+      "nulls": 137
     },
     {
       "name": "vote_share_2002_r1_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2002_r1_TOVAR",
       "dtype": "float64",
-      "nulls": 21
+      "nulls": 42
     },
     {
       "name": "vote_share_2002_r1_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2002_r1_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2002_r1_alvaro_uribe",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2002_r1_horacio_serpa",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2002_r1_ingrid_betancourt",
       "dtype": "float64",
-      "nulls": 30
+      "nulls": 51
     },
     {
       "name": "vote_share_2002_r1_luis_eduardo_garzon",
       "dtype": "float64",
-      "nulls": 10
+      "nulls": 31
     },
     {
       "name": "vote_share_2002_r1_noemi_sanin",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2006_r1_LEYVA",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_PAREJO",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_RINCON",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_alvaro_uribe",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_antanas_mockus",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_carlos_gaviria",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2006_r1_horacio_serpa",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2010_r1_ARAUJO",
       "dtype": "float64",
-      "nulls": 70
+      "nulls": 91
     },
     {
       "name": "vote_share_2010_r1_CALDERON",
       "dtype": "float64",
-      "nulls": 51
+      "nulls": 72
     },
     {
       "name": "vote_share_2010_r1_DEVIA",
       "dtype": "float64",
-      "nulls": 52
+      "nulls": 73
     },
     {
       "name": "vote_share_2010_r1_MOCKUS",
       "dtype": "float64",
-      "nulls": 3
+      "nulls": 24
     },
     {
       "name": "vote_share_2010_r1_PARDO",
       "dtype": "float64",
-      "nulls": 9
+      "nulls": 30
     },
     {
       "name": "vote_share_2010_r1_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r1_VARGAS",
       "dtype": "float64",
-      "nulls": 8
+      "nulls": 29
     },
     {
       "name": "vote_share_2010_r1_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r1_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r1_gustavo_petro",
       "dtype": "float64",
-      "nulls": 10
+      "nulls": 31
     },
     {
       "name": "vote_share_2010_r1_juan_manuel_santos",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r1_noemi_sanin",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2010_r2_MOCKUS",
       "dtype": "float64",
-      "nulls": 3
+      "nulls": 24
     },
     {
       "name": "vote_share_2010_r2_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r2_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r2_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2010_r2_juan_manuel_santos",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2014_r1_LOPEZ",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_RAMIREZ",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_TARJETAS NO  MARCADAS",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_enrique_penalosa",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_juan_manuel_santos",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r1_oscar_ivan_zuluaga",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r2_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r2_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r2_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r2_juan_manuel_santos",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2014_r2_oscar_ivan_zuluaga",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2018_r1_DE LA CALLE",
       "dtype": "float64",
-      "nulls": 3
+      "nulls": 24
     },
     {
       "name": "vote_share_2018_r1_MORALES",
       "dtype": "float64",
-      "nulls": 29
+      "nulls": 50
     },
     {
       "name": "vote_share_2018_r1_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 13
+      "nulls": 34
     },
     {
       "name": "vote_share_2018_r1_TRUJILLO",
       "dtype": "float64",
-      "nulls": 23
+      "nulls": 44
     },
     {
       "name": "vote_share_2018_r1_VARGAS",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2018_r1_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 7
+      "nulls": 28
     },
     {
       "name": "vote_share_2018_r1_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 9
+      "nulls": 30
     },
     {
       "name": "vote_share_2018_r1_gustavo_petro",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2018_r1_ivan_duque",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2018_r1_sergio_fajardo",
       "dtype": "float64",
-      "nulls": 2
+      "nulls": 23
     },
     {
       "name": "vote_share_2018_r2_TARJETAS NO MARCADAS",
       "dtype": "float64",
-      "nulls": 38
+      "nulls": 59
     },
     {
       "name": "vote_share_2018_r2_VOTOS EN BLANCO",
       "dtype": "float64",
-      "nulls": 5
+      "nulls": 26
     },
     {
       "name": "vote_share_2018_r2_VOTOS NULOS",
       "dtype": "float64",
-      "nulls": 10
+      "nulls": 31
     },
     {
       "name": "vote_share_2018_r2_gustavo_petro",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "vote_share_2018_r2_ivan_duque",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
+    },
+    {
+      "name": "vote_share_2022_r1_ENRIQUE G\u00d3MEZ MART\u00cdNEZ",
+      "dtype": "float64",
+      "nulls": 1124
+    },
+    {
+      "name": "vote_share_2022_r1_FEDERICO GUTI\u00c9RREZ",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r1_GUSTAVO PETRO",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r1_INGRID BETANCOURT",
+      "dtype": "float64",
+      "nulls": 1128
+    },
+    {
+      "name": "vote_share_2022_r1_JOHN MILTON RODR\u00cdGUEZ",
+      "dtype": "float64",
+      "nulls": 1125
+    },
+    {
+      "name": "vote_share_2022_r1_LUIS P\u00c9REZ",
+      "dtype": "float64",
+      "nulls": 1131
+    },
+    {
+      "name": "vote_share_2022_r1_RODOLFO HERN\u00c1NDEZ",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r1_SERGIO FAJARDO",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r1_VOTOS EN BLANCO .",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r1_VOTOS NO MARCADOS .",
+      "dtype": "float64",
+      "nulls": 1125
+    },
+    {
+      "name": "vote_share_2022_r1_VOTOS NULOS .",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r2_GUSTAVO PETRO",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r2_RODOLFO HERN\u00c1NDEZ",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r2_VOTOS EN BLANCO .",
+      "dtype": "float64",
+      "nulls": 1122
+    },
+    {
+      "name": "vote_share_2022_r2_VOTOS NO MARCADOS .",
+      "dtype": "float64",
+      "nulls": 1123
+    },
+    {
+      "name": "vote_share_2022_r2_VOTOS NULOS .",
+      "dtype": "float64",
+      "nulls": 1122
     },
     {
       "name": "nbi_rate_x",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "nbi_urban",
       "dtype": "float64",
-      "nulls": 21
+      "nulls": 42
     },
     {
       "name": "nbi_rural",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "ipm_2018",
       "dtype": "float64",
-      "nulls": 0
+      "nulls": 21
     },
     {
       "name": "ipm_2018_imputed",
-      "dtype": "bool",
-      "nulls": 0
+      "dtype": "object",
+      "nulls": 21
     },
     {
       "name": "ipm_2022",
       "dtype": "float64",
-      "nulls": 0
+      "nulls": 21
     },
     {
       "name": "ipm_2022_imputed",
-      "dtype": "bool",
-      "nulls": 0
+      "dtype": "object",
+      "nulls": 21
     },
     {
       "name": "nombre_municipio_y",
       "dtype": "str",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "poblacion_total_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "poblacion_afrocolombiana_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "poblacion_indigena_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "poblacion_rural_dispersa_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "anos_escolaridad",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "hogares_con_internet",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "hogares_totales",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "pct_afro_colombian_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "pct_indigenous_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "pct_rural_disperso_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "years_schooling",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "internet_access_rate_x",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "ipm_score",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "nbi_rate_y",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "proyeccion_2022",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "population_2022",
       "dtype": "float64",
-      "nulls": 1120
+      "nulls": 1141
     },
     {
       "name": "risk_level",
       "dtype": "str",
-      "nulls": 1113
+      "nulls": 1134
     },
     {
       "name": "is_pdet",
       "dtype": "float64",
-      "nulls": 1113
+      "nulls": 1134
     },
     {
       "name": "coca_hectares",
       "dtype": "float64",
-      "nulls": 1113
+      "nulls": 1134
     },
     {
       "name": "armed_group_presence",
       "dtype": "float64",
-      "nulls": 1113
+      "nulls": 1134
     },
     {
       "name": "high_risk_flag",
       "dtype": "float64",
-      "nulls": 1113
+      "nulls": 1134
     },
     {
       "name": "poblacion_total_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "poblacion_afrocolombiana_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "poblacion_indigena_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "poblacion_rural_dispersa_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_afro_colombian_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_indigenous_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_rural_disperso_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "years_schooling_promedio",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_school_attendance",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "internet_access_rate_y",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "labor_force_participation_rate",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_female",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "rooms_per_household",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "persons_per_household",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_age_18_29",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_age_30_54",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pct_age_55_plus",
       "dtype": "float64",
-      "nulls": 1
+      "nulls": 22
     },
     {
       "name": "pop_2018",
@@ -650,6 +740,31 @@
       "name": "pop_2026",
       "dtype": "float64",
       "nulls": 1
+    },
+    {
+      "name": "comuna_nombre_y",
+      "dtype": "str",
+      "nulls": 1122
+    },
+    {
+      "name": "pct_ingresos_propios",
+      "dtype": "float64",
+      "nulls": 42
+    },
+    {
+      "name": "gastos_totales_per_capita",
+      "dtype": "float64",
+      "nulls": 42
+    },
+    {
+      "name": "transferencias_per_capita",
+      "dtype": "float64",
+      "nulls": 42
+    },
+    {
+      "name": "ingresos_tributarios_per_capita",
+      "dtype": "float64",
+      "nulls": 42
     }
   ]
 }
