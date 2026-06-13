@@ -125,6 +125,100 @@ def ilr_transform(x: NDArray[np.float64]) -> NDArray[np.float64]:
     return ilr_coords
 
 
+def _build_ilr_contrast(d: int) -> np.ndarray:
+    """Build the (D-1, D) contrast matrix for sequential SBP ILR.
+
+    Each row is one ILR coordinate: parts before i are 0, part i gets
+    the positive weight, parts after i get the negative weight.
+
+    Args:
+        d: Number of parts (columns) in the original composition.
+
+    Returns:
+        Contrast matrix of shape ``(D-1, D)`` where ``ILR(x) = V @ CLR(x)``.
+
+    """
+    V = np.zeros((d - 1, d))
+    for i in range(d - 1):
+        s = d - i - 1  # denominator count
+        a = math.sqrt(s / (s + 1)) if s > 0 else 1.0
+        b = 1.0 / math.sqrt(s * (s + 1)) if s > 0 else 0.0
+        V[i, i] = a
+        if s > 0:
+            V[i, i + 1 :] = -b
+    return V
+
+
+_CLIP_MAX: float = 500.0  # prevents overflow in exp()
+
+
+def alr_inv_transform(y: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Inverse additive log-ratio transform.
+
+    Args:
+        y: ALR-transformed data of shape ``(D-1,)`` or ``(N, D-1)``.
+
+    Returns:
+        Composition of shape ``(D,)`` or ``(N, D)`` that sums to 1.
+
+    """
+    y_safe = np.clip(y, -_CLIP_MAX, _CLIP_MAX)
+    if y.ndim == 1:
+        z = np.empty(y.shape[0] + 1)
+        z[:-1] = np.exp(y_safe)
+        z[-1] = 1.0
+        return z / z.sum()
+
+    z = np.empty((y_safe.shape[0], y_safe.shape[1] + 1))
+    z[:, :-1] = np.exp(y_safe)
+    z[:, -1] = 1.0
+    return z / z.sum(axis=1, keepdims=True)
+
+
+def clr_inv_transform(y: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Inverse centred log-ratio transform (softmax).
+
+    Args:
+        y: CLR-transformed data of shape ``(D,)`` or ``(N, D)``.
+
+    Returns:
+        Composition of shape ``(D,)`` or ``(N, D)`` that sums to 1.
+
+    """
+    y_safe = np.clip(y, -_CLIP_MAX, _CLIP_MAX)
+    if y.ndim == 1:
+        z = np.exp(y_safe)
+        return z / z.sum()
+
+    z = np.exp(y_safe)
+    return z / z.sum(axis=1, keepdims=True)
+
+
+def ilr_inv_transform(y: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Inverse isometric log-ratio transform.
+
+    Computes ``CLR = y @ V`` using the SBP contrast matrix, then applies
+    ``clr_inv_transform`` (softmax).
+
+    Args:
+        y: ILR-transformed data of shape ``(D-1,)`` or ``(N, D-1)``.
+
+    Returns:
+        Composition of shape ``(D,)`` or ``(N, D)`` that sums to 1.
+
+    """
+    y_safe = np.clip(y, -_CLIP_MAX, _CLIP_MAX)
+    d = y_safe.shape[-1] + 1
+    V = _build_ilr_contrast(d)
+
+    if y_safe.ndim == 1:
+        clr_coords = y_safe @ V
+        return clr_inv_transform(clr_coords)
+
+    clr_coords = y_safe @ V
+    return clr_inv_transform(clr_coords)
+
+
 def _validate_composition(x: NDArray[np.float64]) -> None:
     """Validate that *x* is a valid composition.
 
