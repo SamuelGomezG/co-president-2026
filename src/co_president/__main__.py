@@ -34,6 +34,7 @@ from co_president.benchmarks.runner import (
     IDEOLOGY_CLASSES_5,
     load_historical_data,
     run_benchmarks,
+    run_combined_benchmarks,
     run_holdout_benchmarks,
     run_random_benchmarks,
     write_csv,
@@ -219,8 +220,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--mode",
         type=str,
         default="split",
-        choices=("split", "holdout", "random"),
-        help="split=70/30 of 2022; holdout=2002-2018->2022; random=USANTOMAS-style",
+        choices=("split", "holdout", "random", "combined"),
+        help="Mode: split, holdout, random, or combined (R1+R2 stacked)",
     )
 
     return parser
@@ -1784,6 +1785,8 @@ def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
         results = run_holdout_benchmarks(n_classes=n_classes)
     elif mode == "random":
         results = run_random_benchmarks(n_classes=n_classes)
+    elif mode == "combined":
+        results = run_combined_benchmarks(n_classes=n_classes)
     else:
         _n3 = 3
         class_names = IDEOLOGY_CLASSES_3 if n_classes == _n3 else IDEOLOGY_CLASSES_5

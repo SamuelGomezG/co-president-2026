@@ -1,7 +1,7 @@
 # Municipal Feature Matrix — Data Dictionary
 
-Generated: 2026-06-12 20:38:55
-Rows: 1143, Columns: 152
+Generated: 2026-06-12 22:26:04
+Rows: 1143, Columns: 159
 
 ## REGION
 
@@ -48,422 +48,422 @@ Rows: 1143, Columns: 152
 ## vote_share_2002_r1_BEDOYA
 
 - **Type**: float64
-- **Nulls**: 34 / 1143
+- **Nulls**: 13 / 1143
 - **Sample**: 0.0040615647712697
 
 ## vote_share_2002_r1_CARDONA
 
 - **Type**: float64
-- **Nulls**: 93 / 1143
+- **Nulls**: 72 / 1143
 - **Sample**: 0.0012825994014536
 
 ## vote_share_2002_r1_CRISTANCHO
 
 - **Type**: float64
-- **Nulls**: 79 / 1143
+- **Nulls**: 58 / 1143
 - **Sample**: 0.0014963659683625
 
 ## vote_share_2002_r1_LORA
 
 - **Type**: float64
-- **Nulls**: 62 / 1143
+- **Nulls**: 41 / 1143
 - **Sample**: 0.0014963659683625
 
 ## vote_share_2002_r1_RINCON
 
 - **Type**: float64
-- **Nulls**: 137 / 1143
+- **Nulls**: 116 / 1143
 - **Sample**: 0.0004275331338178
 
 ## vote_share_2002_r1_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.0123984608807182
 
 ## vote_share_2002_r1_TOVAR
 
 - **Type**: float64
-- **Nulls**: 42 / 1143
+- **Nulls**: 21 / 1143
 - **Sample**: 0.0042753313381787
 
 ## vote_share_2002_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.0153911928174433
 
 ## vote_share_2002_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.0166737922188969
 
 ## vote_share_2002_r1_alvaro_uribe
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.5823001282599402
 
 ## vote_share_2002_r1_horacio_serpa
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.2351432235998289
 
 ## vote_share_2002_r1_ingrid_betancourt
 
 - **Type**: float64
-- **Nulls**: 51 / 1143
+- **Nulls**: 30 / 1143
 - **Sample**: 0.0047028644719965
 
 ## vote_share_2002_r1_luis_eduardo_garzon
 
 - **Type**: float64
-- **Nulls**: 31 / 1143
+- **Nulls**: 10 / 1143
 - **Sample**: 0.0331338178708849
 
 ## vote_share_2002_r1_noemi_sanin
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.0872167592988456
 
 ## vote_share_2006_r1_LEYVA
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.002804262478968
 
 ## vote_share_2006_r1_PAREJO
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0061693774537296
 
 ## vote_share_2006_r1_RINCON
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0013086558235184
 
 ## vote_share_2006_r1_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0102822957562161
 
 ## vote_share_2006_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0147691157225649
 
 ## vote_share_2006_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0115909515797345
 
 ## vote_share_2006_r1_alvaro_uribe
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.8498784819592448
 
 ## vote_share_2006_r1_antanas_mockus
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.001869508319312
 
 ## vote_share_2006_r1_carlos_gaviria
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0596373153860534
 
 ## vote_share_2006_r1_horacio_serpa
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.041690035520658
 
 ## vote_share_2010_r1_ARAUJO
 
 - **Type**: float64
-- **Nulls**: 91 / 1143
+- **Nulls**: 70 / 1143
 - **Sample**: 0.0006328112640404
 
 ## vote_share_2010_r1_CALDERON
 
 - **Type**: float64
-- **Nulls**: 72 / 1143
+- **Nulls**: 51 / 1143
 - **Sample**: 0.0006328112640404
 
 ## vote_share_2010_r1_DEVIA
 
 - **Type**: float64
-- **Nulls**: 73 / 1143
+- **Nulls**: 52 / 1143
 - **Sample**: 0.0014238253440911
-
-## vote_share_2010_r1_MOCKUS
-
-- **Type**: float64
-- **Nulls**: 24 / 1143
-- **Sample**: 0.0386014871064704
 
 ## vote_share_2010_r1_PARDO
 
 - **Type**: float64
-- **Nulls**: 30 / 1143
+- **Nulls**: 9 / 1143
 - **Sample**: 0.0609080841638981
 
 ## vote_share_2010_r1_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.0037968675842429
 
 ## vote_share_2010_r1_VARGAS
 
 - **Type**: float64
-- **Nulls**: 29 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.0196171491852555
 
 ## vote_share_2010_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.0128144280968201
 
 ## vote_share_2010_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.0128144280968201
+
+## vote_share_2010_r1_antanas_mockus
+
+- **Type**: float64
+- **Nulls**: 3 / 1143
+- **Sample**: 0.0386014871064704
 
 ## vote_share_2010_r1_gustavo_petro
 
 - **Type**: float64
-- **Nulls**: 31 / 1143
+- **Nulls**: 10 / 1143
 - **Sample**: 0.0099667774086378
 
 ## vote_share_2010_r1_juan_manuel_santos
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.8069925644676476
 
 ## vote_share_2010_r1_noemi_sanin
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0317987660180351
-
-## vote_share_2010_r2_MOCKUS
-
-- **Type**: float64
-- **Nulls**: 24 / 1143
-- **Sample**: 0.049167452089224
 
 ## vote_share_2010_r2_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.004712535344015
 
 ## vote_share_2010_r2_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.0157084511467169
 
 ## vote_share_2010_r2_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.0073829720389569
+
+## vote_share_2010_r2_antanas_mockus
+
+- **Type**: float64
+- **Nulls**: 3 / 1143
+- **Sample**: 0.049167452089224
 
 ## vote_share_2010_r2_juan_manuel_santos
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.923028589381087
 
 ## vote_share_2014_r1_LOPEZ
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0657432292743436
 
 ## vote_share_2014_r1_RAMIREZ
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.103576597064296
 
 ## vote_share_2014_r1_TARJETAS NO  MARCADAS
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0103369857349596
 
 ## vote_share_2014_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0380401075046516
 
 ## vote_share_2014_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.019226793467025
 
 ## vote_share_2014_r1_enrique_penalosa
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0177796154641306
 
 ## vote_share_2014_r1_juan_manuel_santos
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.1190820756667355
 
 ## vote_share_2014_r1_oscar_ivan_zuluaga
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.6262145958238577
 
 ## vote_share_2014_r2_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.007644598297995
 
 ## vote_share_2014_r2_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0268282128948507
 
 ## vote_share_2014_r2_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0190393768931198
 
 ## vote_share_2014_r2_juan_manuel_santos
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.1820279821145247
 
 ## vote_share_2014_r2_oscar_ivan_zuluaga
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.7644598297995095
 
 ## vote_share_2018_r1_DE LA CALLE
 
 - **Type**: float64
-- **Nulls**: 24 / 1143
+- **Nulls**: 3 / 1143
 - **Sample**: 0.0110908538438164
 
 ## vote_share_2018_r1_MORALES
 
 - **Type**: float64
-- **Nulls**: 50 / 1143
+- **Nulls**: 29 / 1143
 - **Sample**: 0.0036463081130355
 
 ## vote_share_2018_r1_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 34 / 1143
+- **Nulls**: 13 / 1143
 - **Sample**: 0.0129140079003342
 
 ## vote_share_2018_r1_TRUJILLO
 
 - **Type**: float64
-- **Nulls**: 44 / 1143
+- **Nulls**: 23 / 1143
 - **Sample**: 0.0022789425706472
 
 ## vote_share_2018_r1_VARGAS
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.0527195381343056
 
 ## vote_share_2018_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 28 / 1143
+- **Nulls**: 7 / 1143
 - **Sample**: 0.0116985718626557
 
 ## vote_share_2018_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 30 / 1143
+- **Nulls**: 9 / 1143
 - **Sample**: 0.0135217259191735
 
 ## vote_share_2018_r1_gustavo_petro
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0279550288666058
 
 ## vote_share_2018_r1_ivan_duque
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.6958371315709511
 
 ## vote_share_2018_r1_sergio_fajardo
 
 - **Type**: float64
-- **Nulls**: 23 / 1143
+- **Nulls**: 2 / 1143
 - **Sample**: 0.1666666666666666
 
 ## vote_share_2018_r2_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 59 / 1143
+- **Nulls**: 38 / 1143
 - **Sample**: 0.0048668379072597
 
 ## vote_share_2018_r2_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 26 / 1143
+- **Nulls**: 5 / 1143
 - **Sample**: 0.0235230498850885
 
 ## vote_share_2018_r2_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 31 / 1143
+- **Nulls**: 10 / 1143
 - **Sample**: 0.0091929160470461
 
 ## vote_share_2018_r2_gustavo_petro
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.0739488982019737
 
 ## vote_share_2018_r2_ivan_duque
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.8884682979586319
 
 ## vote_share_2022_r1_ENRIQUE GÓMEZ MARTÍNEZ
 
 - **Type**: float64
-- **Nulls**: 1124 / 1143
-- **Sample**: 0.001793137174993887
+- **Nulls**: 63 / 1143
+- **Sample**: 0.0025641025641025
 
 ## vote_share_2022_r1_FEDERICO GUTIÉRREZ
 
@@ -486,14 +486,14 @@ Rows: 1143, Columns: 152
 ## vote_share_2022_r1_JOHN MILTON RODRÍGUEZ
 
 - **Type**: float64
-- **Nulls**: 1125 / 1143
-- **Sample**: 0.00888417963974244
+- **Nulls**: 62 / 1143
+- **Sample**: 0.0048582995951417
 
 ## vote_share_2022_r1_LUIS PÉREZ
 
 - **Type**: float64
-- **Nulls**: 1131 / 1143
-- **Sample**: 0.0007335561170429538
+- **Nulls**: 286 / 1143
+- **Sample**: 0.0010796221322537
 
 ## vote_share_2022_r1_RODOLFO HERNÁNDEZ
 
@@ -510,20 +510,50 @@ Rows: 1143, Columns: 152
 ## vote_share_2022_r1_VOTOS EN BLANCO .
 
 - **Type**: float64
-- **Nulls**: 1122 / 1143
-- **Sample**: 0.015893715869264
+- **Nulls**: 47 / 1143
+- **Sample**: 0.0152496626180836
 
 ## vote_share_2022_r1_VOTOS NO MARCADOS .
 
 - **Type**: float64
-- **Nulls**: 1125 / 1143
-- **Sample**: 8.150623522699487e-05
+- **Nulls**: 66 / 1143
+- **Sample**: 0.0056680161943319
 
 ## vote_share_2022_r1_VOTOS NULOS .
 
 - **Type**: float64
-- **Nulls**: 1122 / 1143
-- **Sample**: 0.005297905289754666
+- **Nulls**: 50 / 1143
+- **Sample**: 0.0120107962213225
+
+## vote_share_2022_r1_federico_gutierrez
+
+- **Type**: float64
+- **Nulls**: 43 / 1143
+- **Sample**: 0.6669365721997301
+
+## vote_share_2022_r1_gustavo_petro
+
+- **Type**: float64
+- **Nulls**: 43 / 1143
+- **Sample**: 0.092442645074224
+
+## vote_share_2022_r1_ingrid_betancourt
+
+- **Type**: float64
+- **Nulls**: 171 / 1143
+- **Sample**: 0.0008097165991902
+
+## vote_share_2022_r1_rodolfo_hernandez
+
+- **Type**: float64
+- **Nulls**: 44 / 1143
+- **Sample**: 0.1500674763832658
+
+## vote_share_2022_r1_sergio_fajardo
+
+- **Type**: float64
+- **Nulls**: 43 / 1143
+- **Sample**: 0.0483130904183535
 
 ## vote_share_2022_r2_GUSTAVO PETRO
 
@@ -540,20 +570,32 @@ Rows: 1143, Columns: 152
 ## vote_share_2022_r2_VOTOS EN BLANCO .
 
 - **Type**: float64
-- **Nulls**: 1122 / 1143
-- **Sample**: 0.026678346738870748
+- **Nulls**: 45 / 1143
+- **Sample**: 0.0165267914783731
 
 ## vote_share_2022_r2_VOTOS NO MARCADOS .
 
 - **Type**: float64
-- **Nulls**: 1123 / 1143
-- **Sample**: 0.0003981842796846381
+- **Nulls**: 89 / 1143
+- **Sample**: 0.0028405422853453
 
 ## vote_share_2022_r2_VOTOS NULOS .
 
 - **Type**: float64
-- **Nulls**: 1122 / 1143
-- **Sample**: 0.008600780441188182
+- **Nulls**: 49 / 1143
+- **Sample**: 0.0087798579728857
+
+## vote_share_2022_r2_gustavo_petro
+
+- **Type**: float64
+- **Nulls**: 43 / 1143
+- **Sample**: 0.1323434473854099
+
+## vote_share_2022_r2_rodolfo_hernandez
+
+- **Type**: float64
+- **Nulls**: 43 / 1143
+- **Sample**: 0.8395093608779858
 
 ## nbi_rate_x
 

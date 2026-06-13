@@ -94,6 +94,8 @@ IDEOLOGY_CLASSES_3: list[str] = _3CLASS_CLASSES
 # Raw-column-suffix → ideology class mapping for each (year, round).
 # Keys match the feature matrix column name after ``vote_share_{year}_r{round}_``.
 # Expert-derived based on Colombian political tradition.
+# Both underscore (canonical) and UPPERCASE variants are listed to support
+# different MMV-ingestion column-name conventions.
 _CANDIDATE_5CLASS_MAP: dict[tuple[int, int], dict[str, str]] = {
     (2002, 1): {
         "alvaro_uribe": "Derecha",
@@ -114,11 +116,19 @@ _CANDIDATE_5CLASS_MAP: dict[tuple[int, int], dict[str, str]] = {
         "gustavo_petro": "Izquierda",
         "noemi_sanin": "Centro_Derecha",
     },
+    (2010, 2): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "antanas_mockus": "Centro",
+    },
     (2014, 1): {
         "juan_manuel_santos": "Centro_Derecha",
         "oscar_ivan_zuluaga": "Derecha",
         "enrique_penalosa": "Centro",
         "LOPEZ": "Izquierda",
+    },
+    (2014, 2): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "oscar_ivan_zuluaga": "Derecha",
     },
     (2018, 1): {
         "ivan_duque": "Derecha",
@@ -126,19 +136,34 @@ _CANDIDATE_5CLASS_MAP: dict[tuple[int, int], dict[str, str]] = {
         "sergio_fajardo": "Centro",
         "DE LA CALLE": "Centro_Izquierda",
     },
+    (2018, 2): {
+        "ivan_duque": "Derecha",
+        "gustavo_petro": "Izquierda",
+    },
     (2022, 1): {
         "GUSTAVO PETRO": "Izquierda",
+        "gustavo_petro": "Izquierda",
         "RODOLFO HERNÁNDEZ": "Derecha",
+        "rodolfo_hernandez": "Derecha",
         "FEDERICO GUTIÉRREZ": "Centro_Derecha",
+        "federico_gutierrez": "Centro_Derecha",
         "SERGIO FAJARDO": "Centro",
+        "sergio_fajardo": "Centro",
         "INGRID BETANCOURT": "Centro",
+        "ingrid_betancourt": "Centro",
         "JOHN MILTON RODRÍGUEZ": "Derecha",
         "LUIS PÉREZ": "Centro_Derecha",
+    },
+    (2022, 2): {
+        "gustavo_petro": "Izquierda",
+        "rodolfo_hernandez": "Derecha",
+        "GUSTAVO PETRO": "Izquierda",
+        "RODOLFO HERNÁNDEZ": "Derecha",
     },
 }
 
 
-def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901  type: ignore[name-defined]
+def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PLR0912  type: ignore[name-defined]
     """Add 5-class ideology target columns to the feature matrix.
 
     Parses ``vote_share_{year}_r{round}_{candidate}`` columns, maps
@@ -178,14 +203,17 @@ def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901  ty
         return result
 
     target_year = max(all_years)
-    target_map = _CANDIDATE_5CLASS_MAP.get((target_year, 1), {})
 
     class_cols: dict[str, list[str]] = {cls: [] for cls in _IDEOLOGY_CLASSES}
     for col in df.columns:
-        m = re.match(rf"vote_share_{target_year}_r1_(.+)", col)
+        m = re.match(rf"vote_share_{target_year}_r(\d+)_(.+)", col)
         if m:
-            suffix = m.group(1)
-            cls = target_map.get(suffix)
+            round_num = int(m.group(1))
+            suffix = m.group(2)
+            round_map = _CANDIDATE_5CLASS_MAP.get((target_year, round_num), {})
+            cls = round_map.get(suffix)
+            if cls is None and round_num != 1:
+                cls = _CANDIDATE_5CLASS_MAP.get((target_year, 1), {}).get(suffix)
             if cls:
                 class_cols[cls].append(col)
 
@@ -507,6 +535,126 @@ def _prepare_year_data(
     return x_mat, y
 
 
+def _detect_available_rounds(df: pd.DataFrame, year: int) -> list[int]:
+    """Detect which electoral rounds exist for a given year in the feature matrix.
+
+    Args:
+        df: Feature matrix with ``vote_share_{year}_r{round}_*`` columns.
+        year: Election year to scan.
+
+    Returns:
+        Sorted list of round numbers (e.g. ``[1]`` or ``[1, 2]``).
+
+    """
+    rounds: set[int] = set()
+    for col in df.columns:
+        m = re.match(rf"vote_share_{year}_r(\d+)_", col)
+        if m:
+            rounds.add(int(m.group(1)))
+    return sorted(rounds)
+
+
+def _prepare_combined_data(
+    df: pd.DataFrame,
+    year: int,
+    n_classes: int,
+    *,
+    exclude_year: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Stack R1+R2 rows with ``periodo`` feature for a single year.
+
+    Each municipality produces one row per round (R1, R2, …) with shared
+    demographic features but round-specific vote-share targets and a
+    ``periodo`` indicator column.  This matches USANTOMAS's methodology
+    where round is the #1 most-important feature.
+
+    Args:
+        df: Full feature matrix with ``vote_share_*`` columns.
+        year: Target election year.
+        n_classes: 3 or 5.
+        exclude_year: If set, exclude feature columns containing this
+            year suffix (prevents target leakage in holdout mode).
+
+    Returns:
+        ``(X, y)`` where each row is one municipality-round combination.
+        ``X`` includes a ``periodo`` column (1 or 2) as the last feature.
+        ``y`` is the per-round class vote-share simplex.
+
+    """
+    is_3class = n_classes == 3
+    class_names = _3CLASS_CLASSES if is_3class else _IDEOLOGY_CLASSES
+
+    rounds = _detect_available_rounds(df, year)
+    if not rounds:
+        logger.warning(
+            "No vote-share columns found for year %d; falling back to _prepare_year_data", year
+        )
+        return _prepare_year_data(df, year, n_classes, exclude_year=exclude_year)
+
+    leaked_suffix = str(exclude_year) if exclude_year else None
+    demog_cols = [
+        c
+        for c in df.columns
+        if not re.match(r"vote_share_", c)
+        and c not in ("year", "divipola", "municipio", "historical")
+        and not c.startswith("y_")
+        and pd.api.types.is_numeric_dtype(df[c])
+        and (leaked_suffix is None or leaked_suffix not in c)
+        and not c.startswith("pop_")
+        and not c.startswith("ipm_")
+    ]
+
+    x_rows: list[pd.DataFrame] = []
+    y_rows: list[pd.DataFrame] = []
+
+    for round_num in rounds:
+        round_map = _CANDIDATE_5CLASS_MAP.get((year, round_num), {})
+
+        class_cols: dict[str, list[str]] = {cls: [] for cls in class_names}
+        for col in df.columns:
+            m = re.match(rf"vote_share_{year}_r{round_num}_(.+)", col)
+            if m:
+                suffix = m.group(1)
+                cls = round_map.get(suffix)
+                if cls:
+                    class_cols[cls].append(col)
+
+        y_round = pd.DataFrame(0.0, index=df.index, columns=[f"y_{cls}" for cls in class_names])
+        for cls in class_names:
+            if class_cols[cls]:
+                y_round[f"y_{cls}"] = df[class_cols[cls]].sum(axis=1)
+
+        mapped = y_round[[f"y_{cls}" for cls in class_names]].sum(axis=1)
+        mapped_mask = mapped > 0
+        for cls in class_names:
+            col = f"y_{cls}"
+            y_round.loc[mapped_mask, col] = y_round.loc[mapped_mask, col] / mapped.loc[mapped_mask]
+
+        round_x = df[demog_cols].copy()
+        round_x["periodo"] = round_num
+
+        x_rows.append(round_x)
+        y_rows.append(y_round)
+
+    x_stacked = pd.concat(x_rows, ignore_index=True)
+    y_stacked = pd.concat(y_rows, ignore_index=True)
+
+    x_mat = x_stacked.to_numpy(np.float64)
+    y_mat = y_stacked.to_numpy(np.float64)
+
+    x_nan = np.isnan(x_mat)
+    if x_nan.any():
+        col_median = np.nanmedian(x_mat, axis=0)
+        x_mat = np.where(x_nan, col_median, x_mat)
+
+    eps = 1e-12
+    y_mat = np.clip(y_mat, eps, None)
+    y_sum = y_mat.sum(axis=1, keepdims=True)
+    y_mat = np.divide(y_mat, y_sum, out=np.full_like(y_mat, 1.0 / n_classes), where=y_sum > 0)
+
+    return x_mat, y_mat
+
+
 def run_holdout_benchmarks(
     n_classes: int = 5,
     train_years: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018),
@@ -686,6 +834,103 @@ def run_random_benchmarks(
                 )
             except Exception:
                 logger.exception("Model %s + transform %s failed (random)", m_name, t_name)
+                rows.extend(
+                    {
+                        "model": m_name,
+                        "transform": t_name,
+                        "class_name": cname,
+                        "r2": None,
+                        "rmse": None,
+                        "n_train": X_train.shape[0],
+                        "n_test": X_test.shape[0],
+                    }
+                    for cname in class_names
+                )
+    return rows
+
+
+def run_combined_benchmarks(
+    n_classes: int = 5,
+    train_years: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018),
+    test_year: int = 2022,
+) -> list[dict[str, Any]]:
+    """Train on stacked (muni × year × round) observations, predict test year.
+
+    Stacks R1 and R2 data with ``periodo`` feature, matching USANTOMAS's
+    methodology where round is a feature.  Each municipality-round
+    combination is one observation.
+
+    Args:
+        n_classes: Number of ideology classes (3 or 5).
+        train_years: Election years for training.
+        test_year: Election year to predict.
+
+    Returns:
+        Same format as :func:`run_benchmarks`.
+
+    """
+    logger.info(
+        "Combined (R1+R2 stacked): train on %s (n_classes=%d), test on %d",
+        train_years,
+        n_classes,
+        test_year,
+    )
+
+    try:
+        df = load_features()
+    except ValueError:
+        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
+        if not parquet_path.exists():
+            parquet_path = (
+                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
+            )
+        df = pd.read_parquet(str(parquet_path))
+
+    train_arrays: list[np.ndarray] = []
+    train_targets: list[np.ndarray] = []
+    for y in train_years:
+        X_y, y_y = _prepare_combined_data(df, y, n_classes, exclude_year=test_year)
+        train_arrays.append(X_y)
+        train_targets.append(y_y)
+
+    X_train = np.vstack(train_arrays)
+    y_train = np.vstack(train_targets)
+    X_test, y_test = _prepare_combined_data(df, test_year, n_classes, exclude_year=test_year)
+
+    logger.info(
+        "Combined train shape %s, test shape %s",
+        X_train.shape,
+        X_test.shape,
+    )
+
+    class_names = _3CLASS_CLASSES if n_classes == 3 else _IDEOLOGY_CLASSES
+    rows: list[dict[str, Any]] = []
+
+    for t_name in ("alr", "clr", "ilr"):
+        y_train_t = _apply_transform(t_name, y_train)
+
+        for m_name in ("svr", "rfr", "gbr", "knn", "fnn"):
+            model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
+            try:
+                model.fit(X_train, y_train_t)
+                y_pred_t = model.predict(X_test)
+                y_pred = _apply_inverse_transform(t_name, y_pred_t)
+                per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
+
+                rows.extend(
+                    {
+                        "model": m_name,
+                        "transform": t_name,
+                        "class_name": pc["class_name"],
+                        "r2": pc["r2"],
+                        "rmse": pc["rmse"],
+                        "n_train": X_train.shape[0],
+                        "n_test": X_test.shape[0],
+                    }
+                    for pc in per_class
+                )
+            except Exception:
+                logger.exception("Model %s + transform %s failed (combined)", m_name, t_name)
                 rows.extend(
                     {
                         "model": m_name,
