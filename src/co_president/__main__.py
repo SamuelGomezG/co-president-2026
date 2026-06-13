@@ -29,7 +29,13 @@ if TYPE_CHECKING:
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
     from xarray import DataTree
 
-from co_president.benchmarks.runner import load_historical_data, run_benchmarks, write_csv
+from co_president.benchmarks.runner import (
+    IDEOLOGY_CLASSES_3,
+    IDEOLOGY_CLASSES_5,
+    load_historical_data,
+    run_benchmarks,
+    write_csv,
+)
 from co_president.config import (
     CONSULTATION_DATE,
     ELECTION_DATE_ROUND1,
@@ -199,6 +205,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--smoke",
         action="store_true",
         help="Run with synthetic 3-row data instead of full historical dataset",
+    )
+    bm_parser.add_argument(
+        "--n-classes",
+        type=int,
+        default=5,
+        choices=(3, 5),
+        help="Number of ideology classes (3 or 5; default 5)",
     )
 
     return parser
@@ -1753,12 +1766,15 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
 def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
     """Run the SPEC-41 FNN+CLR ML benchmark on historical data."""
+    n_classes: int = getattr(args, "n_classes", 5)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     if args.smoke:
         results = run_benchmarks(smoke=True)
     else:
-        x_arr, y_arr = load_historical_data()
-        results = run_benchmarks(x_arr, y_arr)
+        _n3 = 3
+        class_names = IDEOLOGY_CLASSES_3 if n_classes == _n3 else IDEOLOGY_CLASSES_5
+        x_arr, y_arr = load_historical_data(n_classes=n_classes)
+        results = run_benchmarks(x_arr, y_arr, class_names=class_names)
     write_csv(results)
 
 

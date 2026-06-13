@@ -80,6 +80,17 @@ _IDEOLOGY_CLASSES: list[str] = [
     "Derecha",
 ]
 
+_3CLASS_CLASSES: list[str] = [
+    "Izquierda",
+    "Centro",
+    "Derecha",
+]
+
+# Public exports so callers can pass the right ``class_names`` to
+# :func:`run_benchmarks`.  Use the module-level constant directly.
+IDEOLOGY_CLASSES_5: list[str] = _IDEOLOGY_CLASSES
+IDEOLOGY_CLASSES_3: list[str] = _3CLASS_CLASSES
+
 # Raw-column-suffix → ideology class mapping for each (year, round).
 # Keys match the feature matrix column name after ``vote_share_{year}_r{round}_``.
 # Expert-derived based on Colombian political tradition.
@@ -190,6 +201,35 @@ def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901  ty
         col = f"y_{cls}"
         result.loc[mapped_mask, col] = result.loc[mapped_mask, col] / mapped.loc[mapped_mask]
 
+    return result
+
+
+def _compute_3class_targets(df: pd.DataFrame) -> pd.DataFrame:  # type: ignore[name-defined]
+    """Add 3-class ideology target columns (Izquierda, Centro, Derecha).
+
+    Computes 5-class targets via :func:`_compute_5class_targets`, then
+    collapses ``Centro_Izquierda`` and ``Centro_Derecha`` into ``Centro``
+    and renormalises to sum to 1 per row.
+
+    Args:
+        df: Feature matrix from ``load_features()``.
+
+    Returns:
+        DataFrame with ``y_Izquierda``, ``y_Centro``, ``y_Derecha`` columns.
+
+    """
+    result = _compute_5class_targets(df)
+    result["y_Centro"] = (
+        result.get("y_Centro", pd.Series(0.0, index=result.index))
+        + result.get("y_Centro_Izquierda", pd.Series(0.0, index=result.index))
+        + result.get("y_Centro_Derecha", pd.Series(0.0, index=result.index))
+    )
+    result = result.drop(columns=["y_Centro_Izquierda", "y_Centro_Derecha"], errors="ignore")
+    y3 = ["y_Izquierda", "y_Centro", "y_Derecha"]
+    total = result[y3].sum(axis=1)
+    mask = total > 0
+    for c in y3:
+        result.loc[mask, c] = result.loc[mask, c] / total.loc[mask]
     return result
 
 
@@ -455,18 +495,24 @@ def main() -> None:
     _print_summary(results, out_path)
 
 
-def load_historical_data() -> tuple[np.ndarray, np.ndarray]:
+def load_historical_data(
+    n_classes: int = 5,
+) -> tuple[np.ndarray, np.ndarray]:
     """Load real historical feature matrix and 5-class ideology targets.
 
-    Computes 5-class ideology target columns from ``vote_share_*`` columns
-    (most recent year), then excludes target-year vote shares from the
-    feature matrix to prevent leakage.
+    Computes 5-class (or 3-class) ideology target columns from
+    ``vote_share_*`` columns (most recent year), then excludes target-year
+    vote shares from the feature matrix to prevent leakage.
 
     Falls back to loading the raw Parquet matrix directly if the standard
     ``load_features()`` pipeline fails (e.g. missing fiscal schema columns).
 
+    Args:
+        n_classes: Number of ideology classes (3 or 5).  Defaults to 5.
+
     Returns:
-        ``(X, y)`` where ``X.shape == (N, F)`` and ``y.shape == (N, 5)``.
+        ``(X, y)`` where ``X.shape == (N, F)`` and ``y.shape == (N, K)``
+        with ``K = n_classes``.
 
     """
     try:
@@ -481,7 +527,10 @@ def load_historical_data() -> tuple[np.ndarray, np.ndarray]:
         df = pd.read_parquet(str(parquet_path))
         logger.info("Loaded raw Parquet matrix: %d rows x %d columns", *df.shape)
 
-    df = _compute_5class_targets(df)
+    class_names = _3CLASS_CLASSES if n_classes == 3 else _IDEOLOGY_CLASSES
+    n_target = n_classes
+
+    df = _compute_3class_targets(df) if n_classes == 3 else _compute_5class_targets(df)
 
     target_year = _detect_target_year(df)
 
@@ -493,14 +542,14 @@ def load_historical_data() -> tuple[np.ndarray, np.ndarray]:
         )
 
     X_cols = [c for c in df.columns if _is_feature(c) and pd.api.types.is_numeric_dtype(df[c])]
-    y_cols = [f"y_{cls}" for cls in _IDEOLOGY_CLASSES]
+    y_cols = [f"y_{cls}" for cls in class_names]
 
     available_y = [c for c in y_cols if c in df.columns]
-    if len(available_y) < 5:
-        logger.warning("5-class y columns not found; using synthetic targets")
+    if len(available_y) < n_target:
+        logger.warning("%d-class y columns not found; using synthetic targets", n_classes)
         rng = np.random.default_rng(42)
         n = df.shape[0]
-        y_synth = np.abs(rng.standard_normal((n, 5)))
+        y_synth = np.abs(rng.standard_normal((n, n_target)))
         y_synth = y_synth / y_synth.sum(axis=1, keepdims=True)
         return df[X_cols].to_numpy(np.float64), y_synth
 
@@ -508,7 +557,7 @@ def load_historical_data() -> tuple[np.ndarray, np.ndarray]:
     EPSILON = 1e-12
     y = np.clip(y, EPSILON, None)
     y_sum = y.sum(axis=1, keepdims=True)
-    y = np.divide(y, y_sum, out=np.full_like(y, 1.0 / 5), where=y_sum > 0)
+    y = np.divide(y, y_sum, out=np.full_like(y, 1.0 / n_target), where=y_sum > 0)
     y = np.clip(y, EPSILON, None)
 
     x_mat = df[X_cols].to_numpy(np.float64)
