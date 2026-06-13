@@ -25,6 +25,8 @@ from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
 from sklearn.multioutput import (  # type: ignore[reportMissingTypeStubs]
     MultiOutputRegressor,  # type: ignore[reportUnknownVariableType]
 )
+from sklearn.pipeline import Pipeline  # type: ignore[reportMissingTypeStubs]
+from sklearn.preprocessing import StandardScaler  # type: ignore[reportMissingTypeStubs]
 
 from co_president.benchmarks.transforms import (
     alr_inv_transform,
@@ -55,9 +57,10 @@ _MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "fnn": {
         "class": "MLPRegressor",
         "kwargs": {
-            "hidden_layer_sizes": (150, 100, 50),
+            "hidden_layer_sizes": (64, 32),
             "activation": "relu",
-            "max_iter": 50,
+            "max_iter": 500,
+            "early_stopping": False,
             "random_state": 332211,
         },
     },
@@ -222,6 +225,9 @@ def _make_sklearn_model(name: str, n_train: int = 0) -> Any:  # noqa: ANN401
 
     if name in ("svr", "gbr"):
         estimator = MultiOutputRegressor(estimator)
+
+    if name in ("fnn", "svr", "knn"):
+        estimator = Pipeline([("scaler", StandardScaler()), ("estimator", estimator)])
 
     return estimator
 
@@ -568,26 +574,38 @@ def report_benchmark_baseline(
         ``results`` (the raw list of result dicts from ``run_benchmarks``).
 
     """
+    # Ensure 5-class target columns are present
+    has_y = any(c.startswith("y_Izquierda") for c in features.columns)
+    df = _compute_5class_targets(features) if not has_y else features
+
     y_cols = [f"y_{cls}" for cls in _IDEOLOGY_CLASSES]
-    available_y = [c for c in y_cols if c in features.columns]
+    available_y = [c for c in y_cols if c in df.columns]
     if len(available_y) < 5:
         logger.warning(
-            "Benchmark baseline: 5-class y columns not found in features. "
-            "Expected: %s. Found: %s. Skipping.",
-            ", ".join(y_cols),
-            ", ".join(available_y),
+            "Benchmark baseline: 5-class y cols not found after _compute_5class_targets. Skipping."
         )
-        return {"n_rows": 0, "n_models": 0, "n_transforms": 0, "results": []}
+        return {
+            "n_rows": 0,
+            "n_models": 0,
+            "n_transforms": 0,
+            "results": [],
+            "per_class_best_r2": {},
+        }
 
     X_cols = [
-        c
-        for c in features.columns
-        if c not in ("year", "divipola", "municipio") and c not in y_cols
+        c for c in df.columns if c not in ("year", "divipola", "municipio") and c not in y_cols
     ]
-    X = features[X_cols].to_numpy(np.float64)
-    y = features[available_y].to_numpy(np.float64)
+    X = df[X_cols].to_numpy(np.float64)
+    y = df[available_y].to_numpy(np.float64)
 
     results = run_benchmarks(X, y, model_names=model_names, transform_names=transform_names)
+
+    # Compute best R² per class across all (model, transform) combinations.
+    per_class_best: dict[str, float] = {}
+    for cls in _IDEOLOGY_CLASSES:
+        cls_r2s = [r["r2"] for r in results if r["class_name"] == cls and r["r2"] is not None]
+        per_class_best[cls] = max(cls_r2s) if cls_r2s else float("nan")
+
     _log_baseline_summary(results)
 
     return {
@@ -595,6 +613,7 @@ def report_benchmark_baseline(
         "n_models": len(model_names),
         "n_transforms": len(transform_names),
         "results": results,
+        "per_class_best_r2": per_class_best,
     }
 
 

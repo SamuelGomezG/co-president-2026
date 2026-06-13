@@ -136,10 +136,11 @@ class TestReportBenchmarkBaseline:
     """Tests for the SPEC-26 baseline reporter."""
 
     def test_missing_y_cols_returns_empty(self) -> None:
-        """DataFrame without y_* columns returns early."""
+        """DataFrame without y_* columns auto-computes targets."""
         df = pd.DataFrame({"x1": [1.0, 2.0]})
         result = report_benchmark_baseline(df)
-        assert result["n_rows"] == 0
+        assert result["n_rows"] > 0
+        assert "per_class_best_r2" in result
 
     def test_with_y_cols_runs_all_combos(self) -> None:
         """DataFrame with all 5 y_* columns runs all combos."""

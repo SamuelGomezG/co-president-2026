@@ -1436,11 +1436,16 @@ def _validate_before_2026_forecast(config: ModelConfig) -> None:
 
         summary = report_benchmark_baseline(features)
         if summary["n_rows"] > 0:
+            best = summary.get("per_class_best_r2", {})
+            best_str = ", ".join(
+                f"{k}: {v:.4f}" for k, v in best.items() if isinstance(v, float) and str(v) != "nan"
+            )
             logger.info(
-                "Benchmark baseline: %d rows (%d models x %d transforms)",
+                "Benchmark baseline: %d rows (%d models x %d transforms). Best R² per class: %s",
                 summary["n_rows"],
                 summary["n_models"],
                 summary["n_transforms"],
+                best_str,
             )
     except Exception:
         logger.exception("Benchmark baseline skipped (non-fatal)")
