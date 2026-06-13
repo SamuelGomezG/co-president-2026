@@ -234,10 +234,13 @@ class TestRun2018Comparison:
     ) -> None:
         """Returned dict contains all expected metric keys."""
         n_candidates = 3
-        mock_idata = _make_mock_idata(n_candidates)
+        candidate_keys = _get_candidate_keys(polls)
+        actual_shares = np.array(
+            [results.get_share(k) for k in candidate_keys],
+        )
+        mock_idata = _make_mock_idata(n_candidates, actual_shares)
         mock_sample.return_value = mock_idata
 
-        candidate_keys = _get_candidate_keys(polls)
         result = run_2018_comparison(
             features,
             polls,
@@ -269,10 +272,13 @@ class TestRun2018Comparison:
     ) -> None:
         """Both models return same predictions -> delta is 0."""
         n_candidates = 3
-        mock_idata = _make_mock_idata(n_candidates)
+        candidate_keys = _get_candidate_keys(polls)
+        actual_shares = np.array(
+            [results.get_share(k) for k in candidate_keys],
+        )
+        mock_idata = _make_mock_idata(n_candidates, actual_shares)
         mock_sample.return_value = mock_idata
 
-        candidate_keys = _get_candidate_keys(polls)
         result = run_2018_comparison(
             features,
             polls,
@@ -282,7 +288,8 @@ class TestRun2018Comparison:
         )
 
         assert result["standard_r2_delta"] == pytest.approx(0.0, abs=1e-10)
-        assert result["composite_r2_delta"] == pytest.approx(0.0, abs=1e-10)
+        # Composite R² is undefined for single-row (n=1): always NaN
+        assert np.isnan(result["composite_r2_delta"])
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -290,9 +297,23 @@ class TestRun2018Comparison:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _make_mock_idata(n_candidates: int) -> MagicMock:
-    """Create a mock InferenceData with ``p_natl`` posterior."""
-    p_natl = np.full((1, 100, n_candidates), 1.0 / n_candidates)
+def _make_mock_idata(
+    n_candidates: int,
+    actual_shares: np.ndarray | None = None,
+) -> MagicMock:
+    """Create a mock InferenceData with ``p_natl`` posterior.
+
+    Args:
+        n_candidates: Number of candidate categories.
+        actual_shares: If provided, ``p_natl`` posterior mean matches
+            these shares so that R² ≈ 1.0 (above gating threshold).
+            If None, uniform ``1/n_candidates`` shares are used.
+
+    """
+    if actual_shares is not None:
+        p_natl = np.full((1, 100, n_candidates), actual_shares)
+    else:
+        p_natl = np.full((1, 100, n_candidates), 1.0 / n_candidates)
     p_natl_dataarray = MagicMock()
     p_natl_dataarray.to_numpy.return_value = p_natl
 

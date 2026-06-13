@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Minimum acceptable standard R² for model reliability gating.
+STANDARD_R2_THRESHOLD: float = 0.3
+
 
 def run_2018_comparison(
     features: pd.DataFrame,
@@ -82,16 +85,36 @@ def run_2018_comparison(
         means = p_natl.mean(axis=(0, 1))
 
         std_r2 = _compute_r2(actual_shares, means)
-        comp_r2 = composite_r2(
-            actual_shares.reshape(1, -1),
-            means.reshape(1, -1),
-        )
+
+        # Composite R² requires n > 1 observations; single-year
+        # national shares produce a single row → undefined.
+        if means.ndim == 1 and means.size > 1:
+            comp_r2 = float("nan")
+            logger.warning(
+                "Composite R² requires n > 1 (multiple observations); "
+                "single-year benchmark returns NaN for %s model.",
+                label,
+            )
+        else:
+            comp_r2 = composite_r2(
+                actual_shares.reshape(1, -1),
+                means.reshape(1, -1),
+            )
 
         results[f"standard_r2_{label}"] = std_r2
         results[f"composite_r2_{label}"] = comp_r2
 
     results["standard_r2_delta"] = results["standard_r2_clr"] - results["standard_r2_baseline"]
     results["composite_r2_delta"] = results["composite_r2_clr"] - results["composite_r2_baseline"]
+
+    for label in ("baseline", "clr"):
+        std_r2 = results[f"standard_r2_{label}"]
+        if np.isnan(std_r2) or std_r2 < STANDARD_R2_THRESHOLD:
+            msg = (
+                f"Standard R² for {label} model ({std_r2:.4f}) is below "
+                f"gating threshold ({STANDARD_R2_THRESHOLD}). Model may be unreliable."
+            )
+            raise ValueError(msg)
 
     logger.info(
         "2018 holdout comparison — standard R²: baseline=%.4f, CLR=%.4f "
