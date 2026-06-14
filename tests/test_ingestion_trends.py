@@ -74,7 +74,7 @@ class TestFetchTrends:
         The resolved timeframe should end at yesterday (not today) per
         SciELO 2023 T-1 design.
         """
-        today = pd.Timestamp.today().normalize()
+        today = pd.Timestamp.now(tz="UTC").normalize()
         yesterday = today - pd.Timedelta(days=1)
         mock_fetch.return_value = pd.DataFrame(
             {"Petro": [80.0]},

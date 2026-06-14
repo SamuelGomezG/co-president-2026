@@ -548,3 +548,35 @@ class TestEvolutionSeries:
                 assert float(row["trends"]) == pytest.approx(0.6, abs=0.01)
             elif row["candidate"] == "federico_gutierrez":
                 assert float(row["trends"]) == pytest.approx(0.4, abs=0.01)
+
+    def test_backward_alignment_matches_nearest_earlier_trend(self, df: pd.DataFrame) -> None:
+        """``merge_asof`` backward matches the nearest trend date ≤ snapshot.
+
+        Uses distinct proportions per trend date so the test fails if
+        alignment direction is wrong (e.g., nearest instead of backward).
+        """
+        candidates = ["gustavo_petro", "federico_gutierrez"]
+        trends_df = pd.DataFrame(
+            {
+                "Gustavo Petro": [70.0, 50.0],
+                "Federico Gutiérrez": [30.0, 50.0],
+            },
+            index=pd.to_datetime(["2022-05-15", "2022-05-28"]),
+        )
+        result = evolution_series(
+            df,
+            candidates,
+            ELECTION_DATE_ROUND1,
+            POLLSTER_RATINGS,
+            n_snapshots=5,
+            trends_df=trends_df,
+        )
+        trends_values = result.dropna(subset=["trends"])
+        # Only the 05-27 snapshot falls between the two trend dates (≥ 05-15, < 05-28).
+        # Backward alignment must match 05-15, not 05-28.
+        assert len(trends_values) > 0, "Expected non-NaN trend matches"
+        for _, row in trends_values.iterrows():
+            if row["candidate"] == "gustavo_petro":
+                assert float(row["trends"]) == pytest.approx(0.7, abs=0.01)
+            elif row["candidate"] == "federico_gutierrez":
+                assert float(row["trends"]) == pytest.approx(0.3, abs=0.01)
