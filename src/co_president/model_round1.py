@@ -655,6 +655,9 @@ def _preprocess_year_polls(
 
     """
     polls = polls.copy()
+    if year not in ELECTION_DATES:
+        msg = f"Unsupported election year: {year}. Supported: {sorted(ELECTION_DATES)}"
+        raise ValueError(msg)
     election_date = ELECTION_DATES[year]
 
     if not pd.api.types.is_datetime64_any_dtype(polls["fecha"]):
