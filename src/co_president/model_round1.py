@@ -148,6 +148,10 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
         max_idx = np.argmax(observed_counts, axis=1)
         observed_counts[zero_mask] = 1
         observed_counts[np.arange(len(observed_counts)), max_idx] -= n_zeros_per_row
+        # Clamp: ensure no count goes ≤0 after subtraction
+        # (edge case: max column value < n_zeros, rare with real data
+        #  but possible with synthetic/small-muestra rows)
+        observed_counts = np.maximum(observed_counts, 1)
 
     # Sample-size-dependent concentration multiplier:
     # Larger polls contribute more to the concentration parameter via log-based
