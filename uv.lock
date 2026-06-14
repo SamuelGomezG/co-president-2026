@@ -438,7 +438,7 @@ requires-dist = [
     { name = "pytrends", specifier = ">=4.9" },
     { name = "requests", specifier = ">=2.31" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
-    { name = "scikit-learn", specifier = ">=1.3" },
+    { name = "scikit-learn", specifier = ">=1.4" },
     { name = "sodapy", specifier = ">=2.2" },
     { name = "tenacity", specifier = ">=8.2" },
     { name = "torch", specifier = ">=2.2" },
