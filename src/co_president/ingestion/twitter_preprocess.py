@@ -45,7 +45,7 @@ _EMOTICONS: dict[str, str] = {
     ":)": "sonrisa",
     ":-)": "sonrisa",
     ":(": "tristeza",
-    ":-": "tristeza",
+    ":-(": "tristeza",
     ":d": "risa",
     ":-d": "risa",
     "xd": "risa",
@@ -161,6 +161,11 @@ def normalize_spanish_tweets(
         DataFrame with two columns:
         - ``original_text`` — the raw tweet.
         - ``clean_text`` — the normalised tweet.
+
+    Examples:
+        >>> normalize_spanish_tweets(["¡Hola @mundo! https://t.co/abc #FELIZ"])
+           original_text                          clean_text
+        0  ¡Hola @mundo! https://t.co/abc #FELIZ  ¡hola usuario ! url feliz
 
     """
     raw = tweets.tolist() if isinstance(tweets, pd.Series) else list(tweets)

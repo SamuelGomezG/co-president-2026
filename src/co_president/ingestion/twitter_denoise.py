@@ -197,6 +197,28 @@ def detect_spammers(
         Boolean ``Series`` indexed by ``user_id``.  ``True`` means the user
         is a spammer / bot and should be excluded from downstream analysis.
 
+    Examples:
+        >>> tweets = pd.DataFrame({
+        ...     "user_id": ["u1", "u2"],
+        ...     "text": ["spam spam spam", "buenos dias a todos"],
+        ...     "is_retweet": [False, False],
+        ...     "is_reply": [False, False],
+        ...     "created_at": [pd.Timestamp("2026-01-01")] * 2,
+        ... })
+        >>> users = pd.DataFrame({
+        ...     "user_id": ["u1", "u2"],
+        ...     "followers_count": [5, 500],
+        ...     "friends_count": [2000, 200],
+        ...     "created_at": [pd.Timestamp("2025-01-01")] * 2,
+        ...     "description": ["", "periodista"],
+        ...     "profile_image_url": ["default.png", "custom.jpg"],
+        ... })
+        >>> detect_spammers(tweets, users)
+        user_id
+        u1     True
+        u2    False
+        dtype: bool
+
     """
     features = _compute_user_features(tweets, users)
 
