@@ -302,6 +302,41 @@ def test_build_round1_model_zero_floor_tie_resistant() -> None:
     np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
 
 
+def test_build_round1_model_zero_floor_underflow_guard() -> None:
+    """Zero-floor clamp prevents negative counts when max column < n_zeros.
+
+    Regression test: without the clamp, row [0, 1, 0, 1] (muestra=2,
+    four candidates, two zeros) would produce [1, -2, 1, 1] after
+    zero→mutation and subtraction.
+    """
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29"],
+            "encuestadora": ["PollsterA"],
+            "muestra": [2],
+            "gustavo_petro": [0.0],
+            "rodolfo_hernandez": [50.0],
+            "blanco": [0.0],
+            "rest": [50.0],
+            "round_number": [1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    # Model must build without error even when max column too small
+    assert len(model.observed_RVs) == 1
+
+    # Prior predictive must produce valid shares (no NaN from negative counts)
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+    p_adj = prior_pred.prior["p_adj"]
+    assert np.all(np.isfinite(p_adj))
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
+
+
 def test_build_round1_model_backtest_mode() -> None:
     """Test that backtest mode (results=RoundResult) includes election likelihood."""
     polls = _make_3row_polls_3candidates()
