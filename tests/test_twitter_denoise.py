@@ -118,7 +118,7 @@ class TestDetectSpammers:
                 "text": ["mismo texto"] * 9 + ["otro texto"],
                 "is_retweet": [False] * 10,
                 "is_reply": [False] * 10,
-                "created_at": pd.Timestamp("2026-01-01"),
+                "created_at": [pd.Timestamp("2026-01-01")] * 10,
             },
         )
         users = _make_users([uid])
