@@ -25,6 +25,9 @@ from co_president.config import (
     ELECTION_DATE_ROUND1,
     FIRST_ROUND_CANDIDATES,
 )
+from co_president.fundamentals.compositional import (
+    _apply_zero_floor,  # type: ignore[reportPrivateUsage]
+)
 from co_president.fundamentals.features import clr
 
 if TYPE_CHECKING:
@@ -292,6 +295,10 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
         max_idx = np.argmax(observed_counts, axis=1)
         observed_counts[np.arange(n_polls), max_idx] += diff
 
+    # Zero floor — replace 0 with 1, redistributing from largest columns
+    # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
+    _apply_zero_floor(observed_counts)
+
     # Sample-size-dependent concentration multiplier
     mean_sample_size = sample_sizes.mean()
     eps = 1e-8
@@ -350,6 +357,11 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
             "p_municipal",
             pm.math.softmax(logit_p, axis=-1),  # type: ignore
         )
+
+        if config.clr_target:
+            log_p_muni = pm.math.log(p_municipal + _EPSILON)  # type: ignore[operator]
+            log_geom_mean = pm.math.mean(log_p_muni, axis=-1, keepdims=True)  # type: ignore
+            pm.Deterministic("p_municipal_clr", log_p_muni - log_geom_mean)  # type: ignore
 
         # ── Layer B: National poll likelihood ─────────────────────────
 
