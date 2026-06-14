@@ -706,6 +706,10 @@ def _preprocess_year_polls(
         max_idx = np.argmax(observed_counts, axis=1)
         observed_counts[np.arange(len(observed_counts)), max_idx] += diff
 
+    # Zero floor — replace 0 with 1, redistributing from largest columns
+    # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
+    _apply_zero_floor(observed_counts)
+
     eps = 1e-8
     mean_sample_size = sample_sizes.mean()
     numerator = np.log(sample_sizes + 1 + eps)
