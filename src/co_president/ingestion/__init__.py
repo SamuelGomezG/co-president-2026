@@ -55,6 +55,10 @@ from co_president.ingestion.ingest_sabaneta import (
     load_sabaneta_camara,
     validate_sabaneta,
 )
+from co_president.ingestion.ingest_trends import (
+    compute_prop_fav,
+    fetch_trends,
+)
 from co_president.ingestion.llm_sentiment import (
     classify_with_gpt,
 )
@@ -67,6 +71,9 @@ from co_president.ingestion.report import (
 from co_president.ingestion.sentiment_series import (
     sentiment_series,
 )
+from co_president.ingestion.trends_keywords import (
+    CANDIDATE_QUERY_MAP_2026,
+)
 from co_president.ingestion.twitter_denoise import (
     detect_spammers,
 )
@@ -75,6 +82,7 @@ from co_president.ingestion.twitter_preprocess import (
 )
 
 __all__ = [
+    "CANDIDATE_QUERY_MAP_2026",
     "build_cnpv_features",
     "build_feature_matrix",
     "build_fiscal_features",
@@ -84,7 +92,9 @@ __all__ = [
     "build_sabaneta_camara_matrix",
     "classify_emotions",
     "classify_with_gpt",
+    "compute_prop_fav",
     "detect_spammers",
+    "fetch_trends",
     "generate_coverage_markdown",
     "generate_coverage_report",
     "generate_data_dictionary",

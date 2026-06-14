@@ -19,6 +19,8 @@ from co_president.config import (
     CONSULTATION_DATE,
     pollster_weight_formula,
 )
+from co_president.ingestion.ingest_trends import compute_prop_fav
+from co_president.ingestion.trends_keywords import CANDIDATE_QUERY_MAP_2026
 
 __all__ = [
     "aggregation_snapshot",
@@ -293,12 +295,14 @@ def aggregation_snapshot(
     return weighted_average(filtered, candidates, as_of_date, ratings)
 
 
-def evolution_series(
+def evolution_series(  # noqa: PLR0913
     df: pd.DataFrame,
     candidates: list[str],
     election_date: date,
     ratings: dict[str, float],
     n_snapshots: int = 15,
+    trends_df: pd.DataFrame | None = None,
+    trends_query_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Compute weighted averages across a series of snapshot dates.
 
@@ -306,16 +310,23 @@ def evolution_series(
     to ``election_date - 2 days``, runs ``aggregation_snapshot`` at each,
     and returns a long-format DataFrame.
 
+    When ``trends_df`` is provided, merges Google Trends favorable
+    propensity as an additional ``trends`` column (6th source per P27).
+
     Args:
         df: DataFrame with poll data.
         candidates: List of candidate keys.
         election_date: Final election date.
         ratings: Pollster ratings mapping.
         n_snapshots: Number of evenly spaced snapshot dates.
+        trends_df: Optional DataFrame indexed by date with query-string
+            columns (output of ``fetch_trends``).
+        trends_query_map: Optional mapping of candidate key to search query
+            string.  Defaults to ``CANDIDATE_QUERY_MAP_2026`` when ``None``.
 
     Returns:
         DataFrame with columns ``as_of_date``, ``candidate``,
-        ``weighted_average``.
+        ``weighted_average``, and optionally ``trends``.
 
     Examples:
         >>> import pandas as pd
@@ -350,4 +361,43 @@ def evolution_series(
             }
             for c in candidates
         )
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+
+    if trends_df is not None and not trends_df.empty:
+        query_map = trends_query_map if trends_query_map is not None else CANDIDATE_QUERY_MAP_2026
+        active_map = {k: v for k, v in query_map.items() if k in candidates}
+        if active_map:
+            prop_fav_long = compute_prop_fav(trends_df, active_map)
+            if not prop_fav_long.empty:
+                result["as_of_date"] = pd.to_datetime(result["as_of_date"])
+                prop_fav_long["as_of_date"] = pd.to_datetime(prop_fav_long["as_of_date"])
+                result = result.sort_values(["as_of_date"], ignore_index=True)
+                prop_fav_long = prop_fav_long.sort_values(["as_of_date"], ignore_index=True)
+                # Merge each candidate independently to avoid global
+                # monotonic-sort requirement when by groups interleave.
+                merged_parts: list[pd.DataFrame] = []
+                for cand in candidates:
+                    left_part = result[result["candidate"] == cand].reset_index(drop=True)
+                    right_part = prop_fav_long[prop_fav_long["candidate"] == cand].reset_index(
+                        drop=True
+                    )
+                    if not right_part.empty:
+                        right_part = right_part.drop(columns=["candidate"])
+                        merged = pd.merge_asof(
+                            left_part,
+                            right_part,
+                            on="as_of_date",
+                            direction="backward",
+                        )
+                    else:
+                        left_part["prop_fav"] = float("nan")
+                        merged = left_part
+                    merged_parts.append(merged)
+                result = pd.concat(merged_parts, ignore_index=True)
+                result = result.rename(columns={"prop_fav": "trends"})
+            else:
+                result["trends"] = float("nan")
+        else:
+            result["trends"] = float("nan")
+
+    return result

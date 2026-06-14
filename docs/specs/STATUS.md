@@ -39,6 +39,7 @@
 | SPEC-21b | Bogotá disaggregation | `ingest_bogota.py` | #238 | ✅ Shipped |
 | SPEC-21c | CLR/logit transforms | `fundamentals/features.py` | #240 | ✅ Shipped |
 | SPEC-22 | Municipal hierarchical model | `model_municipal.py` | #241 | ✅ Shipped |
+| SPEC-38 | Google Trends ingestion | `ingest_trends.py`, `trends_keywords.py`, `aggregation.py`, `__main__.py` | — | ✅ Shipped |
 
 ## Digital Signals — Twitter Sentiment (Shipped)
 
