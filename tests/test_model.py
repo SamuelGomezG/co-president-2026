@@ -465,6 +465,18 @@ def test_build_multi_election_model_sanity() -> None:
         f"parameters with r_hat >= 1.10: {list(r_hat[r_hat >= 1.10].index)}"
     )
 
+    # Verify posterior accuracy against ground truth (±5pp tolerance)
+    for year, expected in truth.items():
+        candidate_keys = sorted(expected.keys())
+        p_time = idata.posterior[f"{year}_p_time"]
+        election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
+        means = election_day.mean(dim=["chain", "draw"]).to_numpy()
+        for i, cand in enumerate(candidate_keys):
+            assert abs(means[i] - expected[cand]) <= 0.05, (
+                f"{year} {cand}: posterior mean {means[i]:.3f} "
+                f"outside ±5pp of truth {expected[cand]:.3f}"
+            )
+
 
 @pytest.mark.slow
 def test_sample_round1_sanity() -> None:
