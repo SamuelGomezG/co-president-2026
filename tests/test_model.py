@@ -6,7 +6,7 @@ import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
 import pytest
 
-from co_president.config import FIRST_ROUND_CANDIDATES, ModelConfig
+from co_president.config import ELECTION_DATES, FIRST_ROUND_CANDIDATES, ModelConfig
 from co_president.data import (
     CandidateResult,
     RoundResult,
@@ -14,8 +14,11 @@ from co_president.data import (
 from co_president.model_round1 import (
     CandidateForecast,
     Round1Forecast,
+    _preprocess_year_polls,
+    build_multi_election_model,
     build_round1_model,
     forecast_round1,
+    predict_year,
     sample_round1,
     simulate_elections,
 )
@@ -95,313 +98,384 @@ def _make_round1_result() -> RoundResult:
     )
 
 
-def test_build_round1_model_house_effects() -> None:
-    """Test model graph with house effects and observation model."""
-    polls = _make_3row_polls_7candidates()
-    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config)
-
-    # Free RVs: sigma_rw, sigma_house, phi_poll, theta_0, raw_house
-    assert len(model.free_RVs) == 5
-    # Deterministics: p_time, house_effects, p_adj, phi_poll_n
-    det_names = {d.name for d in model.deterministics}
-    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
-    # Observed RVs: poll_likelihood
-    assert len(model.observed_RVs) == 1
+# ---------------------------------------------------------------------------
+# Multi-election model helpers and tests (SPEC-40)
+# ---------------------------------------------------------------------------
 
 
-def test_build_round1_model_phase_a() -> None:
-    """Test minimal model graph: 2 candidates, 1 pollster, T=1, no house effects.
+def _make_polls_year_3candidates(year: int) -> pd.DataFrame:
+    """Return 4-row synthetic DataFrame for a specific election year.
 
-    Note: Issue #144's literal TDD step specifies 1 deterministic. The
-    implementation produces 2 deterministics (``p_adj``, ``p_time``) because
-    ``p_time`` is required by ``forecast_round1`` and ``simulate_elections``
-    for latent share extraction. This is a legitimate structural divergence
-    — the deterministic count from the issue is outdated relative to the
-    final mathematical specification.
+    Creates 2 time points per year with 2 pollsters and 3 candidate columns
+    (Petro, Hernandez, blanco) that overlap with ``FIRST_ROUND_CANDIDATES``.
+    Poll dates are set for election-day and 14 days before.
     """
-    polls = pd.DataFrame(
+    if year not in set(ELECTION_DATES):
+        msg = f"Unsupported year: {year}"
+        raise ValueError(msg)
+
+    election_date = ELECTION_DATES[year]
+    date_14_before = election_date - pd.Timedelta(days=14)
+
+    return pd.DataFrame(
         {
-            "fecha": ["2022-05-29", "2022-05-29"],
-            "encuestadora": ["PollsterA", "PollsterA"],
-            "muestra": [1000, 1000],
-            "gustavo_petro": [50.0, 51.0],
-            "rodolfo_hernandez": [50.0, 49.0],
-            "round_number": [1, 1],
+            "fecha": [
+                str(date_14_before),
+                str(date_14_before),
+                str(election_date),
+                str(election_date),
+            ],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterA", "PollsterB"],
+            "muestra": [1000, 1000, 1000, 1000],
+            "gustavo_petro": [48.0, 52.0, 50.0, 50.0],
+            "rodolfo_hernandez": [42.0, 38.0, 40.0, 40.0],
+            "blanco": [10.0, 10.0, 10.0, 10.0],
+            "round_number": [1, 1, 1, 1],
         }
     )
-    config = ModelConfig(random_walk_sigma_prior=0.5, concentration_poll_prior_mean=100.0)
-    model = build_round1_model(polls, None, config, no_house_effects=True)
-
-    assert len(model.free_RVs) == 2
-    assert {rv.name for rv in model.free_RVs} == {"sigma_rw", "theta_0"}
-    det_names = {d.name for d in model.deterministics}
-    assert det_names == {"p_adj", "p_time"}
-    assert len(model.observed_RVs) == 1
 
 
-def test_build_round1_model_phase_b() -> None:
-    """Test model graph with house effects: 2 candidates, 2 pollsters, T=1.
+CANDIDATES_3 = ["gustavo_petro", "rodolfo_hernandez", "blanco"]
 
-    Note: Issue #144's literal TDD step specifies 4 free RVs and 2
-    deterministics. The implementation produces 5 free RVs and 4
-    deterministics because:
 
-    - ``phi_poll`` (Gamma prior, free RV) is required by the mathematical
-      spec (SPEC-06 §9.1) as the nominal poll concentration parameter.
-    - ``phi_poll_n`` (deterministic) applies log-sample-size scaling to
-      ``phi_poll`` per the model formula.
-    - ``p_time`` (deterministic) captures latent vote shares per time point
-      for forecast extraction.
+def test_build_multi_election_model_graph() -> None:
+    """Test multi-election model graph builds correctly with 2 years.
 
-    These are legitimate structural divergences — the literal counts from
-    the issue are outdated relative to the final mathematical
-    specification.
+    Builds with 2018 + 2022 data, 2 time points, 2 pollsters, house effects.
+    Free RVs: sigma_rw, sigma_house, phi_poll (3 shared)
+             + 2 theta per year * 2 years = 4
+             + raw_house per year * 2 years = 2
+             = 9 total
+    Deterministics: p_time, house_effects, p_adj, phi_poll_n per year * 2 = 8
+    Observed: poll_likelihood per year * 2 = 2
     """
-    polls = pd.DataFrame(
-        {
-            "fecha": ["2022-05-29", "2022-05-29"],
-            "encuestadora": ["PollsterA", "PollsterB"],
-            "muestra": [1000, 1000],
-            "gustavo_petro": [50.0, 51.0],
-            "rodolfo_hernandez": [50.0, 49.0],
-            "round_number": [1, 1],
-        }
-    )
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config)
 
-    assert len(model.free_RVs) == 5
-    assert {rv.name for rv in model.free_RVs} == {
-        "sigma_rw",
-        "sigma_house",
-        "phi_poll",
-        "theta_0",
-        "raw_house",
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+    )
+
+    assert len(model.free_RVs) == 9
+    det_names = {d.name for d in model.deterministics}
+    expected_dets = {
+        "2018_p_time",
+        "2022_p_time",
+        "2018_house_effects",
+        "2022_house_effects",
+        "2018_p_adj",
+        "2022_p_adj",
+        "2018_phi_poll_n",
+        "2022_phi_poll_n",
     }
-    det_names = {d.name for d in model.deterministics}
-    assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
-    assert len(model.observed_RVs) == 1
+    assert det_names == expected_dets
+    assert len(model.observed_RVs) == 2
+    obs_names = {o.name for o in model.observed_RVs}
+    assert obs_names == {"2018_poll_likelihood", "2022_poll_likelihood"}
 
 
-def test_build_round1_model_prior_predictive() -> None:
-    """Test that prior predictive samples produce valid shares.
+def test_build_multi_election_model_prior_predictive() -> None:
+    """Test multi-election prior predictive samples are valid.
 
-    Verifies that both per-poll adjusted shares (``p_adj``) and per-time-point
-    latent shares (``p_time``) fall in [0, 1] and that ``p_time`` sums to 1.0
-    for each time point (simplex constraint).
+    p_time and p_adj should be in [0, 1] and sum to 1 per time point.
     """
-    polls = _make_3row_polls_3candidates()
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config)
+
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+    )
 
     with model:
-        prior_pred = pm.sample_prior_predictive(draws=100, random_seed=config.seed)
+        prior = pm.sample_prior_predictive(draws=200, random_seed=config.seed)
 
-    # Per-poll adjusted shares (includes house effects)
-    p_adj = prior_pred.prior["p_adj"]
-    assert p_adj.min() >= 0.0
-    assert p_adj.max() <= 1.0
-
-    # Per-time-point latent shares (no house effects)
-    p_time = prior_pred.prior["p_time"]
-    assert p_time.min() >= 0.0
-    assert p_time.max() <= 1.0
-    # Sum to 1 across candidates for every draw, chain, and time point
-    np.testing.assert_allclose(p_time.sum(axis=-1), 1.0, atol=1e-6)
-
-
-def test_build_round1_model_forecast_mode() -> None:
-    """Test that forecast mode (results=None) has no election likelihood."""
-    polls = _make_3row_polls_3candidates()
-    config = ModelConfig()
-    model = build_round1_model(polls, None, config)
-
-    assert len(model.observed_RVs) == 1  # Only poll_likelihood
+    for year in (2018, 2022):
+        p_time = prior.prior[f"{year}_p_time"]
+        p_adj = prior.prior[f"{year}_p_adj"]
+        assert (p_time >= 0.0).all(), f"{year}_p_time has negative values"
+        assert (p_time <= 1.0).all(), f"{year}_p_time has values > 1"
+        assert (p_adj >= 0.0).all(), f"{year}_p_adj has negative values"
+        assert (p_adj <= 1.0).all(), f"{year}_p_adj has values > 1"
+        np.testing.assert_allclose(
+            p_time.sum(axis=-1).to_numpy(),
+            1.0,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            p_adj.sum(axis=-1).to_numpy(),
+            1.0,
+            atol=1e-6,
+        )
 
 
-def test_build_round1_model_rounding_correction() -> None:
-    """Test that observed_counts rounding drift is corrected.
+def test_build_multi_election_model_backtest() -> None:
+    """Test multi-election model with results for one year (backtest mode).
 
-    Uses percentages that don't sum to 100% (33.3+33.3+33.3 = 99.9%), so
-    ``np.round(percentage/100 * sample_size)`` creates a row-sum mismatch
-    that the correction step must fix.
+    With results for 2022, there should be 1 extra free RV (phi_elec_2022),
+    1 extra deterministic (p_elec_2022), and 1 extra observed RV.
     """
-    polls = pd.DataFrame(
-        {
-            "fecha": ["2022-05-29", "2022-05-29", "2022-05-29"],
-            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
-            "muestra": [1000, 1000, 1000],
-            "gustavo_petro": [33.3, 33.3, 33.3],
-            "rodolfo_hernandez": [33.3, 33.3, 33.3],
-            "blanco": [33.3, 33.3, 33.3],
-            "round_number": [1, 1, 1],
-        }
-    )
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    results_2022 = _make_round1_result()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config)
 
-    # Verify the model built (the correction didn't raise)
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {2022: results_2022},
+        config,
+    )
+
+    # Free RVs: 9 (shared + per-year) + 1 (phi_elec) = 10
+    assert len(model.free_RVs) == 10
+    det_names = {d.name for d in model.deterministics}
+    assert "2022_p_elec" in det_names
+    assert "2018_p_elec" not in det_names  # no results for 2018
+    # Observed: 2 poll_likelihood + 1 election_likelihood = 3
+    assert len(model.observed_RVs) == 3
+    obs_names = {o.name for o in model.observed_RVs}
+    assert obs_names == {
+        "2018_poll_likelihood",
+        "2022_poll_likelihood",
+        "2022_election_likelihood",
+    }
+
+
+def test_build_multi_election_model_no_house_effects() -> None:
+    """Test multi-election model without house effects.
+
+    No sigma_house, phi_poll, raw_house, or house_effects.
+    Shared: sigma_rw only.
+    Per-year: 2 theta vars * 2 = 4
+    Total free RVs = 1 + 4 = 5
+    Deterministics: p_time, p_adj per year * 2 = 4
+    """
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    config = ModelConfig(random_walk_sigma_prior=0.5)
+
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+        no_house_effects=True,
+    )
+
     assert len(model.free_RVs) == 5
-    assert len(model.observed_RVs) == 1
-
-
-def test_build_round1_model_zero_share_floor() -> None:
-    """Test that model handles zero vote shares without DirichletMultinomial log(0) error."""
-    polls = pd.DataFrame(
-        {
-            "fecha": ["2022-05-29", "2022-05-29", "2022-05-29"],
-            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
-            "muestra": [1000, 1000, 1000],
-            "gustavo_petro": [52.0, 51.0, 50.0],
-            "rodolfo_hernandez": [48.0, 49.0, 50.0],
-            "blanco": [0.0, 0.0, 0.0],
-            "round_number": [1, 1, 1],
-        }
-    )
-    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config, no_house_effects=True)
-
-    # Zero floor should not break graph structure
-    assert len(model.free_RVs) == 2
-    assert len(model.observed_RVs) == 1
-
-    # Prior predictive should produce valid shares (no NaN from log(0))
-    with model:
-        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
-    p_adj = prior_pred.prior["p_adj"]
-    assert np.all(np.isfinite(p_adj))
-    assert p_adj.min() >= 0.0
-    assert p_adj.max() <= 1.0
-    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
-
-
-def test_build_round1_model_zero_floor_tie_resistant() -> None:
-    """Zero-floor should not produce negative/zero counts when argmax tie shifts."""
-    polls = pd.DataFrame(
-        {
-            "fecha": ["2022-05-29"],
-            "encuestadora": ["PollsterA"],
-            "muestra": [100],
-            "gustavo_petro": [50.0],
-            "rodolfo_hernandez": [0.0],
-            "blanco": [50.0],
-            "round_number": [1],
-        }
-    )
-    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config, no_house_effects=True)
-
-    # Prior predictive should produce valid shares (no NaN from log(0))
-    with model:
-        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
-    p_adj = prior_pred.prior["p_adj"]
-    assert np.all(np.isfinite(p_adj))
-    assert p_adj.min() >= 0.0
-    assert p_adj.max() <= 1.0
-    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
-
-
-def test_build_round1_model_zero_floor_underflow_guard() -> None:
-    """Zero-floor redistribution gracefully handles infeasible rows.
-
-    When muestra < K (sample size smaller than number of candidates),
-    redistribution to eliminate all zeros is impossible — the row sum
-    can't cover the required 1s.  The algorithm must skip such rows
-    without crashing, and the model must still build (DirichletMultinomial
-    tolerates zero observed counts when alpha_poll has no zeros).
-
-    Regression: row [0, 1, 0, 1] (muestra=2, K=4, n_zeros=2) has
-    excess = 0, so redistribution is infeasible.  Previous code
-    subtracted from the max column producing [1, -2, 1, 1] or, after a
-    naive clamp, [1, 1, 1, 1] (sum=4 ≠ n=2).
-    """
-    polls = pd.DataFrame(
-        {
-            "fecha": ["2022-05-29"],
-            "encuestadora": ["PollsterA"],
-            "muestra": [2],
-            "gustavo_petro": [0.0],
-            "rodolfo_hernandez": [50.0],
-            "blanco": [0.0],
-            "rest": [50.0],
-            "round_number": [1],
-        }
-    )
-    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
-    model = build_round1_model(polls, None, config, no_house_effects=True)
-
-    # Model must build without error even with infeasible zero-floor rows
-    assert len(model.observed_RVs) == 1
-
-    # Prior predictive must produce valid shares (no NaN from broken counts)
-    with model:
-        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
-    p_adj = prior_pred.prior["p_adj"]
-    assert np.all(np.isfinite(p_adj))
-    assert p_adj.min() >= 0.0
-    assert p_adj.max() <= 1.0
-    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
-
-
-def test_build_round1_model_backtest_mode() -> None:
-    """Test that backtest mode (results=RoundResult) includes election likelihood."""
-    polls = _make_3row_polls_3candidates()
-    results = _make_round1_result()
-    config = ModelConfig()
-    model = build_round1_model(polls, results, config)
-
-    assert len(model.observed_RVs) == 2  # poll_likelihood + election_likelihood
-    # Verify deterministics includes p_elec
     det_names = {d.name for d in model.deterministics}
-    assert "p_elec" in det_names
+    expected_dets = {
+        "2018_p_time",
+        "2022_p_time",
+        "2018_p_adj",
+        "2022_p_adj",
+    }
+    assert det_names == expected_dets
+    assert len(model.observed_RVs) == 2
+
+
+def test_predict_year_synthetic() -> None:
+    """Test predict_year on a synthetic multi-election posterior.
+
+    Creates a synthetic InferenceData with {year}_p_time variables and
+    verifies that predict_year returns a valid Round1Forecast.
+    """
+    n_chains, n_draws = 2, 200
+    alphas = np.array([52, 38, 10], dtype=float)
+
+    rng = np.random.default_rng(42)
+    raw = rng.gamma(alphas, 1, size=(n_chains, n_draws, 2, 3))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+
+    idata = az.from_dict(
+        data={"posterior": {"2022_p_time": p_time}},
+        dims={"2022_p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+
+    forecast = predict_year(2022, idata, CANDIDATES_3)
+    assert isinstance(forecast, Round1Forecast)
+    assert len(forecast.candidates) == 3
+    assert forecast.round_number == 1
+    assert 0.0 <= forecast.prob_runoff <= 1.0
+
+    petro = next(c for c in forecast.candidates if c.candidate_key == "gustavo_petro")
+    hernandez = next(c for c in forecast.candidates if c.candidate_key == "rodolfo_hernandez")
+    blanco = next(c for c in forecast.candidates if c.candidate_key == "blanco")
+    assert petro.mean_share > hernandez.mean_share > blanco.mean_share
+    assert 0.0 < petro.ci_50[0] < petro.ci_50[1] < 1.0
+    assert 0.0 < petro.ci_95[0] < petro.ci_95[1] < 1.0
+
+
+def test_predict_year_missing_variable() -> None:
+    """Test predict_year raises ValueError for missing year."""
+    rng = np.random.default_rng(42)
+    raw = rng.gamma(np.array([1, 1, 1]), 1, size=(2, 100, 2, 3))
+    p_time = raw / raw.sum(axis=-1, keepdims=True)
+    idata = az.from_dict(
+        data={"posterior": {"2018_p_time": p_time}},
+        dims={"2018_p_time": ["chain", "draw", "time_dim_0", "candidate_dim_0"]},
+    )
+    with pytest.raises(ValueError, match="Posterior does not contain '2022_p_time'"):
+        predict_year(2022, idata, CANDIDATES_3)
+
+
+def test_preprocess_year_polls_unsupported_year() -> None:
+    """_preprocess_year_polls raises ValueError for unsupported election year."""
+    polls = _make_3row_polls_7candidates()
+    with pytest.raises(ValueError, match="Unsupported election year: 2024"):
+        _preprocess_year_polls(2024, polls, results=None)
 
 
 @pytest.mark.slow
-def test_sample_round1_convergence() -> None:
-    """Test MCMC convergence on minimal 6-poll, 2-candidate data.
+def test_build_multi_election_model_slow_convergence() -> None:
+    """Test multi-election model MCMC convergence on 2-year minimal data.
 
-    Uses 2 dates x 3 pollsters (6 polls total) so the model has enough
-    observations to identify all parameters. Asserts R-hat < 1.10 for all
-    sampled parameters (Gelman-Rubin convergence criterion).
+    2 years (2018 + 2022), each with 2 dates x 3 pollsters = 12 polls total.
+    Asserts R-hat < 1.10 for all free RVs (Gelman-Rubin convergence criterion).
+    Uses minimal draws (500) to keep runtime manageable.
     """
-    polls = pd.DataFrame(
-        {
-            "fecha": [
-                "2022-05-01",
-                "2022-05-01",
-                "2022-05-01",
-                "2022-05-29",
-                "2022-05-29",
-                "2022-05-29",
-            ],
-            "encuestadora": [
-                "PollsterA",
-                "PollsterB",
-                "PollsterC",
-                "PollsterA",
-                "PollsterB",
-                "PollsterC",
-            ],
-            "muestra": [1000, 1200, 800, 1100, 900, 1000],
-            "gustavo_petro": [40.0, 41.0, 39.0, 40.0, 41.0, 40.0],
-            "rodolfo_hernandez": [30.0, 29.0, 31.0, 30.0, 29.0, 30.0],
-            "blanco": [30.0, 30.0, 30.0, 30.0, 30.0, 30.0],
-            "round_number": [1, 1, 1, 1, 1, 1],
-        }
+    polls_2018 = _make_polls_year_3candidates(2018)
+    polls_2022 = _make_polls_year_3candidates(2022)
+    config = ModelConfig(
+        random_walk_sigma_prior=0.5,
+        house_effect_sigma_prior=1.0,
+        mcmc_draws=500,
+        mcmc_tune=500,
+        mcmc_chains=2,
+        mcmc_cores=2,
     )
-    config = ModelConfig(mcmc_draws=500, mcmc_tune=500, mcmc_chains=2, mcmc_cores=2)
-    model = build_round1_model(polls, None, config)
 
-    idata = sample_round1(model, config)
+    model = build_multi_election_model(
+        {2018: polls_2018, 2022: polls_2022},
+        {},
+        config,
+    )
 
-    summary = az.summary(idata, var_names=["~p_adj", "~p_time", "~house_effects", "~raw_house"])
+    with model:
+        idata = pm.sample(
+            draws=config.mcmc_draws,
+            tune=config.mcmc_tune,
+            chains=config.mcmc_chains,
+            cores=config.mcmc_cores,
+            random_seed=config.seed,
+            compute_convergence_checks=False,
+        )
+
+    summary = az.summary(idata)
     r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
     assert not r_hat.empty, "r_hat is empty; no parameters to evaluate"
     assert (r_hat < 1.10).all(), (
         f"R-hat convergence failure: max r_hat = {r_hat.max():.4f}, "
         f"parameters with r_hat >= 1.10: {list(r_hat[r_hat >= 1.10].index)}"
     )
+
+
+@pytest.mark.slow
+def test_build_multi_election_model_sanity() -> None:
+    """Test multi-election model posterior accuracy on synthetic ground truth.
+
+    2 years (2018 + 2022), each with 2 dates x 3 pollsters.  Known ground truth:
+      2018: Petro=60%, Hernandez=30%, Blanco=10%
+      2022: Petro=50%, Hernandez=40%, Blanco=10%
+    Election-day posterior means must be within ±5pp of known truth (SPEC-06
+    §9.3).
+    """
+    truth: dict[int, dict[str, float]] = {
+        2018: {"gustavo_petro": 0.60, "rodolfo_hernandez": 0.30, "blanco": 0.10},
+        2022: {"gustavo_petro": 0.50, "rodolfo_hernandez": 0.40, "blanco": 0.10},
+    }
+
+    polls_by_year: dict[int, pd.DataFrame] = {}
+    for year in (2018, 2022):
+        election_date = ELECTION_DATES[year]
+        date_14_before = election_date - pd.Timedelta(days=14)
+
+        t = truth[year]
+        polls_by_year[year] = pd.DataFrame(
+            {
+                "fecha": [
+                    str(date_14_before),
+                    str(date_14_before),
+                    str(date_14_before),
+                    str(election_date),
+                    str(election_date),
+                    str(election_date),
+                ],
+                "encuestadora": [
+                    "PollsterA",
+                    "PollsterB",
+                    "PollsterC",
+                    "PollsterA",
+                    "PollsterB",
+                    "PollsterC",
+                ],
+                "muestra": [1000, 1200, 800, 1100, 900, 1000],
+                "gustavo_petro": [
+                    t["gustavo_petro"] * 100 - 2,
+                    t["gustavo_petro"] * 100 + 1,
+                    t["gustavo_petro"] * 100 - 1,
+                    t["gustavo_petro"] * 100 + 2,
+                    t["gustavo_petro"] * 100 - 1,
+                    t["gustavo_petro"] * 100 + 1,
+                ],
+                "rodolfo_hernandez": [
+                    t["rodolfo_hernandez"] * 100 + 2,
+                    t["rodolfo_hernandez"] * 100 - 1,
+                    t["rodolfo_hernandez"] * 100 + 1,
+                    t["rodolfo_hernandez"] * 100 - 2,
+                    t["rodolfo_hernandez"] * 100 + 1,
+                    t["rodolfo_hernandez"] * 100 - 1,
+                ],
+                "blanco": [10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+                "round_number": [1, 1, 1, 1, 1, 1],
+            }
+        )
+
+    config = ModelConfig(
+        random_walk_sigma_prior=0.5,
+        house_effect_sigma_prior=1.0,
+        mcmc_draws=2000,
+        mcmc_tune=2000,
+        mcmc_chains=2,
+        mcmc_cores=2,
+    )
+
+    model = build_multi_election_model(polls_by_year, {}, config)
+
+    with model:
+        idata = pm.sample(
+            draws=config.mcmc_draws,
+            tune=config.mcmc_tune,
+            chains=config.mcmc_chains,
+            cores=config.mcmc_cores,
+            random_seed=config.seed,
+            compute_convergence_checks=False,
+            target_accept=0.9,
+        )
+
+    # Verify convergence first
+    summary = az.summary(idata)
+    r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
+    assert (r_hat < 1.10).all(), (
+        f"R-hat convergence failure: max r_hat = {r_hat.max():.4f}, "
+        f"parameters with r_hat >= 1.10: {list(r_hat[r_hat >= 1.10].index)}"
+    )
+
+    # Verify posterior accuracy against ground truth (±5pp tolerance)
+    for year, expected in truth.items():
+        candidate_keys = sorted(expected.keys())
+        p_time = idata.posterior[f"{year}_p_time"]
+        election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
+        means = election_day.mean(dim=["chain", "draw"]).to_numpy()
+        for i, cand in enumerate(candidate_keys):
+            assert abs(means[i] - expected[cand]) <= 0.05, (
+                f"{year} {cand}: posterior mean {means[i]:.3f} "
+                f"outside ±5pp of truth {expected[cand]:.3f}"
+            )
 
 
 @pytest.mark.slow
