@@ -51,10 +51,11 @@ def alr_transform(x: NDArray[np.float64]) -> NDArray[np.float64]:
 
     """
     _validate_composition(x)
+    x_safe = np.maximum(x, _EPSILON)
     if x.ndim == 1:
-        return np.log(x[:-1] / x[-1])
+        return np.log(x_safe[:-1] / x_safe[-1])
 
-    return np.log(x[:, :-1] / x[:, -1:])
+    return np.log(x_safe[:, :-1] / x_safe[:, -1:])
 
 
 def clr_transform(x: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -78,11 +79,12 @@ def clr_transform(x: NDArray[np.float64]) -> NDArray[np.float64]:
 
     """
     _validate_composition(x)
+    x_safe = np.maximum(x, _EPSILON)
     if x.ndim == 1:
-        return np.array(_clr(tuple(x)), dtype=np.float64)
+        return np.array(_clr(tuple(x_safe.tolist())), dtype=np.float64)
 
-    geomean = np.exp(np.mean(np.log(np.maximum(x, _EPSILON)), axis=1, keepdims=True))
-    return np.log(x / geomean)
+    geomean = np.exp(np.mean(np.log(x_safe), axis=1, keepdims=True))
+    return np.log(x_safe / geomean)
 
 
 def ilr_transform(x: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -135,7 +137,10 @@ def _build_ilr_contrast(d: int) -> np.ndarray:
         d: Number of parts (columns) in the original composition.
 
     Returns:
-        Contrast matrix of shape ``(D-1, D)`` where ``ILR(x) = V @ CLR(x)``.
+        Contrast matrix of shape ``(D-1, D)`` used by
+        :func:`ilr_inv_transform` as ``CLR = y @ V``.
+        Note: :func:`ilr_transform` computes ILR directly and does not
+        use this matrix.
 
     """
     V = np.zeros((d - 1, d))
@@ -211,10 +216,6 @@ def ilr_inv_transform(y: NDArray[np.float64]) -> NDArray[np.float64]:
     d = y_safe.shape[-1] + 1
     V = _build_ilr_contrast(d)
 
-    if y_safe.ndim == 1:
-        clr_coords = y_safe @ V
-        return clr_inv_transform(clr_coords)
-
     clr_coords = y_safe @ V
     return clr_inv_transform(clr_coords)
 
@@ -226,10 +227,16 @@ def _validate_composition(x: NDArray[np.float64]) -> None:
         x: Array to validate.
 
     Raises:
-        ValueError: If any entry is non-finite, negative, or a row sums to
-            (near) zero.
+        ValueError: If any entry is non-finite, negative, a row sums to
+            (near) zero, the input is 0-D, or has fewer than 2 parts.
 
     """
+    if x.ndim < 1:
+        msg = "Composition must be at least 1-D"
+        raise ValueError(msg)
+    if x.shape[-1] < 2:
+        msg = f"Composition must have at least 2 parts, got {x.shape[-1]}"
+        raise ValueError(msg)
     if not np.all(np.isfinite(x)):
         msg = "Composition contains non-finite values"
         raise ValueError(msg)

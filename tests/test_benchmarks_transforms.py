@@ -49,6 +49,16 @@ class TestValidateComposition:
         with pytest.raises(ValueError, match="sum to"):
             _validate_composition(np.array([0.0, 0.0]))
 
+    def test_rejects_0d_scalar(self) -> None:
+        """Reject 0-D scalar input."""
+        with pytest.raises(ValueError, match="at least 1-D"):
+            _validate_composition(np.array(0.5))
+
+    def test_rejects_single_part(self) -> None:
+        """Reject 1-D array with fewer than 2 parts."""
+        with pytest.raises(ValueError, match="at least 2 parts"):
+            _validate_composition(np.array([0.5]))
+
 
 class TestAlrTransform:
     """Tests for the additive log-ratio transform."""
@@ -85,6 +95,18 @@ class TestAlrTransform:
         with pytest.raises(ValueError, match="non-finite"):
             alr_transform(np.array([np.nan, 1.0]))
 
+    def test_zero_part_produces_finite(self) -> None:
+        """ALR clamps zero entries to epsilon, not -inf."""
+        result = alr_transform(np.array([0.0, 0.5, 0.5]))
+        assert np.all(np.isfinite(result))
+        assert result.shape == (2,)
+
+    def test_zero_denominator_produces_finite(self) -> None:
+        """ALR clamps zero denominator to epsilon, not inf."""
+        result = alr_transform(np.array([0.5, 0.5, 0.0]))
+        assert np.all(np.isfinite(result))
+        assert result.shape == (2,)
+
 
 class TestClrTransform:
     """Tests for the centred log-ratio transform."""
@@ -112,6 +134,12 @@ class TestClrTransform:
         result = clr_transform(x)
         assert result.shape == (1, 3)
         assert np.isclose(result.sum(), 0.0)
+
+    def test_zero_part_produces_finite(self) -> None:
+        """CLR clamps zero entries to epsilon, not -inf."""
+        result = clr_transform(np.array([0.0, 0.5, 0.5]))
+        assert np.all(np.isfinite(result))
+        assert result.shape == (3,)
 
 
 class TestIlrTransform:
@@ -150,3 +178,9 @@ class TestIlrTransform:
         clr_val = clr_transform(x.copy())
         expected = (1.0 / math.sqrt(2)) * (clr_val[0] - clr_val[1])
         assert np.isclose(ilr_val[0], expected)
+
+    def test_zero_part_produces_finite(self) -> None:
+        """ILR clamps zero entries to epsilon, not -inf."""
+        result = ilr_transform(np.array([0.0, 0.5, 0.5]))
+        assert np.all(np.isfinite(result))
+        assert result.shape == (2,)
