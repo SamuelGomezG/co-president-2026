@@ -43,9 +43,9 @@
 
 ## Digital Signals — Twitter Sentiment (Shipped)
 
-| SPEC | Title | Modules | Status |
-|------|-------|---------|--------|
-| SPEC-39 | Twitter sentiment pipeline | `twitter_preprocess.py`, `twitter_denoise.py`, `bert_sentiment.py`, `llm_sentiment.py`, `sentiment_series.py` | ✅ Shipped |
+| SPEC | Title | Modules | PRs | Status |
+|------|-------|---------|-----|--------|
+| SPEC-39 | Twitter sentiment pipeline | `twitter_preprocess.py`, `twitter_denoise.py`, `bert_sentiment.py`, `llm_sentiment.py`, `sentiment_series.py` | — | ✅ Shipped |
 
 ## Planned (not yet implemented)
 
