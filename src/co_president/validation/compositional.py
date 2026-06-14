@@ -42,6 +42,15 @@ def aitchison_residual(
         ValueError: If *y_true* and *y_pred* have different shapes, or
             contain non-positive or non-finite values.
 
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.validation.compositional import aitchison_residual
+        >>> y_true = np.array([[0.6, 0.3, 0.1]])
+        >>> y_pred = np.array([[0.5, 0.4, 0.1]])
+        >>> r = aitchison_residual(y_true, y_pred)
+        >>> r.shape == y_true.shape
+        True
+
     """
     yt = np.asarray(y_true, dtype=np.float64)
     yp = np.asarray(y_pred, dtype=np.float64)
@@ -68,10 +77,21 @@ def composite_r2(
 
     Returns:
         R-squared in (-inf, 1]; 1 is perfect.
+        Returns ``NaN`` when all true compositions are identical
+        (``ss_tot == 0``).
 
     Raises:
         ValueError: If *y_true* and *y_pred* have different shapes, or
             contain non-positive or non-finite values.
+
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.validation.compositional import composite_r2
+        >>> y_true = np.array([[0.6, 0.3, 0.1]])
+        >>> y_pred = np.array([[0.59, 0.31, 0.1]])
+        >>> r2 = composite_r2(y_true, y_pred)
+        >>> r2 >= -1.0
+        True
 
     """
     yt = np.asarray(y_true, dtype=np.float64)
@@ -114,6 +134,15 @@ def aitchison_mae(
     Raises:
         ValueError: If *y_true* and *y_pred* have different shapes, or
             contain non-positive or non-finite values.
+
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.validation.compositional import aitchison_mae
+        >>> y_true = np.array([[0.6, 0.3, 0.1]])
+        >>> y_pred = np.array([[0.5, 0.4, 0.1]])
+        >>> mae = aitchison_mae(y_true, y_pred)
+        >>> mae >= 0.0
+        True
 
     """
     yt = np.asarray(y_true, dtype=np.float64)
