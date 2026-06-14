@@ -65,13 +65,12 @@
 | SPEC-34 | Empirical runoff matrix | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-35 | 2026 validation & forecasting | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-36 | Stretch: demographics | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-|
-| ## Compositional & ML Benchmarks
-|
-| | SPEC | Title | Modules | Status |
-| |------|-------|---------|--------|
-| | SPEC-37 | Compositional data transforms (ALR/ILR) | `benchmarks/transforms.py` | 🟡 Built (shared with SPEC-41) |
-| | SPEC-38 | SVR baseline | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
-| | SPEC-39 | Random Forest baseline | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
-| | SPEC-40 | Gradient Boosting + KNN baselines | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
-| | SPEC-41 | FNN+CLR ML benchmark | `benchmarks/fnn_clr.py`, `benchmarks/runner.py` | ✅ Shipped |
+## Compositional & ML Benchmarks
+
+| SPEC | Title | Modules | Status |
+|------|-------|---------|--------|
+| SPEC-37 | Compositional data transforms (ALR/ILR) | `benchmarks/transforms.py` | 🟡 Built (shared with SPEC-41) |
+| SPEC-41a | SVR baseline | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
+| SPEC-41b | Random Forest baseline | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
+| SPEC-41c | Gradient Boosting + KNN baselines | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
+| SPEC-41 | FNN+CLR ML benchmark | `benchmarks/fnn_clr.py`, `benchmarks/runner.py` | ✅ Shipped |
