@@ -24,6 +24,9 @@ from co_president.config import (
     ELECTION_DATE_ROUND2,
     FIRST_ROUND_CANDIDATES,
 )
+from co_president.fundamentals.compositional import (
+    _apply_zero_floor,  # type: ignore[reportPrivateUsage]
+)
 
 if TYPE_CHECKING:
     from xarray import DataTree
@@ -160,6 +163,10 @@ def build_runoff_simple_model(  # noqa: PLR0915
         work[k_runoff_cols].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
     ).astype(int)
     effective_n = observed_counts.sum(axis=1)
+
+    # Zero floor — replace 0 with 1, redistributing from largest columns
+    # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
+    _apply_zero_floor(observed_counts)
 
     # Sample-size-dependent concentration multiplier
     eps = 1e-8

@@ -358,6 +358,57 @@ def test_build_municipal_model_graph_horseshoe() -> None:
     assert model.observed_RVs[0].name == "poll_likelihood"
 
 
+def test_build_municipal_model_graph_clr_target() -> None:
+    """Test that clr_target=True adds p_municipal_clr deterministic."""
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_3row_polls()
+    config = ModelConfig(
+        beta_coefficient_prior_sigma=0.5,
+        sigma_m_prior=0.3,
+        house_effect_sigma_prior=1.0,
+        clr_target=True,
+    )
+    model = build_municipal_model(features, polls, None, config)
+
+    det_names = {d.name for d in model.deterministics}
+    assert "p_municipal_clr" in det_names, "p_municipal_clr not found with clr_target=True"
+
+    expected_free_rv_names = {
+        "alpha",
+        "beta_historical",
+        "beta_ethnicity",
+        "beta_poverty",
+        "beta_rural",
+        "beta_education",
+        "beta_risk",
+        "sigma_m",
+        "mu_m_raw",
+        "sigma_house",
+        "phi_poll",
+        "raw_house",
+    }
+    free_rv_names = {rv.name for rv in model.free_RVs}
+    assert free_rv_names == expected_free_rv_names, (
+        f"Free RV mismatch.\nExpected: {expected_free_rv_names}\nGot:      {free_rv_names}"
+    )
+
+    expected_det_names = {
+        "p_municipal",
+        "p_municipal_clr",
+        "p_natl",
+        "phi_poll_n",
+        "house_effects",
+        "p_poll",
+    }
+    det_names = {d.name for d in model.deterministics}
+    assert det_names == expected_det_names, (
+        f"Deterministic mismatch.\nExpected: {expected_det_names}\nGot:      {det_names}"
+    )
+
+    assert len(model.observed_RVs) == 1
+    assert model.observed_RVs[0].name == "poll_likelihood"
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Effective municipalities test
 # ═══════════════════════════════════════════════════════════════════════
@@ -482,6 +533,41 @@ def test_build_municipal_model_prior_predictive() -> None:
     assert p_poll.max() <= 1.0
     np.testing.assert_allclose(
         p_poll.sum(axis=-1),
+        1.0,
+        atol=1e-6,
+    )
+
+
+def test_build_municipal_model_clr_target_prior_predictive() -> None:
+    """Test that clr_target=True produces valid CLR-transformed shares.
+
+    Verifies that p_municipal_clr rows sum to ~0 (CLR property).
+    """
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_3row_polls()
+    config = ModelConfig(
+        beta_coefficient_prior_sigma=0.5,
+        sigma_m_prior=0.3,
+        house_effect_sigma_prior=1.0,
+        clr_target=True,
+    )
+    model = build_municipal_model(features, polls, None, config)
+
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+
+    p_muni_clr = prior_pred.prior["p_municipal_clr"]
+    np.testing.assert_allclose(
+        p_muni_clr.sum(axis=-1),
+        0.0,
+        atol=1e-6,
+    )
+
+    p_municipal = prior_pred.prior["p_municipal"]
+    assert p_municipal.min() >= 0.0
+    assert p_municipal.max() <= 1.0
+    np.testing.assert_allclose(
+        p_municipal.sum(axis=-1),
         1.0,
         atol=1e-6,
     )
