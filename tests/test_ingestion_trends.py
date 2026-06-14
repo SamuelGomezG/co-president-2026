@@ -67,6 +67,30 @@ class TestFetchTrends:
         result = fetch_trends("Petro", start_date="2022-06-18", end_date="2022-06-18")
         assert result.empty
 
+    @patch("co_president.ingestion.ingest_trends._fetch_pytrends")
+    def test_default_window_t1(self, mock_fetch: MagicMock) -> None:
+        """fetch_trends with default window='T-1' resolves correctly.
+
+        The resolved timeframe should end at yesterday (not today) per
+        SciELO 2023 T-1 design.
+        """
+        today = pd.Timestamp.today().normalize()
+        yesterday = today - pd.Timedelta(days=1)
+        mock_fetch.return_value = pd.DataFrame(
+            {"Petro": [80.0]},
+            index=pd.to_datetime([yesterday]),
+        )
+        result = fetch_trends("Petro")
+        assert isinstance(result, pd.DataFrame)
+        assert not result.empty
+        # Verify _fetch_pytrends was called with a timeframe containing
+        # yesterday's date (not today).
+        timeframe_arg = mock_fetch.call_args_list[0][0][1]
+        yesterday_str = yesterday.strftime("%Y-%m-%d")
+        assert yesterday_str in timeframe_arg
+        # The single expected row should be at yesterday's date.
+        pd.testing.assert_frame_equal(result, mock_fetch.return_value)
+
 
 class TestFetchPytrends:
     """Tests for the internal ``_fetch_pytrends`` helper."""
