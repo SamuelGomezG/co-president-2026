@@ -214,6 +214,8 @@ def compute_prop_fav(
             for q in available
         )
 
+    if not rows:
+        return pd.DataFrame(columns=["as_of_date", "candidate", "prop_fav"])
     return pd.DataFrame(rows)
 
 
