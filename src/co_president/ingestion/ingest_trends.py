@@ -11,8 +11,9 @@ Based on SciELO 2023 (Perez-Rave et al.): T-1 day-before window achieves
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, timedelta
 import logging
-from typing import Any
+from typing import TypedDict
 
 import pandas as pd
 from pytrends.request import TrendReq  # type: ignore[import-untyped]
@@ -26,9 +27,12 @@ _PYTRENDS_RETRIES = 3
 def _resolve_window(window: str) -> str:
     """Convert window alias to pytrends timeframe string.
 
+    Returns explicit date ranges ending at yesterday (avoids
+    election-day bot-traffic distortion per SciELO 2023).
+
     Args:
-        window: One of ``"T-1"`` (day before), ``"T-7"`` (week before),
-            ``"full_cycle"`` (full campaign window).
+        window: One of ``"T-1"`` (yesterday), ``"T-7"`` (week ending
+            yesterday), ``"full_cycle"`` (full campaign window).
 
     Returns:
         pytrends-compatible timeframe string.
@@ -37,10 +41,12 @@ def _resolve_window(window: str) -> str:
         ValueError: If window is not recognised.
 
     """
-    if window == "T-1":
-        return "today 1-m"
-    if window == "T-7":
-        return "today 7-d"
+    if window in ("T-1", "T-7"):
+        today = datetime.now(tz=UTC).date()
+        yesterday = (today - timedelta(days=1)).isoformat()
+        if window == "T-1":
+            return f"{yesterday} {yesterday}"
+        return f"{(today - timedelta(days=7)).isoformat()} {yesterday}"
     if window == "full_cycle":
         return "2021-09-01 2022-06-18"
     msg = f"Unknown window: {window!r}"
@@ -116,6 +122,10 @@ def fetch_trends(
         since that introduces bot-traffic distortion.
 
     """
+    if (start_date is None) != (end_date is None):
+        msg = "Both start_date and end_date must be provided together, or neither."
+        raise ValueError(msg)
+
     if start_date and end_date and start_date == end_date:
         logger.warning(
             "Single-day query (%s) requested - election-day Google Trends "
@@ -140,6 +150,23 @@ def fetch_trends(
         return web_df
 
     return (web_df.astype(float) + yt_df.astype(float)) / 2.0
+
+
+class PropFavRow(TypedDict):
+    """Row type for ``compute_prop_fav`` output.
+
+    Each row records favorable propensity for one candidate on one date.
+
+    Attributes:
+        as_of_date: Date of the observation.
+        candidate: Internal candidate key (e.g. ``gustavo_petro``).
+        prop_fav: Favorable propensity proportion ∈ [0, 1].
+
+    """
+
+    as_of_date: date
+    candidate: str
+    prop_fav: float
 
 
 def compute_prop_fav(
@@ -175,11 +202,11 @@ def compute_prop_fav(
     totals = total[has_interest]
     proportions = subset.div(totals, axis=0)
 
-    rows: list[dict[str, Any]] = []
+    rows: list[PropFavRow] = []
     for date_idx in proportions.index:
         day = date_idx.date() if hasattr(date_idx, "date") else date_idx
         rows.extend(
-            {
+            {  # type: ignore[reportArgumentType]
                 "as_of_date": day,
                 "candidate": query_to_candidate[q],
                 "prop_fav": proportions.loc[date_idx, q],
@@ -191,6 +218,7 @@ def compute_prop_fav(
 
 
 __all__ = [
+    "PropFavRow",
     "compute_prop_fav",
     "fetch_trends",
 ]
