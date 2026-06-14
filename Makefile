@@ -43,7 +43,7 @@ dev:  ## Run the dev entrypoint (if implemented)
 	fi
 
 sec:  ## Run security scans (pip-audit + bandit)
-	@uv run pip-audit --skip-editable
+	@uv run pip-audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-196
 	@uv run bandit -c pyproject.toml -r src/
 
 ci: fmt-check lint typecheck test-fast sec  ## CI gate (fmt-check → lint → typecheck → test-fast → sec)

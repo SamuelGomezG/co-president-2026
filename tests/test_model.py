@@ -473,6 +473,104 @@ def test_build_round1_model_rounding_correction() -> None:
     assert len(model.observed_RVs) == 1
 
 
+def test_build_round1_model_zero_share_floor() -> None:
+    """Test that model handles zero vote shares without DirichletMultinomial log(0) error."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29", "2022-05-29"],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
+            "muestra": [1000, 1000, 1000],
+            "gustavo_petro": [52.0, 51.0, 50.0],
+            "rodolfo_hernandez": [48.0, 49.0, 50.0],
+            "blanco": [0.0, 0.0, 0.0],
+            "round_number": [1, 1, 1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    # Zero floor should not break graph structure
+    assert len(model.free_RVs) == 2
+    assert len(model.observed_RVs) == 1
+
+    # Prior predictive should produce valid shares (no NaN from log(0))
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+    p_adj = prior_pred.prior["p_adj"]
+    assert np.all(np.isfinite(p_adj))
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
+
+
+def test_build_round1_model_zero_floor_tie_resistant() -> None:
+    """Zero-floor should not produce negative/zero counts when argmax tie shifts."""
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29"],
+            "encuestadora": ["PollsterA"],
+            "muestra": [100],
+            "gustavo_petro": [50.0],
+            "rodolfo_hernandez": [0.0],
+            "blanco": [50.0],
+            "round_number": [1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    # Prior predictive should produce valid shares (no NaN from log(0))
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+    p_adj = prior_pred.prior["p_adj"]
+    assert np.all(np.isfinite(p_adj))
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
+
+
+def test_build_round1_model_zero_floor_underflow_guard() -> None:
+    """Zero-floor redistribution gracefully handles infeasible rows.
+
+    When muestra < K (sample size smaller than number of candidates),
+    redistribution to eliminate all zeros is impossible — the row sum
+    can't cover the required 1s.  The algorithm must skip such rows
+    without crashing, and the model must still build (DirichletMultinomial
+    tolerates zero observed counts when alpha_poll has no zeros).
+
+    Regression: row [0, 1, 0, 1] (muestra=2, K=4, n_zeros=2) has
+    excess = 0, so redistribution is infeasible.  Previous code
+    subtracted from the max column producing [1, -2, 1, 1] or, after a
+    naive clamp, [1, 1, 1, 1] (sum=4 ≠ n=2).
+    """
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29"],
+            "encuestadora": ["PollsterA"],
+            "muestra": [2],
+            "gustavo_petro": [0.0],
+            "rodolfo_hernandez": [50.0],
+            "blanco": [0.0],
+            "rest": [50.0],
+            "round_number": [1],
+        }
+    )
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+    model = build_round1_model(polls, None, config, no_house_effects=True)
+
+    # Model must build without error even with infeasible zero-floor rows
+    assert len(model.observed_RVs) == 1
+
+    # Prior predictive must produce valid shares (no NaN from broken counts)
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+    p_adj = prior_pred.prior["p_adj"]
+    assert np.all(np.isfinite(p_adj))
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
+
+
 def test_build_round1_model_backtest_mode() -> None:
     """Test that backtest mode (results=RoundResult) includes election likelihood."""
     polls = _make_3row_polls_3candidates()
@@ -920,6 +1018,23 @@ def test_build_runoff_simple_model_prior_predictive() -> None:
 
     # K should be 3 for the runoff model
     assert p_time.shape[-1] == 3
+
+
+def test_build_runoff_simple_model_zero_share_floor() -> None:
+    """Zero-floor on runoff model: prior predictive valid despite zero-share polls."""
+    polls = _make_3row_runoff_polls_round2()  # blanco=[0,0,0]
+    results = _make_round1_result()
+    config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
+
+    model = build_runoff_simple_model(polls, results, None, config)
+
+    with model:
+        prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+    p_adj = prior_pred.prior["p_adj"]
+    assert np.all(np.isfinite(p_adj)), "NaN/Inf in prior predictive (log(0) bug?)"
+    assert p_adj.min() >= 0.0
+    assert p_adj.max() <= 1.0
+    np.testing.assert_allclose(p_adj.sum(axis=-1), 1.0, atol=1e-6)
 
 
 def test_build_runoff_simple_model_informative_prior() -> None:

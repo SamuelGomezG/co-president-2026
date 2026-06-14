@@ -19,6 +19,9 @@ from co_president.config import (
     FIRST_ROUND_CANDIDATES,
     consultation_log_share_prior,
 )
+from co_president.fundamentals.compositional import (
+    _apply_zero_floor,  # type: ignore[reportPrivateUsage]
+)
 
 if TYPE_CHECKING:
     from xarray import DataTree
@@ -140,6 +143,10 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
             )
         max_idx = np.argmax(observed_counts, axis=1)
         observed_counts[np.arange(len(observed_counts)), max_idx] += diff
+
+    # Zero floor — replace 0 with 1, redistributing from largest columns
+    # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
+    _apply_zero_floor(observed_counts)
 
     # Sample-size-dependent concentration multiplier:
     # Larger polls contribute more to the concentration parameter via log-based
