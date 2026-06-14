@@ -24,7 +24,11 @@ dependencies = [
     "pymupdf>=1.24",
     "pdfplumber>=0.10",
     "openpyxl>=3.1",
+    "openai>=1.30",
+    "pysentimiento>=0.7.3",
     "pytrends>=4.9",
+    "torch>=2.2",
+    "transformers>=4.40",
 ]
 
 [project.optional-dependencies]

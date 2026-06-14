@@ -1,4 +1,4 @@
-"""SPEC-12 through SPEC-19: Ingestion pipelines.
+"""SPEC-12 through SPEC-22: Ingestion pipelines.
 
 SPEC-12: Geographic codes (DIVIPOLA) and historical election results
 (2002--2022).
@@ -11,8 +11,12 @@ SPEC-16: Sabaneta Cámara de Representantes fixture and loader.
 SPEC-17: CNPV 2018 census microdata ingest (F8/F9/F11).
 SPEC-18: NBI and IPM poverty indicators ingest.
 SPEC-19: DANE population projections ingest (2018--2026).
+SPEC-39: Twitter sentiment pipeline (BERT+LLM hybrid, spam filter).
 """
 
+from co_president.ingestion.bert_sentiment import (
+    classify_emotions,
+)
 from co_president.ingestion.build_feature_matrix import (
     build_feature_matrix,
     generate_data_dictionary,
@@ -55,14 +59,26 @@ from co_president.ingestion.ingest_trends import (
     compute_prop_fav,
     fetch_trends,
 )
+from co_president.ingestion.llm_sentiment import (
+    classify_with_gpt,
+)
 from co_president.ingestion.report import (
     generate_coverage_markdown,
     generate_coverage_report,
     verify_legislative_schemas,
     write_coverage_report,
 )
+from co_president.ingestion.sentiment_series import (
+    sentiment_series,
+)
 from co_president.ingestion.trends_keywords import (
     CANDIDATE_QUERY_MAP_2026,
+)
+from co_president.ingestion.twitter_denoise import (
+    detect_spammers,
+)
+from co_president.ingestion.twitter_preprocess import (
+    normalize_spanish_tweets,
 )
 
 __all__ = [
@@ -74,7 +90,10 @@ __all__ = [
     "build_nbi_features",
     "build_population_features",
     "build_sabaneta_camara_matrix",
+    "classify_emotions",
+    "classify_with_gpt",
     "compute_prop_fav",
+    "detect_spammers",
     "fetch_trends",
     "generate_coverage_markdown",
     "generate_coverage_report",
@@ -86,8 +105,10 @@ __all__ = [
     "load_nbi_data",
     "load_population_data",
     "load_sabaneta_camara",
+    "normalize_spanish_tweets",
     "pivot_historical_wide",
     "save_feature_matrix",
+    "sentiment_series",
     "validate_cnpv",
     "validate_component_health",
     "validate_fiscal",
