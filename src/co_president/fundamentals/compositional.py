@@ -394,6 +394,67 @@ def impute_zero_shares(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Zero-floor redistribution (shared by model_round1, runoff_simple, municipal)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _apply_zero_floor(observed_counts: np.ndarray) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Replace zero counts with 1, redistributing excess from largest columns.
+
+    Mutates ``observed_counts`` in-place to guarantee every row has counts ≥ 1
+    while preserving row sums. Used as a preprocessing step before
+    ``DirichletMultinomial`` to avoid ``log(0)`` in the log-likelihood.
+
+    Rows where redistribution is infeasible (sample_size < K) are silently
+    skipped — the DirichletMultinomial tolerates zero observed counts when
+    ``alpha_poll`` has no zeros (softmax output is always positive).
+
+    Args:
+        observed_counts: Integer count array of shape ``(n_polls, n_candidates)``.
+            Modified in-place.
+
+    Examples:
+        >>> import numpy as np
+        >>> from co_president.fundamentals.compositional import _apply_zero_floor
+        >>> counts = np.array([[0, 1, 0, 1]], dtype=int)  # sum=2, K=4
+        >>> _apply_zero_floor(counts)
+        >>> counts  # infeasible — row skipped
+        array([[0, 1, 0, 1]])
+        >>> counts = np.array([[0, 5, 0, 3]], dtype=int)  # sum=8, K=4
+        >>> _apply_zero_floor(counts)
+        >>> counts.sum() == 8
+        True
+        >>> (counts >= 1).all()
+        True
+
+    """
+    zero_mask = observed_counts == 0
+    if not np.any(zero_mask):
+        return
+    for i in range(len(observed_counts)):
+        zero_cols = np.where(zero_mask[i])[0]
+        if len(zero_cols) == 0:
+            continue
+        n_zeros = len(zero_cols)
+        # Feasibility: can non-zero columns donate n_zeros
+        # without falling below 1?
+        if np.sum(np.maximum(observed_counts[i] - 1, 0)) < n_zeros:
+            continue  # impossible, skip this row
+        # Apply: set zeros to 1, subtract from largest non-zero columns
+        observed_counts[i, zero_cols] = 1
+        remaining = n_zeros
+        sorted_cols = np.argsort(-observed_counts[i])
+        for j in sorted_cols:
+            if remaining <= 0:
+                break
+            if j in zero_cols:
+                continue
+            take = min(remaining, observed_counts[i, j] - 1)
+            observed_counts[i, j] -= take
+            remaining -= take
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Aitchison distance
 # ═══════════════════════════════════════════════════════════════════════
 

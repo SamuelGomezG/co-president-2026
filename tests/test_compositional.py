@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from co_president.fundamentals.compositional import (
+    _apply_zero_floor,
     aitchison_distance,
     clr_transform,
     ilr_transform,
@@ -318,3 +319,89 @@ class TestAitchisonDistance:
         y = np.array([0.3, 0.4, 0.3])
         with pytest.raises(ValueError, match="positive"):
             aitchison_distance(x, y)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# _apply_zero_floor
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestApplyZeroFloor:
+    """Zero-floor redistribution helper contract tests."""
+
+    def test_no_zeros_row_unchanged(self) -> None:
+        """Row without zeros is not modified."""
+        counts = np.array([[5, 3, 2]], dtype=int)
+        original = counts.copy()
+        _apply_zero_floor(counts)
+        assert np.array_equal(counts, original)
+
+    def test_feasible_redistribution_preserves_sum(self) -> None:
+        """Feasible row: zeros→1, max column decreases, sum preserved."""
+        counts = np.array([[0, 5, 0, 3]], dtype=int)  # sum=8, K=4
+        _apply_zero_floor(counts)
+        assert counts.sum() == 8
+        assert (counts >= 1).all()
+
+    def test_feasible_single_zero(self) -> None:
+        """Single zero: max column donates 1."""
+        counts = np.array([[0, 10]], dtype=int)  # sum=10, K=2
+        _apply_zero_floor(counts)
+        assert np.array_equal(counts, np.array([[1, 9]]))
+
+    def test_infeasible_row_skipped(self) -> None:
+        """Row with muestra < K: cannot redistribute, row skipped unchanged."""
+        counts = np.array([[0, 1, 0, 1]], dtype=int)  # sum=2, K=4
+        original = counts.copy()
+        _apply_zero_floor(counts)
+        assert np.array_equal(counts, original)
+
+    def test_max_column_equals_deficit(self) -> None:
+        """When the max column spare votes equal n_zeros, row infeasible."""
+        counts = np.array([[0, 3, 0, 0]], dtype=int)  # sum=3, n_zeros=3, spare=2
+        _apply_zero_floor(counts)
+        # Feasibility: spare votes (2) < n_zeros (3) → row skipped unchanged
+        assert (counts == np.array([[0, 3, 0, 0]])).all()
+
+    def test_multi_row_mixed_feasibility(self) -> None:
+        """Mix of feasible and infeasible rows."""
+        counts = np.array(
+            [
+                [0, 5, 0, 3],  # feasible: sum=8, K=4
+                [0, 1, 0, 1],  # infeasible: sum=2, K=4
+            ],
+            dtype=int,
+        )
+        _apply_zero_floor(counts)
+        # Row 0: zeros lifted, sum preserved
+        assert counts[0].sum() == 8
+        assert (counts[0] >= 1).all()
+        # Row 1: unchanged
+        assert np.array_equal(counts[1], np.array([0, 1, 0, 1]))
+
+    def test_all_zeros_infeasible(self) -> None:
+        """All-zero row is infeasible, skipped."""
+        counts = np.array([[0, 0, 0, 0]], dtype=int)
+        _apply_zero_floor(counts)
+        assert np.array_equal(counts, np.array([[0, 0, 0, 0]]))
+
+    def test_multi_column_donation_spreads_deficit(self) -> None:
+        """Deficit spread across multiple non-zero columns when max can't cover."""
+        counts = np.array([[0, 0, 0, 7, 2]], dtype=int)  # sum=9, K=5, n_zeros=3
+        _apply_zero_floor(counts)
+        assert counts.sum() == 9
+        assert (counts >= 1).all()
+        # 7 donated 3 total: could be 4+some-from-2 or 4+1. Verify no negative.
+        assert (counts[0] >= 1).all()
+
+    def test_empty_matrix_noop(self) -> None:
+        """Empty (0, K) matrix: no-op."""
+        counts = np.empty((0, 4), dtype=int)
+        _apply_zero_floor(counts)
+        assert len(counts) == 0
+
+    def test_integer_dtype_preserved(self) -> None:
+        """Integer dtype preserved after mutation."""
+        counts = np.array([[5, 0, 3]], dtype=np.int64)
+        _apply_zero_floor(counts)
+        assert counts.dtype == np.int64

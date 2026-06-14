@@ -25,6 +25,9 @@ from co_president.config import (
     ELECTION_DATE_ROUND1,
     FIRST_ROUND_CANDIDATES,
 )
+from co_president.fundamentals.compositional import (
+    _apply_zero_floor,  # type: ignore[reportPrivateUsage]
+)
 from co_president.fundamentals.features import clr
 
 if TYPE_CHECKING:
@@ -292,20 +295,9 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0915
         max_idx = np.argmax(observed_counts, axis=1)
         observed_counts[np.arange(n_polls), max_idx] += diff
 
-    # Zero floor — replace 0 with 1, subtract excess from max column
+    # Zero floor — replace 0 with 1, redistributing from largest columns
     # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
-    # IMPORTANT: max_idx computed from ORIGINAL counts before mutation;
-    # otherwise argmax after setting 0→1 may pick wrong column (ties).
-    zero_mask = observed_counts == 0
-    if np.any(zero_mask):
-        n_zeros_per_row = zero_mask.sum(axis=1)
-        max_idx = np.argmax(observed_counts, axis=1)
-        observed_counts[zero_mask] = 1
-        observed_counts[np.arange(n_polls), max_idx] -= n_zeros_per_row
-        # Clamp: ensure no count goes ≤0 after subtraction
-        # (edge case: max column value < n_zeros, rare with real data
-        #  but possible with synthetic/small-muestra rows)
-        observed_counts = np.maximum(observed_counts, 1)
+    _apply_zero_floor(observed_counts)
 
     # Sample-size-dependent concentration multiplier
     mean_sample_size = sample_sizes.mean()

@@ -303,11 +303,18 @@ def test_build_round1_model_zero_floor_tie_resistant() -> None:
 
 
 def test_build_round1_model_zero_floor_underflow_guard() -> None:
-    """Zero-floor clamp prevents negative counts when max column < n_zeros.
+    """Zero-floor redistribution gracefully handles infeasible rows.
 
-    Regression test: without the clamp, row [0, 1, 0, 1] (muestra=2,
-    four candidates, two zeros) would produce [1, -2, 1, 1] after
-    zero→mutation and subtraction.
+    When muestra < K (sample size smaller than number of candidates),
+    redistribution to eliminate all zeros is impossible — the row sum
+    can't cover the required 1s.  The algorithm must skip such rows
+    without crashing, and the model must still build (DirichletMultinomial
+    tolerates zero observed counts when alpha_poll has no zeros).
+
+    Regression: row [0, 1, 0, 1] (muestra=2, K=4, n_zeros=2) has
+    excess = 0, so redistribution is infeasible.  Previous code
+    subtracted from the max column producing [1, -2, 1, 1] or, after a
+    naive clamp, [1, 1, 1, 1] (sum=4 ≠ n=2).
     """
     polls = pd.DataFrame(
         {
@@ -324,10 +331,10 @@ def test_build_round1_model_zero_floor_underflow_guard() -> None:
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
     model = build_round1_model(polls, None, config, no_house_effects=True)
 
-    # Model must build without error even when max column too small
+    # Model must build without error even with infeasible zero-floor rows
     assert len(model.observed_RVs) == 1
 
-    # Prior predictive must produce valid shares (no NaN from negative counts)
+    # Prior predictive must produce valid shares (no NaN from broken counts)
     with model:
         prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
     p_adj = prior_pred.prior["p_adj"]
