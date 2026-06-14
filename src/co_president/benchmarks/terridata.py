@@ -14,11 +14,11 @@ import pandas as pd  # type: ignore[reportMissingTypeStubs]
 
 logger = logging.getLogger(__name__)
 
-_TERRIDATA_ZIP = Path("data/raw/TerriData/TerriData_Finanzas_Publicas.xlsx.zip")
-_TERRIDATA_TXT_ZIP = Path(
-    "/home/gguio/Projects/co-president-2026/data/raw/TerriData/TerriData.txt.zip"
-)
-_CACHE_PARQUET = Path("data/processed/terridata_fiscal.parquet")
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+_TERRIDATA_ZIP = _PROJECT_ROOT / "data/raw/TerriData/TerriData_Finanzas_Publicas.xlsx.zip"
+_TERRIDATA_TXT_ZIP = _PROJECT_ROOT / "data/raw/TerriData/TerriData.txt.zip"
+_CACHE_PARQUET = _PROJECT_ROOT / "data/processed/terridata_fiscal.parquet"
 
 _ELECTION_YEARS: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018, 2022)
 _MUNI_CODE_LEN: int = 5
@@ -229,6 +229,12 @@ def load_fiscal_features() -> pd.DataFrame:
     Returns:
         DataFrame indexed by ``codigo_municipio`` with columns named
         ``fiscal_{indicator}_{year}`` and ``txt_{indicator}_{year}``.
+
+    Raises:
+        FileNotFoundError: If the fiscal Excel zip (``TerriData.zip``)
+            is missing.
+        zipfile.BadZipFile: If either zip file (fiscal or txt) is
+            corrupted.
 
     """
     if _CACHE_PARQUET.exists():
