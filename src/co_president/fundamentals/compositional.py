@@ -160,6 +160,9 @@ def inverse_clr(z: np.ndarray) -> np.ndarray:
     Returns:
         Compositional values summing to 1 along the last axis.
 
+    Raises:
+        ValueError: If *z* is a scalar or has more than 2 dimensions.
+
     Examples:
         >>> import numpy as np
         >>> from co_president.fundamentals.compositional import clr_transform, inverse_clr
@@ -170,10 +173,11 @@ def inverse_clr(z: np.ndarray) -> np.ndarray:
         True
 
     """
-    za = np.asarray(z, dtype=np.float64)
+    za, was_1d = _to_2d(np.asarray(z, dtype=np.float64))
     shift = za.max(axis=-1, keepdims=True)
     exp_z = np.exp(za - shift)
-    return cast("np.ndarray", exp_z / exp_z.sum(axis=-1, keepdims=True))
+    result = exp_z / exp_z.sum(axis=-1, keepdims=True)
+    return _from_2d(cast("np.ndarray", result), was_1d=was_1d)
 
 
 # ═══════════════════════════════════════════════════════════════════════
