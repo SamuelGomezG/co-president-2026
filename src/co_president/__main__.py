@@ -1827,7 +1827,8 @@ def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
     mode: str = getattr(args, "mode", "split")
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     if args.smoke:
-        results = run_benchmarks(smoke=True)
+        class_names = IDEOLOGY_CLASSES_3 if n_classes == 3 else IDEOLOGY_CLASSES_5  # noqa: PLR2004
+        results = run_benchmarks(smoke=True, class_names=class_names)
     elif mode == "holdout":
         results = run_holdout_benchmarks(n_classes=n_classes)
     elif mode == "random":
@@ -1835,8 +1836,7 @@ def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
     elif mode == "combined":
         results = run_combined_benchmarks(n_classes=n_classes)
     else:
-        _n3 = 3
-        class_names = IDEOLOGY_CLASSES_3 if n_classes == _n3 else IDEOLOGY_CLASSES_5
+        class_names = IDEOLOGY_CLASSES_3 if n_classes == 3 else IDEOLOGY_CLASSES_5  # noqa: PLR2004
         x_arr, y_arr = load_historical_data(n_classes=n_classes)
         results = run_benchmarks(x_arr, y_arr, class_names=class_names)
     write_csv(results)

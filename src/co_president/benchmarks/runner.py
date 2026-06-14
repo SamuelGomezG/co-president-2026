@@ -221,6 +221,13 @@ def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PL
                 cls = _CANDIDATE_5CLASS_MAP.get((target_year, 1), {}).get(suffix)
             if cls:
                 class_cols[cls].append(col)
+            else:
+                logger.debug(
+                    "Unmapped candidate suffix %r for year %d round %d",
+                    suffix,
+                    target_year,
+                    round_num,
+                )
 
     for cls in _IDEOLOGY_CLASSES:
         if class_cols[cls]:
@@ -437,9 +444,6 @@ def run_benchmarks(
         List of result dicts, each with keys ``model``, ``transform``,
         ``class_name``, ``r2``, ``rmse``, ``n_train``, ``n_test``.
 
-    Returns:
-        List of result dictionaries ready for CSV serialisation.
-
     """
     if smoke:
         X_in, y_in = _generate_smoke_data()
@@ -450,7 +454,7 @@ def run_benchmarks(
         raise ValueError(msg)
 
     if class_names is None:
-        class_names = _IDEOLOGY_CLASSES
+        class_names = _3CLASS_CLASSES if y_in.shape[1] == 3 else _IDEOLOGY_CLASSES
 
     rows: list[dict[str, Any]] = []
     X_train, X_test, y_train_full, y_test_full = _train_test_split(X_in, y_in)
@@ -495,6 +499,39 @@ def run_benchmarks(
                     for cname in class_names
                 )
     return rows
+
+
+def _impute_and_normalize(
+    x_mat: np.ndarray, y_mat: np.ndarray, n_classes: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Impute NaN features with column medians and row-normalize targets.
+
+    Args:
+        x_mat: Feature matrix ``(N, F)``, may contain NaN.
+        y_mat: Target matrix ``(N, K)``, compositional rows.
+        n_classes: Number of target classes (K), used for fallback rows.
+
+    Returns:
+        ``(x_clean, y_norm)`` where *x_clean* has NaN replaced by
+        column medians (1e-10 for all-NaN cols) and *y_norm* is
+        eps-clipped then row-normalised to sum-to-1.
+
+    """
+    x_nan = np.isnan(x_mat)
+    if x_nan.any():
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
+            col_median = np.nanmedian(x_mat, axis=0)
+        all_nan = np.isnan(col_median)
+        if all_nan.any():
+            col_median[all_nan] = 1e-10
+        x_mat = np.where(x_nan, col_median, x_mat)
+
+    eps = 1e-12
+    y_mat = np.clip(y_mat, eps, None)
+    y_sum = y_mat.sum(axis=1, keepdims=True)
+    y_mat = np.divide(y_mat, y_sum, out=np.full_like(y_mat, 1.0 / n_classes), where=y_sum > 0)
+    return x_mat, y_mat
 
 
 def _prepare_year_data(
@@ -557,21 +594,7 @@ def _prepare_year_data(
 
     y = y_df[y_cols].to_numpy(np.float64)
 
-    x_nan = np.isnan(x_mat)
-    if x_nan.any():
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
-            col_median = np.nanmedian(x_mat, axis=0)
-        all_nan = np.isnan(col_median)
-        if all_nan.any():
-            col_median[all_nan] = 1e-10
-        x_mat = np.where(x_nan, col_median, x_mat)
-
-    eps = 1e-12
-    y = np.clip(y, eps, None)
-    y_sum = y.sum(axis=1, keepdims=True)
-    y = np.divide(y, y_sum, out=np.full_like(y, 1.0 / n_classes), where=y_sum > 0)
-    return x_mat, y
+    return _impute_and_normalize(x_mat, y, n_classes)
 
 
 def _detect_available_rounds(df: pd.DataFrame, year: int) -> list[int]:
@@ -593,7 +616,7 @@ def _detect_available_rounds(df: pd.DataFrame, year: int) -> list[int]:
     return sorted(rounds)
 
 
-def _prepare_combined_data(  # noqa: C901, PLR0915
+def _prepare_combined_data(  # noqa: C901
     df: pd.DataFrame,
     year: int,
     n_classes: int,
@@ -694,22 +717,28 @@ def _prepare_combined_data(  # noqa: C901, PLR0915
     x_mat = x_stacked.to_numpy(np.float64)
     y_mat = y_stacked.to_numpy(np.float64)
 
-    x_nan = np.isnan(x_mat)
-    if x_nan.any():
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
-            col_median = np.nanmedian(x_mat, axis=0)
-        all_nan = np.isnan(col_median)
-        if all_nan.any():
-            col_median[all_nan] = 1e-10
-        x_mat = np.where(x_nan, col_median, x_mat)
+    return _impute_and_normalize(x_mat, y_mat, n_classes)
 
-    eps = 1e-12
-    y_mat = np.clip(y_mat, eps, None)
-    y_sum = y_mat.sum(axis=1, keepdims=True)
-    y_mat = np.divide(y_mat, y_sum, out=np.full_like(y_mat, 1.0 / n_classes), where=y_sum > 0)
 
-    return x_mat, y_mat
+def _load_feature_matrix() -> pd.DataFrame:
+    """Load feature matrix, falling back to raw Parquet on ValueError/FileNotFoundError.
+
+    Returns:
+        DataFrame with features + vote-share columns.
+
+    """
+    try:
+        return load_features()
+    except (ValueError, FileNotFoundError) as exc:
+        logger.warning("load_features() failed; loading raw Parquet matrix: %s", exc)
+        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
+        if not parquet_path.exists():
+            parquet_path = (
+                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
+            )
+        df = pd.read_parquet(str(parquet_path))
+        logger.info("Loaded raw Parquet matrix: %d rows x %d columns", *df.shape)
+        return df
 
 
 def run_holdout_benchmarks(
@@ -717,7 +746,7 @@ def run_holdout_benchmarks(
     train_years: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018),
     test_year: int = 2022,
 ) -> list[dict[str, Any]]:
-    """Train on stacked (muni × year) observations, predict test year.
+    """Train on stacked (muni x year) observations, predict test year.
 
     For each train year, computes class targets from that year's
     ``vote_share_*`` columns, stacks all training years into one
@@ -740,15 +769,7 @@ def run_holdout_benchmarks(
         test_year,
     )
 
-    try:
-        df = load_features()
-    except ValueError:
-        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
-        if not parquet_path.exists():
-            parquet_path = (
-                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
-            )
-        df = pd.read_parquet(str(parquet_path))
+    df = _load_feature_matrix()
 
     train_arrays: list[np.ndarray] = []
     train_targets: list[np.ndarray] = []
@@ -836,15 +857,7 @@ def run_random_benchmarks(
         n_classes,
     )
 
-    try:
-        df = load_features()
-    except ValueError:
-        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
-        if not parquet_path.exists():
-            parquet_path = (
-                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
-            )
-        df = pd.read_parquet(str(parquet_path))
+    df = _load_feature_matrix()
 
     train_arrays: list[np.ndarray] = []
     train_targets: list[np.ndarray] = []
@@ -911,7 +924,7 @@ def run_combined_benchmarks(
     train_years: tuple[int, ...] = (2002, 2006, 2010, 2014, 2018),
     test_year: int = 2022,
 ) -> list[dict[str, Any]]:
-    """Train on stacked (muni × year × round) observations, predict test year.
+    """Train on stacked (muni x year x round) observations, predict test year.
 
     Stacks R1 and R2 data with ``periodo`` feature, matching USANTOMAS's
     methodology where round is a feature.  Each municipality-round
@@ -933,15 +946,7 @@ def run_combined_benchmarks(
         test_year,
     )
 
-    try:
-        df = load_features()
-    except ValueError:
-        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
-        if not parquet_path.exists():
-            parquet_path = (
-                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
-            )
-        df = pd.read_parquet(str(parquet_path))
+    df = _load_feature_matrix()
 
     train_arrays: list[np.ndarray] = []
     train_targets: list[np.ndarray] = []
@@ -1066,18 +1071,12 @@ def load_historical_data(
         ``(X, y)`` where ``X.shape == (N, F)`` and ``y.shape == (N, K)``
         with ``K = n_classes``.
 
+    Raises:
+        ValueError: If fewer than *n_classes* target columns are found
+            in the feature matrix.
+
     """
-    try:
-        df = load_features()  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
-    except ValueError:
-        logger.warning("load_features() failed; loading raw Parquet matrix")
-        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
-        if not parquet_path.exists():
-            parquet_path = (
-                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
-            )
-        df = pd.read_parquet(str(parquet_path))
-        logger.info("Loaded raw Parquet matrix: %d rows x %d columns", *df.shape)
+    df = _load_feature_matrix()
 
     class_names = _3CLASS_CLASSES if n_classes == 3 else _IDEOLOGY_CLASSES
     n_target = n_classes
@@ -1098,12 +1097,11 @@ def load_historical_data(
 
     available_y = [c for c in y_cols if c in df.columns]
     if len(available_y) < n_target:
-        logger.warning("%d-class y columns not found; using synthetic targets", n_classes)
-        rng = np.random.default_rng(42)
-        n = df.shape[0]
-        y_synth = np.abs(rng.standard_normal((n, n_target)))
-        y_synth = y_synth / y_synth.sum(axis=1, keepdims=True)
-        return df[X_cols].to_numpy(np.float64), y_synth
+        msg = (
+            f"{n_classes}-class y columns not found in feature matrix; "
+            f"cannot run benchmarks. Expected: {y_cols}, found: {available_y}"
+        )
+        raise ValueError(msg)
 
     y = df[available_y].to_numpy(np.float64)
     EPSILON = 1e-12
@@ -1194,7 +1192,11 @@ def report_benchmark_baseline(
         }
 
     X_cols = [
-        c for c in df.columns if c not in ("year", "divipola", "municipio") and c not in y_cols
+        c
+        for c in df.columns
+        if c not in ("year", "divipola", "municipio", "historical")
+        and c not in y_cols
+        and pd.api.types.is_numeric_dtype(df[c])
     ]
     X = df[X_cols].to_numpy(np.float64)
     y = df[available_y].to_numpy(np.float64)

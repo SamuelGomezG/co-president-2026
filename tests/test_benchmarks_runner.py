@@ -1,7 +1,7 @@
-"""Tests for ``co_president.benchmarks.runner``.
+"""SPEC-41: Tests for ``co_president.benchmarks.runner``.
 
-Smoke test: runner produces 15 rows (5 models × 3 transforms) on synthetic
-3-municipio data.
+Smoke test: runner produces 75 rows (5 models × 3 transforms × 5 classes) on
+synthetic 3-municipio data.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from co_president.benchmarks.runner import (
+    IDEOLOGY_CLASSES_5,
     _r2_rmse_per_class,
     _train_test_split,
     report_benchmark_baseline,
@@ -74,8 +75,8 @@ class TestR2RmsePerClass:
 class TestRunBenchmarks:
     """Integration-level tests for the benchmark runner."""
 
-    def test_smoke_returns_15_rows(self) -> None:
-        """Smoke run produces 5 models × 3 transforms ≈ 15 rows."""
+    def test_smoke_returns_75_rows(self) -> None:
+        """Smoke run produces 5 models × 3 transforms × 5 classes = 75 rows."""
         results = run_benchmarks(smoke=True)
         assert len(results) == 75  # 5 models × 3 transforms × 5 classes
 
@@ -135,12 +136,14 @@ class TestFullScale:
 class TestReportBenchmarkBaseline:
     """Tests for the SPEC-26 baseline reporter."""
 
-    def test_missing_y_cols_returns_empty(self) -> None:
-        """DataFrame without y_* columns auto-computes targets."""
-        df = pd.DataFrame({"x1": [1.0, 2.0]})
+    def test_missing_y_cols_autocomputes_targets(self) -> None:
+        """DataFrame without y_* columns auto-computes targets and runs."""
+        df = pd.DataFrame({"x1": [1.0, 2.0, 3.0]})
         result = report_benchmark_baseline(df)
         assert result["n_rows"] > 0
         assert "per_class_best_r2" in result
+        for cls in IDEOLOGY_CLASSES_5:
+            assert cls in result["per_class_best_r2"]
 
     def test_with_y_cols_runs_all_combos(self) -> None:
         """DataFrame with all 5 y_* columns runs all combos."""
