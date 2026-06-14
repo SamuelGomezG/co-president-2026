@@ -45,7 +45,7 @@
 
 | SPEC | Title | Modules | PRs | Status |
 |------|-------|---------|-----|--------|
-| SPEC-39 | Twitter sentiment pipeline | `twitter_preprocess.py`, `twitter_denoise.py`, `bert_sentiment.py`, `llm_sentiment.py`, `sentiment_series.py` | — | ✅ Shipped |
+| SPEC-39 | Twitter sentiment pipeline | `twitter_preprocess.py`, `twitter_denoise.py`, `bert_sentiment.py`, `llm_sentiment.py`, `sentiment_series.py` | #260 | ✅ Shipped |
 
 ## Planned (not yet implemented)
 
