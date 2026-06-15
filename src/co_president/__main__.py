@@ -1623,16 +1623,19 @@ def _print_trends_for_forecast(year: str) -> None:
         return
 
     queries = list(filtered_map.values())
-    trends_df = fetch_trends(queries)
-    if trends_df.empty:
-        logger.info("No trends data returned for year=%s", year)
-        return
+    try:
+        trends_df = fetch_trends(queries)
+        if trends_df.empty:
+            logger.info("No trends data returned for year=%s", year)
+            return
 
-    prop_fav = compute_prop_fav(trends_df, filtered_map)
-    print("\n=== Google Trends Favorable Propensity ===")
-    for _, row in prop_fav.iterrows():
-        print(f"  {row['candidate']}: {row['prop_fav']:.1%}")
-    print()
+        prop_fav = compute_prop_fav(trends_df, filtered_map)
+        print("\n=== Google Trends Favorable Propensity ===")
+        for _, row in prop_fav.iterrows():
+            print(f"  {row['candidate']}: {row['prop_fav']:.1%}")
+        print()
+    except (OSError, ValueError) as exc:
+        logger.warning("Trends fetch failed for year=%s (non-fatal): %s", year, exc)
 
 
 def _cmd_forecast(args: argparse.Namespace) -> None:
@@ -1828,7 +1831,7 @@ def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     if args.smoke:
         class_names = IDEOLOGY_CLASSES_3 if n_classes == 3 else IDEOLOGY_CLASSES_5  # noqa: PLR2004
-        results = run_benchmarks(smoke=True, class_names=class_names)
+        results = run_benchmarks(smoke=True, class_names=class_names, n_classes=n_classes)
     elif mode == "holdout":
         results = run_holdout_benchmarks(n_classes=n_classes)
     elif mode == "random":
