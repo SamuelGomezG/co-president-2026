@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 import unicodedata
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -35,6 +36,144 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 _ELECTION_YEARS = [2002, 2006, 2010, 2014, 2018, 2022]
+_MMV_YEAR = 2022
+_MMV_DEP_TO_DANE = {
+    "01": "05",
+    "03": "08",
+    "05": "13",
+    "07": "15",
+    "09": "17",
+    "11": "19",
+    "12": "20",
+    "13": "23",
+    "15": "25",
+    "16": "11",
+    "17": "27",
+    "19": "41",
+    "21": "47",
+    "23": "52",
+    "24": "66",
+    "25": "54",
+    "26": "63",
+    "27": "68",
+    "28": "70",
+    "29": "73",
+    "31": "76",
+    "40": "81",
+    "44": "18",
+    "46": "85",
+    "48": "44",
+    "50": "94",
+    "52": "50",
+    "54": "95",
+    "56": "88",
+    "60": "91",
+    "64": "86",
+    "68": "97",
+    "72": "99",
+}
+
+# Manual overrides for MMV municipality codes that cannot be matched by name
+_DEPT_NAME_FIX: dict[str, str] = {
+    "NORTE DE SAN": "NORTE DE SANTANDER",
+    "VALLE": "VALLE DEL CAUCA",
+    "SAN ANDRES": "ARCHIPIELAGO DE SAN ANDRES, PROVIDENCIA Y SANTA CATALINA",
+}
+
+_MMV_CODE_OVERRIDES: dict[str, str] = {
+    # --- Antioquia ---
+    "01031": "05042",
+    "01058": "05101",
+    "01082": "05148",
+    "01168": "05585",
+    "01256": "05697",
+    "01300": "05893",
+    # --- Bolívar ---
+    "05009": "13062",
+    "05065": "13600",
+    "07139": "15407",
+    # --- Boyacá ---
+    "07031": "15109",
+    # --- Caldas ---
+    # --- Caquetá ---
+    # --- Casanare ---
+    "12625": "20443",
+    # --- Cauca ---
+    # --- Cesar ---
+    # --- Chocó ---
+    "17006": "27025",
+    "17008": "27075",
+    "17011": "27099",
+    "17017": "27135",
+    "17026": "27430",
+    "17060": "27810",
+    "17350": "27800",
+    # --- Córdoba ---
+    "13040": "23670",
+    # --- Cundinamarca ---
+    "15198": "25530",
+    "15232": "25662",
+    "15304": "25843",
+    # --- Guainía ---
+    "50070": "94343",
+    "50083": "94888",
+    "50087": "94887",
+    # --- Guaviare ---
+    # --- Huila ---
+    # --- La Guajira ---
+    "48005": "44090",
+    # --- Magdalena ---
+    "21012": "47058",
+    "21013": "47161",
+    "21055": "47570",
+    "21095": "47980",
+    # --- Meta ---
+    # --- Nariño ---
+    "23004": "52019",
+    "23013": "52051",
+    "23022": "52203",
+    "23034": "52224",
+    "23043": "52258",
+    "23047": "52520",
+    "23085": "52418",
+    "23088": "52427",
+    "23091": "52435",
+    "23112": "52621",
+    "23125": "52696",
+    "23127": "52699",
+    "23139": "52835",
+    # --- Norte de Santander ---
+    "25019": "54128",
+    # --- Putumayo ---
+    "64004": "86573",
+    "64018": "86757",
+    "64028": "86865",
+    # --- Quindío ---
+    # --- Risaralda ---
+    "52060": "50689",
+    # --- San Andrés ---
+    # --- Santander ---
+    # --- Sucre ---
+    "28030": "70204",
+    "28048": "70235",
+    "28190": "70702",
+    "28300": "70820",
+    "28320": "70823",
+    # --- Tolima ---
+    "29016": "73055",
+    "29097": "73616",
+    # --- Valle del Cauca ---
+    "31016": "76100",
+    "31022": "76111",
+    "31031": "76130",
+    # --- Vaupés ---
+    "68010": "97777",
+    "68013": "97511",
+    # --- Vichada ---
+    "27068": "68655",
+    "27830": "68705",
+}
+
 _CEDAE_BASE_URL = "https://cedae.datasketch.co/api/results"
 _fallback_results_cache: pd.DataFrame | None = None
 
@@ -53,6 +192,7 @@ _HISTORICAL_CANDIDATE_MAP: dict[str, str] = {
     "clara_lopez": "clara_lopez",
     "horacio_serpa": "horacio_serpa",
     "antanas_mockus": "antanas_mockus",
+    "mockus": "antanas_mockus",
     "noemi_sanin": "noemi_sanin",
     "enrique_penalosa": "enrique_penalosa",
 }
@@ -390,13 +530,230 @@ def _get_fallback_results() -> pd.DataFrame:
     return _fallback_results_cache.copy()
 
 
-def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:
+def _crosswalk_mmv_municipalities(
+    mmv_munis: pd.DataFrame,
+    data_dir: Path,
+) -> pd.DataFrame:
+    """Map MMV municipal codes to DANE DIVIPOLA codes by name.
+
+    Builds a crosswalk from Registraduría MMV (DEP, MUN) code pairs to
+    5-digit DANE codes by matching municipality names (with fallbacks)
+    against the DIVIPOLA master registry.
+
+    Args:
+        mmv_munis: DataFrame with columns ``DEP``, ``MUN``, ``DEPNOMBRE``,
+            ``MUNNOMBRE`` (one row per unique municipality).
+        data_dir: Root data directory.
+
+    Returns:
+        DataFrame with columns ``DEP``, ``MUN``, ``MUNNOMBRE``,
+        ``codigo_municipio`` (DANE code), one row per municipality.
+
+    """
+    divipola = pd.read_csv(
+        data_dir / "fundamentals" / "divipola_master.csv",
+        dtype={"codigo_municipio": str},
+    )
+
+    def _normalize(s: str) -> str:
+        return (
+            unicodedata.normalize("NFKD", str(s))
+            .encode("ascii", "ignore")
+            .decode("ascii")
+            .strip()
+            .upper()
+            .replace(".", "")
+        )
+
+    munis = mmv_munis.copy()
+    munis["_dept_norm"] = munis["DEPNOMBRE"].apply(_normalize).replace(_DEPT_NAME_FIX)
+    munis["_muni_norm"] = munis["MUNNOMBRE"].apply(_normalize)
+    munis["_reg_key"] = munis["DEP"].str.zfill(2) + munis["MUN"].str.zfill(3)
+    munis["codigo_municipio"] = np.nan
+
+    div = divipola.copy()
+    div["_dept_norm"] = div["departamento"].apply(_normalize)
+    div["_muni_norm"] = div["nombre_municipio"].apply(_normalize)
+
+    # Level 1: exact (department name, municipality name)
+    div_lookup = div[["_dept_norm", "_muni_norm", "codigo_municipio"]].drop_duplicates()
+    munis = munis.merge(
+        div_lookup,
+        on=["_dept_norm", "_muni_norm"],
+        how="left",
+        suffixes=("", "_dane"),
+    )
+    munis["codigo_municipio"] = munis["codigo_municipio"].fillna(munis.get("codigo_municipio_dane"))
+    munis = munis.drop(columns=["codigo_municipio_dane"], errors="ignore")
+
+    remaining = munis[munis["codigo_municipio"].isna()].copy()
+    logger.debug(
+        "MMV crosswalk level 1 (exact dept+muni): %.0f matched, %d remaining",
+        len(munis) - len(remaining),
+        len(remaining),
+    )
+
+    if not remaining.empty:
+        remaining["_bare_norm"] = (
+            remaining["_muni_norm"].str.replace(r"\s*\(.*\)\s*", " ", regex=True).str.strip()
+        )
+        for idx2, row in remaining.iterrows():
+            match = _match_mmv_municipality(row, div)
+            if not match.empty:
+                munis.loc[idx2, "codigo_municipio"] = match.iloc[0]["codigo_municipio"]
+
+    remaining2 = munis[munis["codigo_municipio"].isna()]
+    logger.debug(
+        "MMV crosswalk level 2 (fallback): %.0f matched, %d remaining",
+        len(munis) - len(remaining2) - (len(munis) - len(remaining)),
+        len(remaining2),
+    )
+
+    # Level 3: hardcoded overrides
+    for reg_key, dane_code in _MMV_CODE_OVERRIDES.items():
+        mask3 = munis["_reg_key"] == reg_key
+        if mask3.any():
+            munis.loc[mask3, "codigo_municipio"] = dane_code
+
+    remaining3 = munis[munis["codigo_municipio"].isna()]
+    if not remaining3.empty:
+        logger.warning(
+            "MMV crosswalk: %d municipalities could not be mapped to DANE codes",
+            len(remaining3),
+        )
+        for _, row in remaining3.iterrows():
+            logger.warning(
+                "  Unmapped: DEP=%s MUN=%s (%s)",
+                row["DEP"],
+                row["MUN"],
+                row["MUNNOMBRE"],
+            )
+
+    return munis
+
+
+_TOKEN_THRESHOLD = 3
+
+
+def _match_mmv_municipality(
+    row: pd.Series,
+    div: pd.DataFrame,
+) -> pd.DataFrame:
+    """Find best DANE code for an MMV municipality using fallback strategies."""
+    dept: str = str(row["_dept_norm"])
+    bare: str = str(row["_bare_norm"])
+
+    match: pd.DataFrame = div[(div["_dept_norm"] == dept) & (div["_muni_norm"] == bare)]
+    if match.empty:
+        muni_prefix = bare.split("(", maxsplit=1)[0].strip()
+        match = div[(div["_dept_norm"] == dept) & (div["_muni_norm"].str.startswith(muni_prefix))]
+    if match.empty:
+        match = div[div["_muni_norm"] == bare]
+    if match.empty:
+        tokens = bare.split()
+        if len(tokens) >= _TOKEN_THRESHOLD:
+            prefix = " ".join(tokens[:_TOKEN_THRESHOLD])
+            match = div[(div["_dept_norm"] == dept) & (div["_muni_norm"].str.startswith(prefix))]
+    return match
+
+
+def _fetch_2022_mmv(round_num: int, data_dir: Path) -> pd.DataFrame | None:
+    """Fetch 2022 election results from local MMV CSV files.
+
+    The CEDAE pipeline covers elections through 2018.  For 2022 data
+    we read directly from the Registraduría MMV files in the
+    ``data/2022-presidential-results/`` directory.
+
+    Args:
+        round_num: Election round (1 or 2).
+        data_dir: Root data directory.
+
+    Returns:
+        DataFrame with columns ``codigo_municipio``, ``year``, ``round``,
+        ``candidate``, ``votes``, ``total_votes``, or ``None`` if the
+        MMV file is not found.
+
+    """
+    mmv_dir = data_dir / "2022-presidential-results"
+    fname = f"MMV_NACIONAL_PRESIDENTE_2022_{round_num}v.csv.gz"
+    path = mmv_dir / fname
+    if not path.is_file():
+        logger.debug("2022 MMV file not found: %s", path)
+        return None
+
+    raw = pd.read_csv(
+        path,
+        sep=";",
+        encoding="latin-1",
+        compression="gzip",
+        dtype={"DEP": str, "MUN": str},
+        usecols=["DEP", "MUN", "MUNNOMBRE", "CANNOMBRE", "VOTOS"],
+    )
+
+    raw = raw[raw["DEP"] != "88"]
+
+    # Build municipality crosswalk once from the full MMV data
+    mmv_munis = raw[["DEP", "MUN"]].drop_duplicates().copy()
+    dept_names = _get_mmv_department_names(data_dir)
+    mmv_munis["DEPNOMBRE"] = mmv_munis["DEP"].map(dept_names)
+    muni_names = _get_mmv_muni_names(raw)
+    mmv_munis = mmv_munis.merge(muni_names, on=["DEP", "MUN"], how="left")
+    crosswalk = _crosswalk_mmv_municipalities(mmv_munis, data_dir)
+    raw["_reg_key"] = raw["DEP"].str.zfill(2) + raw["MUN"].str.zfill(3)
+    code_map = crosswalk.set_index("_reg_key")["codigo_municipio"].to_dict()
+    raw["codigo_municipio"] = raw["_reg_key"].map(code_map)
+
+    raw = raw.dropna(subset=["codigo_municipio"])
+
+    total_by_muni = raw.groupby("codigo_municipio", sort=False)["VOTOS"].sum().reset_index()
+    total_votes_agg = total_by_muni.rename(columns={"VOTOS": "total_votes"})
+
+    candidate_agg = (
+        raw.groupby(["codigo_municipio", "CANNOMBRE"], sort=False, as_index=False)[["VOTOS"]]
+        .sum()
+        .rename(columns={"CANNOMBRE": "candidate", "VOTOS": "votes"})
+    )
+
+    result: pd.DataFrame = candidate_agg.merge(total_votes_agg, on="codigo_municipio", how="left")
+    result["year"] = 2022
+    result["round"] = round_num
+
+    n_munis: int = int(result["codigo_municipio"].nunique())
+    logger.info(
+        "Loaded 2022 round %d from MMV (%d rows, %d municipalities)",
+        round_num,
+        len(result),
+        n_munis,
+    )
+    return result
+
+
+def _get_mmv_department_names(data_dir: Path) -> dict[str, str]:
+    """Extract unique (DEP → DEPNOMBRE) mapping from MMV data."""
+    raw = pd.read_csv(
+        data_dir / "2022-presidential-results" / "MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz",
+        sep=";",
+        encoding="latin-1",
+        compression="gzip",
+        dtype={"DEP": str},
+        usecols=["DEP", "DEPNOMBRE"],
+    )
+    return dict(zip(raw["DEP"], raw["DEPNOMBRE"], strict=False))
+
+
+def _get_mmv_muni_names(raw: pd.DataFrame) -> pd.DataFrame:
+    """Extract unique (DEP, MUN, MUNNOMBRE) triples from MMV data."""
+    return raw[["DEP", "MUN", "MUNNOMBRE"]].drop_duplicates(subset=["DEP", "MUN"]).copy()
+
+
+def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901, PLR0912, PLR0915
     """Fetch data for every combination of election year and round.
 
     Priority order:
     1. Local CEDAE ``.dta.csv.gz`` files (fastest, no network)
-    2. Remote CEDAE REST API
-    3. Socrata ``datos.gov.co`` fallback.
+    2. Local 2022 Registraduría MMV CSV files
+    3. Remote CEDAE REST API
+    4. Socrata ``datos.gov.co`` fallback.
 
     Args:
         data_dir: Root data directory.  If ``None``, resolves via
@@ -412,6 +769,7 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:
 
     for year in _ELECTION_YEARS:
         for round_num in (1, 2):
+            local_ok = False
             # Level 1: Local CEDAE files
             local_frame = fetch_local_cedae_results(year, round_num, data_dir=data_dir)
             if local_frame is not None and not local_frame.empty:
@@ -422,9 +780,25 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:
                     round_num,
                     len(local_frame),
                 )
+                local_ok = True
+
+            # Level 2: Local 2022 MMV files (append extra munis CEDAE misses)
+            if year == _MMV_YEAR:
+                mmv_frame = _fetch_2022_mmv(round_num, data_dir)
+                if mmv_frame is not None and not mmv_frame.empty:
+                    all_frames.append(mmv_frame)
+                    logger.info(
+                        "Loaded %s round %d from MMV (%d rows)",
+                        year,
+                        round_num,
+                        len(mmv_frame),
+                    )
+
+            # If local data succeeded, skip remote API
+            if local_ok:
                 continue
 
-            # Level 2: Remote CEDAE API
+            # Level 3: Remote CEDAE API
             try:
                 frame = fetch_cedae_results(year, round_num)
                 all_frames.append(frame)
@@ -469,4 +843,42 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:
     if not all_frames:
         logger.warning("No historical data fetched for any year/round pair")
         return pd.DataFrame()
-    return pd.concat(all_frames, ignore_index=True)
+    result = pd.concat(all_frames, ignore_index=True)
+
+    # Dedup: when CEDAE + MMV both loaded for same year/round,
+    # prefer CEDAE (first) but keep MMV-only rows (no match)
+    result = result.drop_duplicates(
+        subset=["codigo_municipio", "year", "round", "candidate"],
+        keep="first",
+    )
+
+    # Compute vote_share from votes and total_votes
+    result["vote_share"] = result["votes"] / result["total_votes"]
+
+    # Map known candidate names to canonical keys so pivot creates lowercase columns
+    def _safe_map_candidate(name: str) -> str:
+        try:
+            return map_historical_candidate(name)
+        except ValueError:
+            return name
+
+    result["candidate"] = result["candidate"].apply(
+        lambda x: _safe_map_candidate(x) if pd.notna(x) else x  # type: ignore[reportUnknownArgumentType, reportUnknownLambdaType]
+    )
+
+    # Propagate Bogotá D.C. (11001) data to localidad codes (1100101-1100199)
+    bogota_localidad = [str(1100100 + i) for i in range(1, 21)] + ["1100199"]
+    bogota_data = result[result["codigo_municipio"].astype(str) == "11001"]
+    if not bogota_data.empty:
+        localidad_frames: list[pd.DataFrame] = []
+        for loc_code in bogota_localidad:
+            loc = bogota_data.copy()
+            loc["codigo_municipio"] = loc_code
+            localidad_frames.append(loc)
+        result = pd.concat([result, *localidad_frames], ignore_index=True)
+        logger.info(
+            "Propagated Bogotá data to %d localidad rows (%d total rows)",
+            len(bogota_localidad),
+            len(result),
+        )
+    return result

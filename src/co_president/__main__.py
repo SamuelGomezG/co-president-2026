@@ -29,6 +29,16 @@ if TYPE_CHECKING:
     import pandas as pd  # type: ignore[reportMissingTypeStubs]
     from xarray import DataTree
 
+from co_president.benchmarks.runner import (
+    IDEOLOGY_CLASSES_3,
+    IDEOLOGY_CLASSES_5,
+    load_historical_data,
+    run_benchmarks,
+    run_combined_benchmarks,
+    run_holdout_benchmarks,
+    run_random_benchmarks,
+    write_csv,
+)
 from co_president.config import (
     CONSULTATION_DATE,
     ELECTION_DATE_ROUND1,
@@ -196,6 +206,30 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("config", help="Print current configuration")
+
+    bm_parser = subparsers.add_parser(
+        "benchmark-fnn-clr",
+        help="Run FNN+CLR ML benchmark (SPEC-41)",
+    )
+    bm_parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run with synthetic 3-row data instead of full historical dataset",
+    )
+    bm_parser.add_argument(
+        "--n-classes",
+        type=int,
+        default=5,
+        choices=(3, 5),
+        help="Number of ideology classes (3 or 5; default 5)",
+    )
+    bm_parser.add_argument(
+        "--mode",
+        type=str,
+        default="split",
+        choices=("split", "holdout", "random", "combined"),
+        help="Mode: split, holdout, random, or combined (R1+R2 stacked)",
+    )
 
     return parser
 
@@ -1426,6 +1460,26 @@ def _validate_before_2026_forecast(config: ModelConfig) -> None:
                 "PASS: year_2018_holdout — beta coefficients transfer across coalition alignments",
             )
 
+    # -- ML benchmark baseline (informational, not gating) -----------------
+    try:
+        from co_president.benchmarks.runner import report_benchmark_baseline  # noqa: PLC0415
+
+        summary = report_benchmark_baseline(features)
+        if summary["n_rows"] > 0:
+            best = summary.get("per_class_best_r2", {})
+            best_str = ", ".join(
+                f"{k}: {v:.4f}" for k, v in best.items() if isinstance(v, float) and str(v) != "nan"
+            )
+            logger.info(
+                "Benchmark baseline: %d rows (%d models x %d transforms). Best R² per class: %s",
+                summary["n_rows"],
+                summary["n_models"],
+                summary["n_transforms"],
+                best_str,
+            )
+    except Exception:
+        logger.exception("Benchmark baseline skipped (non-fatal)")
+
     logger.info("2026 gating tests complete")
 
 
@@ -1569,16 +1623,19 @@ def _print_trends_for_forecast(year: str) -> None:
         return
 
     queries = list(filtered_map.values())
-    trends_df = fetch_trends(queries)
-    if trends_df.empty:
-        logger.info("No trends data returned for year=%s", year)
-        return
+    try:
+        trends_df = fetch_trends(queries)
+        if trends_df.empty:
+            logger.info("No trends data returned for year=%s", year)
+            return
 
-    prop_fav = compute_prop_fav(trends_df, filtered_map)
-    print("\n=== Google Trends Favorable Propensity ===")
-    for _, row in prop_fav.iterrows():
-        print(f"  {row['candidate']}: {row['prop_fav']:.1%}")
-    print()
+        prop_fav = compute_prop_fav(trends_df, filtered_map)
+        print("\n=== Google Trends Favorable Propensity ===")
+        for _, row in prop_fav.iterrows():
+            print(f"  {row['candidate']}: {row['prop_fav']:.1%}")
+        print()
+    except (OSError, ValueError) as exc:
+        logger.warning("Trends fetch failed for year=%s (non-fatal): %s", year, exc)
 
 
 def _cmd_forecast(args: argparse.Namespace) -> None:
@@ -1767,12 +1824,33 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _cmd_benchmark_fnn_clr(args: argparse.Namespace) -> None:
+    """Run the SPEC-41 FNN+CLR ML benchmark on historical data."""
+    n_classes: int = getattr(args, "n_classes", 5)
+    mode: str = getattr(args, "mode", "split")
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    if args.smoke:
+        class_names = IDEOLOGY_CLASSES_3 if n_classes == 3 else IDEOLOGY_CLASSES_5  # noqa: PLR2004
+        results = run_benchmarks(smoke=True, class_names=class_names, n_classes=n_classes)
+    elif mode == "holdout":
+        results = run_holdout_benchmarks(n_classes=n_classes)
+    elif mode == "random":
+        results = run_random_benchmarks(n_classes=n_classes)
+    elif mode == "combined":
+        results = run_combined_benchmarks(n_classes=n_classes)
+    else:
+        class_names = IDEOLOGY_CLASSES_3 if n_classes == 3 else IDEOLOGY_CLASSES_5  # noqa: PLR2004
+        x_arr, y_arr = load_historical_data(n_classes=n_classes)
+        results = run_benchmarks(x_arr, y_arr, class_names=class_names)
+    write_csv(results)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Main entry point
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901
     """Parse CLI arguments and dispatch to the appropriate subcommand."""
     parser = _build_parser()
     args = parser.parse_args()
@@ -1794,6 +1872,8 @@ def main() -> None:
             _cmd_plot(args.output_dir)
         elif args.command == "forecast":
             _cmd_forecast(args)
+        elif args.command == "benchmark-fnn-clr":
+            _cmd_benchmark_fnn_clr(args)
         else:
             parser.print_help()
             sys.exit(1)

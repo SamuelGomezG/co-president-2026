@@ -84,7 +84,7 @@ class TestReadPopulationXlsx:
             pytest.skip("Real XLSX file not available (CI)")
         return _read_population_xlsx(xlsx_path)
 
-    def test_reads_real_file(self, _xlsx_df: pd.DataFrame) -> None:  # noqa: PT019
+    def test_reads_real_file(self, _xlsx_df: pd.DataFrame) -> None:
         """Returns a non-empty DataFrame with expected columns from the real XLSX."""
         assert not _xlsx_df.empty
         expected = {"MPIO", "AÑO", "ÁREA GEOGRÁFICA", "TOTAL"}
@@ -93,7 +93,7 @@ class TestReadPopulationXlsx:
         assert _xlsx_df["AÑO"].max() <= 2042
         assert _xlsx_df["MPIO"].str.len().eq(5).all()
 
-    def test_all_total_rows_have_positive_population(self, _xlsx_df: pd.DataFrame) -> None:  # noqa: PT019
+    def test_all_total_rows_have_positive_population(self, _xlsx_df: pd.DataFrame) -> None:
         """After _filter_total_rows, all remaining Total rows have positive population."""
         total_rows = _filter_total_rows(_xlsx_df)
         assert not total_rows.empty, "_filter_total_rows returned zero rows"

@@ -38,6 +38,7 @@ __all__ = [
     "FIRST_ROUND_CANDIDATES",
     "FIRST_ROUND_CANDIDATES_2026",
     "HISTORICAL_CANDIDATE_IDEOLOGY",
+    "HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS",
     "HISTORICAL_ROUND2_IDEOLOGY",
     "HISTORICAL_TURNOUT_SOURCE",
     "POLLSTER_RATINGS",
@@ -461,6 +462,19 @@ HISTORICAL_CANDIDATE_IDEOLOGY: dict[int, dict[str, str]] = {
     2014: {"left": "clara_lopez", "right": "oscar_ivan_zuluaga"},
     2018: {"left": "gustavo_petro", "right": "ivan_duque"},
     2022: {"left": "gustavo_petro", "right": "federico_gutierrez"},
+}
+
+# 5-class ideological classification for each presidential election (2002-2022).
+# Maps each year to ideology class -> candidate key.
+# Expert-derived mapping based on Colombian political tradition.
+# Classes: Izquierda, Centro_Izquierda, Centro, Centro_Derecha, Derecha.
+HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS: dict[int, dict[str, str]] = {
+    2002: {"Centro_Izquierda": "horacio_serpa", "Derecha": "alvaro_uribe"},
+    2006: {"Izquierda": "carlos_gaviria", "Derecha": "alvaro_uribe"},
+    2010: {"Izquierda": "gustavo_petro", "Centro_Derecha": "juan_manuel_santos"},
+    2014: {"Izquierda": "clara_lopez", "Derecha": "oscar_ivan_zuluaga"},
+    2018: {"Izquierda": "gustavo_petro", "Derecha": "ivan_duque"},
+    2022: {"Izquierda": "gustavo_petro", "Derecha": "federico_gutierrez"},
 }
 
 # Round-2 overrides: when the runoff right-wing candidate differs from the
