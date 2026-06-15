@@ -65,6 +65,7 @@
 | SPEC-34 | Empirical runoff matrix | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-35 | 2026 validation & forecasting | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-36 | Stretch: demographics | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
+
 ## Compositional & ML Benchmarks
 
 | SPEC | Title | Modules | Status |

@@ -223,7 +223,7 @@ Multiple PDFs converge on these themes. They tell us **what is non-trivially tru
 
 ### **SPEC-41: FNN+CLR ML benchmark**
 
-- **Why now**: Our `ENHANCEMENT_ROADMAP.md` §13 lists USANTOMAS as the academic benchmark to "replicate and exceed" — but **no code exists**. Without an in-house baseline, we cannot validate that our `model_municipal` is actually competitive. The benchmark is 1,095 munis, 5 ideological classes, FNN+CLR achieving R² 0.94.
+- **Why now**: Our `ENHANCEMENT_ROADMAP.md` §13 lists USANTOMAS as the academic benchmark to "replicate and exceed" — **SPEC-41 is now shipped** (`benchmarks/fnn_clr.py`, `benchmarks/runner.py`, `tests/test_benchmarks_fnn_clr.py`). Without an in-house baseline, we cannot validate that our `model_municipal` is actually competitive. The benchmark is 1,095 munis, 5 ideological classes, FNN+CLR achieving R² 0.94.
 - **Dependencies**: ALR/CLR/ILR (in `benchmarks/transforms.py`), scikit-learn `MLPRegressor` (USANTOMAS Fig 17, no TF/PyTorch needed). 2002-2022 historical results (from `data/fundamentals/historical_results.csv`).
 - **Acceptance criteria**:
   - `benchmarks/fnn_clr.py` mirrors USANTOMAS exactly: target = 5-class ideological spectrum (Izq, Centro-Izq, Centro, Centro-Der, Der), 70/30 train/test, MLPRegressor(150,100,50) ReLU 50 epochs.

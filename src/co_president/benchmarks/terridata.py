@@ -231,7 +231,7 @@ def load_fiscal_features() -> pd.DataFrame:
         ``fiscal_{indicator}_{year}`` and ``txt_{indicator}_{year}``.
 
     Raises:
-        FileNotFoundError: If the fiscal Excel zip (``TerriData.zip``)
+        FileNotFoundError: If the fiscal Excel zip (``TerriData_Finanzas_Publicas.xlsx.zip``)
             is missing.
         zipfile.BadZipFile: If either zip file (fiscal or txt) is
             corrupted.
