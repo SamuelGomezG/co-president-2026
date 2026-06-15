@@ -402,19 +402,22 @@ def _r2_rmse_per_class(
     return results
 
 
-def _generate_smoke_data() -> tuple[np.ndarray, np.ndarray]:
-    """Generate a synthetic 3-municipio × 5-feature × 5-class fixture.
+def _generate_smoke_data(n_classes: int = 5) -> tuple[np.ndarray, np.ndarray]:
+    """Generate a synthetic 3-municipio × 5-feature × n_classes-class fixture.
 
     Both X and y are compositional (non-negative, rows sum to 1), so ALR/CLR/
     ILR transforms can be applied to either.
 
+    Args:
+        n_classes: Number of ideological classes. Defaults to 5.
+
     Returns:
-        ``(X, y)`` where ``X.shape == (3, 5)`` and ``y.shape == (3, 5)``.
+        ``(X, y)`` where ``X.shape == (3, 5)`` and ``y.shape == (3, n_classes)``.
 
     """
     rng = np.random.default_rng(42)
     raw_X = rng.dirichlet(np.ones(5), size=3)
-    raw_y = rng.dirichlet(np.ones(5), size=3)
+    raw_y = rng.dirichlet(np.ones(n_classes), size=3)
     return raw_X.astype(np.float64), raw_y.astype(np.float64)
 
 
@@ -426,6 +429,7 @@ def run_benchmarks(
     model_names: tuple[str, ...] = ("svr", "rfr", "gbr", "knn", "fnn"),
     class_names: list[str] | None = None,
     smoke: bool = False,
+    n_classes: int = 5,
 ) -> list[dict[str, Any]]:
     """Run all specified model × transform combinations.
 
@@ -439,6 +443,7 @@ def run_benchmarks(
         class_names: Names for the K target columns.  Defaults to
             ``_IDEOLOGY_CLASSES``.
         smoke: If True, use synthetic 3-row data for a quick smoke test.
+        n_classes: Number of ideological classes for smoke data (default 5).
 
     Returns:
         List of result dicts, each with keys ``model``, ``transform``,
@@ -446,7 +451,7 @@ def run_benchmarks(
 
     """
     if smoke:
-        X_in, y_in = _generate_smoke_data()
+        X_in, y_in = _generate_smoke_data(n_classes=n_classes)
     elif X is not None and y is not None:
         X_in, y_in = X, y
     else:
@@ -729,8 +734,8 @@ def _load_feature_matrix() -> pd.DataFrame:
     """
     try:
         return load_features()
-    except (ValueError, FileNotFoundError) as exc:
-        logger.warning("load_features() failed; loading raw Parquet matrix: %s", exc)
+    except FileNotFoundError as exc:
+        logger.warning("load_features() not found; loading raw Parquet matrix: %s", exc)
         parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
         if not parquet_path.exists():
             parquet_path = (
@@ -1117,6 +1122,13 @@ def load_historical_data(
             "Imputing %d feature columns with column medians", int(nan_mask.any(axis=0).sum())
         )
         col_median = np.nanmedian(x_mat, axis=0)
+        all_nan_cols = np.isnan(col_median)
+        if all_nan_cols.any():
+            logger.warning(
+                "%d feature columns entirely NaN; filling with 0",
+                int(all_nan_cols.sum()),
+            )
+            col_median[all_nan_cols] = 0.0
         x_mat = np.where(nan_mask, col_median, x_mat)
 
     return x_mat, y
