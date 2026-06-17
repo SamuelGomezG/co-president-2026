@@ -15,6 +15,7 @@ import statistics
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 import unicodedata
+import warnings
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -306,6 +307,67 @@ def _normalize_name(name: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c)).casefold()
 
 
+def _read_consultation_data(csv_path: Path) -> dict[str, list[float]]:
+    """Read ``consultas.csv`` and group ``int_voto`` values by candidate key.
+
+    Args:
+        csv_path: Path to ``consultas.csv``.
+
+    Returns:
+        Mapping of candidate key to list of ``int_voto / 100`` values.
+
+    """
+    strengths: dict[str, list[float]] = {}
+    with csv_path.open(encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = _normalize_name(row["candidato"])
+            key = _build_normalized_consultation_map().get(name)
+            if key is not None:
+                try:
+                    strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
+                except ValueError:
+                    logger.warning(
+                        "Skipping row %d: invalid int_voto %r for candidate %r",
+                        reader.line_num,
+                        row.get("int_voto"),
+                        row.get("candidato"),
+                    )
+    return strengths
+
+
+def _compute_strength_results(
+    strengths: dict[str, list[float]],
+) -> dict[str, float]:
+    """Compute prior strength (stdev or floor) for each candidate.
+
+    Candidates with a single data point get the 0.10 floor.
+    Candidates with zero ``CONSULTATION_VOTES`` (independents) get the
+    mean strength * 1.5 as fallback.
+
+    Args:
+        strengths: Mapping of candidate key to ``int_voto / 100`` values.
+
+    Returns:
+        Mapping of candidate key to prior standard deviation.
+
+    """
+    results: dict[str, float] = {}
+    for key, values in strengths.items():
+        if len(values) > 1:
+            results[key] = max(0.10, statistics.stdev(values))
+        else:
+            results[key] = 0.10
+
+    if results:
+        mean_strength = statistics.mean(results.values())
+        for key in CONSULTATION_VOTES:
+            if key not in results:
+                results[key] = mean_strength * 1.5
+
+    return results
+
+
 def compute_consultation_prior_strength() -> dict[str, float]:
     """Compute candidate-specific prior strengths from consultation polls.
 
@@ -322,8 +384,7 @@ def compute_consultation_prior_strength() -> dict[str, float]:
         Mapping of candidate key to prior standard deviation.
 
     Raises:
-        ValueError: If any key in ``CONSULTATION_KEY_MAP`` produced zero rows,
-            indicating a name mismatch between the CSV and the key map.
+        ValueError: If no candidate data is found in the CSV at all.
 
     Examples:
         >>> strengths = compute_consultation_prior_strength()
@@ -335,45 +396,27 @@ def compute_consultation_prior_strength() -> dict[str, float]:
     """
     data_dir = resolve_data_dir(None)
     csv_path = data_dir / "2022-polls" / "consultas.csv"
-    strengths: dict[str, list[float]] = {}
+    strengths = _read_consultation_data(csv_path)
 
-    with csv_path.open(encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            name = _normalize_name(row["candidato"])
-            key = _build_normalized_consultation_map().get(name)
-            if key is not None:
-                try:
-                    strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
-                except ValueError:
-                    logger.warning(
-                        "Skipping row %d: invalid int_voto %r for candidate %r",
-                        reader.line_num,
-                        row.get("int_voto"),
-                        row.get("candidato"),
-                    )
-
-    results: dict[str, float] = {}
-    for key, values in strengths.items():
-        if len(values) > 1:
-            results[key] = max(0.10, statistics.stdev(values))
-        else:
-            results[key] = 0.10
-
-    # Fallback for candidates with zero consultation votes (independents)
-    if results:
-        mean_strength = statistics.mean(results.values())
-        for key in CONSULTATION_VOTES:
-            if key not in results:
-                results[key] = mean_strength * 1.5
+    results = _compute_strength_results(strengths)
 
     # Candidates with non-zero consultation votes are expected in the CSV;
     # those with zero votes (independents) are not.
     expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
     missing = [k for k in expected if k not in strengths]
     if missing:
-        msg = f"No consultation data found for candidates: {missing}"
-        raise ValueError(msg)
+        if not strengths:
+            msg = "No consultation data found for any candidate. CSV may be corrupt."
+            raise ValueError(msg)
+        fallback = statistics.mean(list(results.values())) * 1.5 if results else 0.10
+        for key in missing:
+            results[key] = fallback
+            warnings.warn(
+                f"No consultation data found for candidate '{key}'. "
+                f"Assigning mean fallback strength.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     return results
 
@@ -429,6 +472,16 @@ def validate_consultation_prior_means(
                         row.get("int_voto"),
                         row.get("candidato"),
                     )
+
+    # Pre-registration check: verify all expected candidates have CSV data
+    expected_csv_candidates = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
+    missing_from_csv = [k for k in expected_csv_candidates if k not in ranges]
+    if missing_from_csv:
+        logger.warning(
+            "CSV is missing entries for expected candidates: %s. "
+            "Add them to consultas.csv to enable full validation.",
+            missing_from_csv,
+        )
 
     for key, mean in means.items():
         if key not in ranges:
@@ -708,6 +761,23 @@ def _detect_forced_choice(df: pd.DataFrame) -> pd.Series:
     return blanco_na & ns_nr_zero & sum_check & both_present
 
 
+def _fix_known_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply known data-entry corrections to raw poll data.
+
+    Wraps ``fix_invamer_date`` and ``_fix_yanhaas_20220611`` so both
+    pipelines (``load_and_clean_all`` and ``load_as_coa_polls``) apply
+    the same corrections.
+
+    Args:
+        df: Raw poll DataFrame.
+
+    Returns:
+        Corrected copy of ``df``.
+
+    """
+    return _fix_yanhaas_20220611(fix_invamer_date(df))
+
+
 def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
     """Correct YanHaas 103% sum anomaly on 2022-06-11.
 
@@ -976,10 +1046,15 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
         - At least one of ``sergio_fajardo`` or ``ingrid_betancourt`` non-NA
         - ``fecha >= CONSULTATION_DATE``
 
+    Round 1 (forced-choice):
+        - ``forced_choice=True`` (R2 candidate pattern but no blanco/ns_nr)
+        - ``round_number`` is 1 because forced-choice polls track R1 preferences
+
     Round 2:
         - ``gustavo_petro``, ``rodolfo_hernandez`` non-NA
         - ``federico_gutierrez``, ``sergio_fajardo``, ``ingrid_betancourt`` all NA
         - ``fecha >= ELECTION_DATE_ROUND1``
+        - ``forced_choice`` is not ``True``
 
     All other polls: ``round_number = pd.NA`` (nullable Int64).
 
@@ -992,8 +1067,11 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
     """
     result = df.copy()
     round_numbers: list[int | None] = []
+    has_forced_choice = "forced_choice" in result.columns
     for _, row in result.iterrows():
-        if _is_round1_candidate(row, result.columns):
+        if (has_forced_choice and row.get("forced_choice", False)) or _is_round1_candidate(
+            row, result.columns
+        ):
             round_numbers.append(1)
         elif _is_round2_candidate(row, result.columns):
             round_numbers.append(2)
@@ -1152,6 +1230,9 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     combined["muestra"] = None
     combined["muestra_int_voto"] = None
 
+    # Fix known anomalies (Invamer date + YanHaas) before normalization
+    combined = _fix_known_anomalies(combined)
+
     # Normalize undecided (redistribute ns_nr + ninguno)
     combined = normalize_undecided(combined)
 
@@ -1161,12 +1242,15 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     # Infer round number
     r1_keys = [c.key for c in get_active_candidates(1)]
     combined = retain_active_candidates(combined, r1_keys)
+
+    # Detect forced-choice BEFORE round inference
+    combined["forced_choice"] = _detect_forced_choice(combined)
     combined = infer_round_number(combined)
 
     # Backfill round_number and forced_choice into all_polls snapshot
     # (consistent with load_and_clean_all API)
     all_polls["round_number"] = combined["round_number"]
-    all_polls["forced_choice"] = _detect_forced_choice(combined)
+    all_polls["forced_choice"] = combined["forced_choice"]
 
     # Split by round
     mask_r1 = combined["round_number"] == 1
@@ -1235,9 +1319,8 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
     # Step 1: Load raw polls
     polls = load_raw_polls(data_dir=data_dir)
 
-    # Step 2: Fix Invamer date
-    polls = fix_invamer_date(polls)
-    polls = _fix_yanhaas_20220611(polls)
+    # Step 2: Fix known anomalies
+    polls = _fix_known_anomalies(polls)
 
     # Step 3: Normalize undecided
     polls = normalize_undecided(polls)
@@ -1249,15 +1332,17 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
     r1_keys = [c.key for c in get_active_candidates(1)]
     polls = retain_active_candidates(polls, r1_keys)
 
-    # Step 5: Infer round number
-    polls = infer_round_number(polls)
+    # Step 5: Detect forced-choice BEFORE round inference
     polls["forced_choice"] = _detect_forced_choice(polls)
+
+    # Step 6: Infer round number (forced-choice polls get classified as R1)
+    polls = infer_round_number(polls)
     all_polls["round_number"] = polls["round_number"]
     all_polls["forced_choice"] = polls["forced_choice"]
 
-    # Step 6: Split by round
+    # Step 7: Split by round
     mask_r1 = polls["round_number"] == 1
-    mask_r2 = (polls["round_number"] == _ROUND_TWO) & (~polls["forced_choice"])
+    mask_r2 = polls["round_number"] == _ROUND_TWO
     round1_df = polls[mask_r1].copy()
     round2_df = polls[mask_r2].copy()
 
