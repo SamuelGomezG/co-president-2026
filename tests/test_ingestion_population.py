@@ -11,7 +11,9 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
+from co_president.config import BELEN_DE_BAJIRA_CODE
 from co_president.ingestion.ingest_population import (
+    _fill_missing_population,
     _filter_total_rows,
     _pivot_population_wide,
     _read_population_xlsx,
@@ -66,6 +68,42 @@ def _make_valid_population(n: int = 5) -> pd.DataFrame:
     for year in range(2018, 2027):
         data[f"pop_{year}"] = [round(x) for x in rng.uniform(5_000, 2_000_000, size=n)]
     return pd.DataFrame(data).astype({"codigo_municipio": str})
+
+
+def _setup_mock_fundamentals(base_path: Path, codes: list[str]) -> None:
+    """Create mock fundamentals files matching the given municipality codes.
+
+    Writes minimal ``divipola_master.csv`` and ``cnpv_2018.csv`` to
+    ``base_path/fundamentals/`` so that ``_fill_missing_population`` can
+    read them without requiring real data files.
+
+    Args:
+        base_path: Root data directory (``fundamentals/`` is created under
+            this path).
+        codes: Municipality codes to include in the mock DIVIPOLA master.
+
+    """
+    fund_dir = base_path / "fundamentals"
+    fund_dir.mkdir(parents=True, exist_ok=True)
+
+    divipola = pd.DataFrame(
+        {
+            "REGION": ["Mock"] * len(codes),
+            "CÓDIGO DANE DEL DEPARTAMENTO": [c[:2] for c in codes],
+            "departamento": ["Mock"] * len(codes),
+            "codigo_municipio": codes,
+            "nombre_municipio": [f"Mock_{c}" for c in codes],
+        }
+    )
+    divipola.to_csv(fund_dir / "divipola_master.csv", index=False)
+
+    cnpv = pd.DataFrame(
+        {
+            "codigo_municipio": codes,
+            "poblacion_total": [100_000 + i * 1_000 for i in range(len(codes))],
+        }
+    )
+    cnpv.to_csv(fund_dir / "cnpv_2018.csv", index=False)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -237,6 +275,7 @@ class TestBuildPopulationFeatures:
 
     def test_writes_csv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """CSV is written to fundamentals/population_2018_2026.csv."""
+        _setup_mock_fundamentals(tmp_path, [f"{i:05d}" for i in range(1, 6)])
         monkeypatch.setattr(
             "co_president.ingestion.ingest_population._read_population_xlsx",
             lambda _: _make_synthetic_xlsx(5, years=self._ALL_YEARS),
@@ -246,6 +285,7 @@ class TestBuildPopulationFeatures:
 
     def test_output_shape(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Output CSV has 5 rows and 10 columns."""
+        _setup_mock_fundamentals(tmp_path, [f"{i:05d}" for i in range(1, 6)])
         monkeypatch.setattr(
             "co_president.ingestion.ingest_population._read_population_xlsx",
             lambda _: _make_synthetic_xlsx(5, years=self._ALL_YEARS),
@@ -262,6 +302,7 @@ class TestBuildPopulationFeatures:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Column codigo_municipio is a string (not int)."""
+        _setup_mock_fundamentals(tmp_path, [f"{i:05d}" for i in range(1, 6)])
         monkeypatch.setattr(
             "co_president.ingestion.ingest_population._read_population_xlsx",
             lambda _: _make_synthetic_xlsx(5, years=self._ALL_YEARS),
@@ -279,6 +320,7 @@ class TestBuildPopulationFeatures:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The fundamentals/ directory is created if it does not exist."""
+        _setup_mock_fundamentals(tmp_path, [f"{i:05d}" for i in range(1, 4)])
         monkeypatch.setattr(
             "co_president.ingestion.ingest_population._read_population_xlsx",
             lambda _: _make_synthetic_xlsx(3, years=self._ALL_YEARS),
@@ -295,6 +337,7 @@ class TestBuildPopulationFeatures:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Population values are integers (not floats)."""
+        _setup_mock_fundamentals(tmp_path, [f"{i:05d}" for i in range(1, 6)])
         monkeypatch.setattr(
             "co_president.ingestion.ingest_population._read_population_xlsx",
             lambda _: _make_synthetic_xlsx(5, years=self._ALL_YEARS),
@@ -418,3 +461,139 @@ class TestValidatePopulation:
         df.loc[0, "pop_2020"] = float("nan")
         warnings = validate_population(df)
         assert any("null" in w for w in warnings), f"Expected null warning, got: {warnings}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# _fill_missing_population
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestFillMissingPopulation:
+    """_fill_missing_population adds projections for DIVIPOLA codes missing from DANE PPED."""
+
+    _POP_COLS: ClassVar[list[str]] = [f"pop_{y}" for y in range(2018, 2027)]
+
+    def _write_mock_files(
+        self,
+        base_path: Path,
+        divipola_codes: list[str],
+        cnpv_overrides: dict[str, int] | None = None,
+    ) -> None:
+        """Write mock divipola_master.csv and cnpv_2018.csv to ``base_path/fundamentals/``."""
+        fund_dir = base_path / "fundamentals"
+        fund_dir.mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            {
+                "REGION": ["Mock"] * len(divipola_codes),
+                "CÓDIGO DANE DEL DEPARTAMENTO": [c[:2] for c in divipola_codes],
+                "departamento": ["Mock"] * len(divipola_codes),
+                "codigo_municipio": divipola_codes,
+                "nombre_municipio": [f"Mock_{c}" for c in divipola_codes],
+            }
+        ).to_csv(fund_dir / "divipola_master.csv", index=False)
+
+        cnpv_data: dict[str, list[str | int]] = {
+            "codigo_municipio": [],
+            "poblacion_total": [],
+        }
+        for code in divipola_codes:
+            if cnpv_overrides and code in cnpv_overrides:
+                cnpv_data["codigo_municipio"].append(code)
+                cnpv_data["poblacion_total"].append(cnpv_overrides[code])
+        pd.DataFrame(cnpv_data).to_csv(fund_dir / "cnpv_2018.csv", index=False)
+
+    # ── Existing codes ──────────────────────────────────────────
+
+    def test_skips_existing_codes(self, tmp_path: Path) -> None:
+        """When all DIVIPOLA codes are already present, return unchanged."""
+        self._write_mock_files(tmp_path, ["27001", "27006"])
+        wide = pd.DataFrame(
+            {
+                "codigo_municipio": ["27001", "27006"],
+                **{col: [1000, 2000] for col in self._POP_COLS},
+            }
+        )
+        result = _fill_missing_population(wide, tmp_path)
+        assert len(result) == 2
+        pd.testing.assert_frame_equal(result, wide)
+
+    # ── CNPV baseline ───────────────────────────────────────────
+
+    def test_fills_missing_code_with_cnpv_baseline(self, tmp_path: Path) -> None:
+        """Missing DIVIPOLA code gets projected using CNPV baseline and dept-wide growth rate."""
+        self._write_mock_files(tmp_path, ["27001", "27099"], cnpv_overrides={"27099": 50_000})
+
+        wide = pd.DataFrame(
+            {
+                "codigo_municipio": ["27001"],
+                **{col: [1000] for col in self._POP_COLS},
+            }
+        )
+        result = _fill_missing_population(wide, tmp_path)
+        assert len(result) == 2
+
+        row = result[result["codigo_municipio"] == "27099"].iloc[0]
+        assert row["pop_2018"] == 50_000
+        for y in range(2019, 2027):
+            assert row[f"pop_{y}"] == 50_000, f"{y}: expected 50,000 with 0% growth"
+
+    # ── Fallback estimate (27086 Belén de Bajirá) ───────────────
+
+    def test_fallback_estimate_for_27086(self, tmp_path: Path) -> None:
+        """When CNPV has no data for 27086, fall back to 25,000 baseline."""
+        self._write_mock_files(tmp_path, ["27001", BELEN_DE_BAJIRA_CODE], cnpv_overrides={})
+
+        wide = pd.DataFrame(
+            {
+                "codigo_municipio": ["27001"],
+                **{col: [1000] for col in self._POP_COLS},
+            }
+        )
+        result = _fill_missing_population(wide, tmp_path)
+        row = result[result["codigo_municipio"] == BELEN_DE_BAJIRA_CODE].iloc[0]
+        assert row["pop_2018"] == 25_000
+        for y in range(2019, 2027):
+            assert row[f"pop_{y}"] == 25_000
+
+    # ── Column completeness ─────────────────────────────────────
+
+    def test_all_pop_columns_filled(self, tmp_path: Path) -> None:
+        """The appended row has all 9 pop_2018..pop_2026 columns non-null."""
+        self._write_mock_files(tmp_path, ["27001", "27999"], cnpv_overrides={"27999": 10_000})
+
+        wide = pd.DataFrame(
+            {
+                "codigo_municipio": ["27001", "27006"],
+                **{col: [1000, 2000] for col in self._POP_COLS},
+            }
+        )
+        result = _fill_missing_population(wide, tmp_path)
+        row = result[result["codigo_municipio"] == "27999"].iloc[0]
+        for col in self._POP_COLS:
+            assert pd.notna(row[col]), f"{col} is NaN"
+            assert row[col] > 0, f"{col} is <= 0"
+
+    # ── Growth rate projection ──────────────────────────────────
+
+    def test_growth_rate_projection(self, tmp_path: Path) -> None:
+        """Projected values follow geometric growth computed from existing dept munis."""
+        self._write_mock_files(tmp_path, ["27001", "27999"], cnpv_overrides={"27999": 100_000})
+
+        wide = pd.DataFrame(
+            {
+                "codigo_municipio": ["27001"],
+                **{col: [1000] for col in self._POP_COLS},
+            }
+        )
+        wide.loc[0, "pop_2026"] = 2000
+
+        result = _fill_missing_population(wide, tmp_path)
+        row = result[result["codigo_municipio"] == "27999"].iloc[0]
+
+        rate = (2000 / 1000) ** (1 / 8) - 1
+        for y in range(2018, 2027):
+            expected = round(100_000 * (1 + rate) ** (y - 2018))
+            assert row[f"pop_{y}"] == expected, (
+                f"pop_{y}: expected {expected}, got {row[f'pop_{y}']}"
+            )

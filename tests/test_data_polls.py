@@ -785,6 +785,22 @@ class TestForcedChoiceDetection:
         forced = _detect_forced_choice(df)
         assert not bool(forced.iloc[0])
 
+    def test_forced_choice_post_r1_gets_round1(self) -> None:
+        """Verify forced-choice post-R1 poll is classified as round 1, not round 2."""
+        df = pd.DataFrame(
+            {
+                "gustavo_petro": [50.0],
+                "rodolfo_hernandez": [50.0],
+                "blanco": [None],
+                "ns_nr": [0.0],
+                "fecha": pd.to_datetime(["2022-06-20"]),
+            }
+        )
+        df["forced_choice"] = _detect_forced_choice(df)
+        result = infer_round_number(df)
+        assert result.loc[0, "forced_choice"]
+        assert result.loc[0, "round_number"] == 1
+
 
 class TestYanHaasAnomaly:
     """Tests for the fix_yanhaas_20220611 function."""
@@ -1270,15 +1286,26 @@ class TestConsultationPriorStrength:
         b = compute_consultation_prior_strength()
         assert a == b
 
-    def test_missing_key_raises_valueerror(
+    def test_missing_key_assigns_fallback(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
     ) -> None:
-        """Verify a missing CSV name for a mapped key raises ValueError."""
+        """Verify a missing CSV name for a mapped key warns and assigns fallback."""
         csv_missing_fajardo = self.CSV_HEADER + "Gustavo Petro,77.0\n" + "Federico Gutierrez,81.0\n"
         self._setup(monkeypatch, tmp_path, csv_missing_fajardo)
-        with pytest.raises(ValueError, match="No consultation data found"):
+        with pytest.warns(UserWarning, match="No consultation data found for candidate"):
+            result = compute_consultation_prior_strength()
+        assert "sergio_fajardo" in result
+
+    def test_all_missing_raises_valueerror(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Verify empty CSV with no candidate data raises ValueError."""
+        self._setup(monkeypatch, tmp_path, self.CSV_EMPTY)
+        with pytest.raises(ValueError, match="No consultation data found for any candidate"):
             compute_consultation_prior_strength()
 
 
@@ -1358,6 +1385,26 @@ class TestConsultationPriorMeans:
                 {"rodolfo_hernandez": 0.50},
                 consultas_path=str(csv_path),
             )
+
+    def test_pre_registration_warning_on_missing_csv_entries(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verify logger.warning when CSV is missing expected candidates."""
+        csv_path = tmp_path / "consultas.csv"
+        csv_path.write_text(
+            "candidato,int_voto\nGustavo Petro,77.0\n",
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING, logger="co_president.data_polls"):
+            validate_consultation_prior_means(
+                {"gustavo_petro": 0.77},
+                consultas_path=str(csv_path),
+            )
+        assert any("missing entries for expected candidates" in msg for msg in caplog.messages)
+        assert "federico_gutierrez" in " ".join(caplog.messages)
+        assert "sergio_fajardo" in " ".join(caplog.messages)
 
 
 # ═══════════════════════════════════════════════════════════════════

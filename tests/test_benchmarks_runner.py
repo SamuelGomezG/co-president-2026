@@ -14,7 +14,9 @@ import pandas as pd
 import pytest
 
 from co_president.benchmarks.runner import (
-    IDEOLOGY_CLASSES_5,
+    _compute_5class_targets,
+    _impute_and_normalize,
+    _intersect_columns,
     _r2_rmse_per_class,
     _train_test_split,
     report_benchmark_baseline,
@@ -133,17 +135,24 @@ class TestFullScale:
         assert r1 == r2
 
 
+class TestCompute5ClassTargets:
+    """Tests for 5-class ideology target computation."""
+
+    def test_no_vote_share_cols_raises(self) -> None:
+        """DataFrame without vote_share_* columns raises ValueError."""
+        df = pd.DataFrame({"x1": [1.0, 2.0, 3.0], "x2": [4.0, 5.0, 6.0]})
+        with pytest.raises(ValueError, match=r"No vote_share_\* columns found"):
+            _compute_5class_targets(df)
+
+
 class TestReportBenchmarkBaseline:
     """Tests for the SPEC-26 baseline reporter."""
 
-    def test_missing_y_cols_autocomputes_targets(self) -> None:
-        """DataFrame without y_* columns auto-computes targets and runs."""
+    def test_no_vote_share_cols_raises(self) -> None:
+        """DataFrame without vote_share_* columns raises ValueError."""
         df = pd.DataFrame({"x1": [1.0, 2.0, 3.0]})
-        result = report_benchmark_baseline(df)
-        assert result["n_rows"] > 0
-        assert "per_class_best_r2" in result
-        for cls in IDEOLOGY_CLASSES_5:
-            assert cls in result["per_class_best_r2"]
+        with pytest.raises(ValueError, match=r"No vote_share_\* columns found"):
+            report_benchmark_baseline(df)
 
     def test_with_y_cols_runs_all_combos(self) -> None:
         """DataFrame with all 5 y_* columns runs all combos."""
@@ -168,3 +177,117 @@ class TestReportBenchmarkBaseline:
         assert result["n_rows"] > 0
         assert result["n_models"] == 5
         assert result["n_transforms"] == 3
+
+
+class TestImputeAndNormalize:
+    """Tests for the NaN imputation + indicator-column logic."""
+
+    def test_all_nan_column_adds_indicator(self) -> None:
+        """All-NaN column produces extra indicator column set to 1."""
+        x = np.array([[1.0, np.nan], [2.0, np.nan], [3.0, np.nan]], dtype=np.float64)
+        y = np.array([[0.6, 0.4], [0.7, 0.3], [0.5, 0.5]], dtype=np.float64)
+        x_out, _ = _impute_and_normalize(x, y, n_classes=2)
+        assert x_out.shape[1] == x.shape[1] + 1
+        assert np.allclose(x_out[:, -1], 1.0)
+
+    def test_no_nan_no_indicator(self) -> None:
+        """No NaN columns leave shape unchanged."""
+        x = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+        y = np.array([[0.6, 0.4], [0.7, 0.3]], dtype=np.float64)
+        x_out, _ = _impute_and_normalize(x, y, n_classes=2)
+        assert x_out.shape[1] == x.shape[1]
+
+    def test_partial_nan_no_indicator(self) -> None:
+        """Partially NaN columns (not all-NaN) do not get indicator."""
+        x = np.array([[1.0, np.nan], [2.0, 3.0]], dtype=np.float64)
+        y = np.array([[0.6, 0.4], [0.7, 0.3]], dtype=np.float64)
+        x_out, _ = _impute_and_normalize(x, y, n_classes=2)
+        assert x_out.shape[1] == x.shape[1]
+
+    def test_multiple_all_nan_columns(self) -> None:
+        """Multiple all-NaN columns produce multiple indicators."""
+        x = np.array(
+            [[np.nan, 1.0, np.nan], [np.nan, 2.0, np.nan], [np.nan, 3.0, np.nan]],
+            dtype=np.float64,
+        )
+        y = np.array([[0.6, 0.4], [0.7, 0.3], [0.5, 0.5]], dtype=np.float64)
+        x_out, _ = _impute_and_normalize(x, y, n_classes=2)
+        assert x_out.shape[1] == x.shape[1] + 2
+        assert np.allclose(x_out[:, -1], 1.0)
+        assert np.allclose(x_out[:, -2], 1.0)
+
+
+class TestIntersectColumns:
+    """Tests for name-based column intersection (Issue #21)."""
+
+    def test_equal_columns_unchanged(self) -> None:
+        """Arrays with same column names are unchanged."""
+        cols_a = ["f1", "f2"]
+        cols_b = ["f1", "f2"]
+        a = np.array([[1.0, 2.0], [3.0, 4.0]])
+        b = np.array([[5.0, 6.0], [7.0, 8.0]])
+        result = _intersect_columns([(a, cols_a), (b, cols_b)])
+        assert len(result) == 2
+        assert result[0].shape == a.shape
+        assert result[1].shape == b.shape
+
+    def test_unequal_columns_trim_by_name(self) -> None:
+        """Arrays with different columns trim to name intersection."""
+        cols_a = ["f1", "f2", "f3"]
+        cols_b = ["f1", "f2"]
+        a = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        b = np.array([[7.0, 8.0], [9.0, 10.0]])
+        result = _intersect_columns([(a, cols_a), (b, cols_b)])
+        assert result[0].shape == (2, 2)
+        assert result[1].shape == (2, 2)
+        assert np.array_equal(result[0], a[:, :2])
+
+    def test_preserves_base_data(self) -> None:
+        """Common columns retain original values."""
+        cols_a = ["f1", "f2", "f3"]
+        cols_b = ["f1", "f2"]
+        a = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        b = np.array([[7.0, 8.0], [9.0, 10.0]])
+        result = _intersect_columns([(a, cols_a), (b, cols_b)])
+        assert np.array_equal(result[1], b)
+        assert np.array_equal(result[0], a[:, :2])
+
+    def test_different_names_excludes_mismatched_cols(self) -> None:
+        """Columns not present in all arrays are excluded by name."""
+        cols_a = ["f1", "f2", "x3"]
+        cols_b = ["f1", "f2", "y3"]
+        a = np.array([[1.0, 2.0, 9.0], [3.0, 4.0, 9.0]])
+        b = np.array([[5.0, 6.0, 8.0], [7.0, 8.0, 8.0]])
+        result = _intersect_columns([(a, cols_a), (b, cols_b)])
+        assert result[0].shape == (2, 2)
+        assert result[1].shape == (2, 2)
+        assert np.array_equal(result[0], a[:, :2])
+
+    def test_synthetic_indicator_names_excluded(self) -> None:
+        """__imputed_* names differ per array so they are excluded from intersection."""
+        cols_a = ["f1", "f2", "__imputed_0__"]
+        cols_b = ["f1", "f2", "__imputed_0__"]
+        a = np.array([[1.0, 2.0, 9.0], [3.0, 4.0, 9.0]])
+        b = np.array([[5.0, 6.0, 8.0], [7.0, 8.0, 8.0]])
+        result = _intersect_columns([(a, cols_a), (b, cols_b)])
+        # Both have __imputed_0__, so it IS in the intersection
+        assert result[0].shape == (2, 3)
+        assert result[1].shape == (2, 3)
+
+    def test_multiple_arrays_intersection_by_name(self) -> None:
+        """Three or more arrays all trim to name-based intersection."""
+        cols_a = ["f1", "f2", "f3", "f4", "f5"]
+        cols_b = ["f1", "f2", "f3"]
+        cols_c = ["f1", "f2", "f4"]
+        a = np.ones((2, 5))
+        b = np.ones((2, 3))
+        c = np.ones((2, 3))
+        result = _intersect_columns([(a, cols_a), (b, cols_b), (c, cols_c)])
+        assert all(arr.shape[1] == 2 for arr in result)
+
+    def test_single_array_passthrough(self) -> None:
+        """Single array is returned unchanged."""
+        a = np.array([[1.0, 2.0, 3.0]])
+        result = _intersect_columns([(a, ["f1", "f2", "f3"])])
+        assert len(result) == 1
+        assert result[0].shape == a.shape

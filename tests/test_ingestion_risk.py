@@ -12,9 +12,9 @@ from co_president.ingestion.ingest_risk import (
     _pdet_hardcoded_fallback,
     build_risk_matrix,
     calculate_risk_features,
-    fetch_moe_risk_maps,
     fetch_pdet_list,
     fetch_unodc_coca,
+    load_historical_moe_risk,
     parse_indepaz_pdf,
 )
 
@@ -67,12 +67,15 @@ _KNOWN_DANE_DEPT_CODES: frozenset[str] = frozenset(
 __all__: list[str] = []
 
 
-def _make_moe_input() -> pd.DataFrame:
-    """Synthetic MOE risk classification DataFrame."""
+def _make_moe_input_wide() -> pd.DataFrame:
+    """Synthetic wide-format MOE risk classification DataFrame (2 test years)."""
     return pd.DataFrame(
         {
             "codigo_municipio": ["11001", "05001", "76001", "08001", "68001"],
-            "risk_level": ["low", "medium", "low", "extreme", "high"],
+            "moe_risk_2022": ["low", "medium", "low", "extreme", "high"],
+            "moe_high_risk_2022": [0, 0, 0, 1, 1],
+            "moe_risk_2023": ["low", "medium", "low", "extreme", "low"],
+            "moe_high_risk_2023": [0, 0, 0, 1, 0],
         }
     )
 
@@ -112,16 +115,16 @@ def _make_coca_input() -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════
 
 
-class TestFetchMoeRiskMaps:
-    """Structural contract for ``fetch_moe_risk_maps``."""
+class TestLoadHistoricalMoeRisk:
+    """Structural contract for ``load_historical_moe_risk``."""
 
     def test_is_callable(self) -> None:
         """Function is importable and callable."""
-        assert callable(fetch_moe_risk_maps)
+        assert callable(load_historical_moe_risk)
 
     def test_return_annotation_is_dataframe(self) -> None:
         """Return type annotation is ``pd.DataFrame``."""
-        hints = typing.get_type_hints(fetch_moe_risk_maps)
+        hints = typing.get_type_hints(load_historical_moe_risk)
         assert hints["return"] is pd.DataFrame
 
 
@@ -182,7 +185,7 @@ class TestCalculateRiskFeatures:
     def test_returns_dataframe(self) -> None:
         """Returns a DataFrame."""
         result = calculate_risk_features(
-            _make_moe_input(),
+            _make_moe_input_wide(),
             _make_indepaz_input(),
             _make_pdet_input(),
             _make_coca_input(),
@@ -192,13 +195,17 @@ class TestCalculateRiskFeatures:
     def test_has_expected_columns(self) -> None:
         """Output contains all expected risk columns."""
         result = calculate_risk_features(
-            _make_moe_input(),
+            _make_moe_input_wide(),
             _make_indepaz_input(),
             _make_pdet_input(),
             _make_coca_input(),
         )
         expected = {
             "codigo_municipio",
+            "moe_risk_2022",
+            "moe_high_risk_2022",
+            "moe_risk_2023",
+            "moe_high_risk_2023",
             "risk_level",
             "high_risk_flag",
             "armed_group_presence",
@@ -210,42 +217,64 @@ class TestCalculateRiskFeatures:
     def test_binary_flags_are_zero_or_one(self) -> None:
         """Binary flags are 0 or 1."""
         result = calculate_risk_features(
-            _make_moe_input(),
+            _make_moe_input_wide(),
             _make_indepaz_input(),
             _make_pdet_input(),
             _make_coca_input(),
         )
-        for col in ("high_risk_flag", "armed_group_presence", "is_pdet"):
+        for col in (
+            "moe_high_risk_2022",
+            "moe_high_risk_2023",
+            "high_risk_flag",
+            "armed_group_presence",
+            "is_pdet",
+        ):
             assert result[col].isin([0, 1]).all(), f"{col} is not binary"
-
-    def test_high_risk_flag_matches_extreme_or_high(self) -> None:
-        """``high_risk_flag`` is 1 for extreme/high, 0 otherwise."""
-        result = calculate_risk_features(
-            _make_moe_input(),
-            _make_indepaz_input(),
-            _make_pdet_input(),
-            _make_coca_input(),
-        )
-        for _, row in result.iterrows():
-            expected = 1 if row["risk_level"] in ("extreme", "high") else 0
-            assert row["high_risk_flag"] == expected
 
     def test_coca_non_negative(self) -> None:
         """Coca hectares are non-negative."""
         result = calculate_risk_features(
-            _make_moe_input(),
+            _make_moe_input_wide(),
             _make_indepaz_input(),
             _make_pdet_input(),
             _make_coca_input(),
         )
         assert (result["coca_hectares"] >= 0).all()
 
+    def test_high_risk_flag_matches_latest_year(self) -> None:
+        """``high_risk_flag`` matches the most recent MOE year (2023)."""
+        result = calculate_risk_features(
+            _make_moe_input_wide(),
+            _make_indepaz_input(),
+            _make_pdet_input(),
+            _make_coca_input(),
+        )
+        for _, row in result.iterrows():
+            expected = 1 if row["moe_risk_2023"] in ("extreme", "high") else 0
+            assert row["high_risk_flag"] == expected, (
+                f"{row['codigo_municipio']}: risk_2023={row['moe_risk_2023']}, "
+                f"expected high_risk={expected}, got {row['high_risk_flag']}"
+            )
+
+    def test_risk_level_matches_latest_year(self) -> None:
+        """``risk_level`` matches the most recent MOE year (2023)."""
+        result = calculate_risk_features(
+            _make_moe_input_wide(),
+            _make_indepaz_input(),
+            _make_pdet_input(),
+            _make_coca_input(),
+        )
+        assert (result["risk_level"] == result["moe_risk_2023"]).all()
+
     def test_missing_indicators_zero_filled(self) -> None:
         """Municipalities not in a non-MOE source get zero-filled."""
         moe_only = pd.DataFrame(
             {
                 "codigo_municipio": ["99999"],
-                "risk_level": ["low"],
+                "moe_risk_2022": ["low"],
+                "moe_high_risk_2022": [0],
+                "moe_risk_2023": ["low"],
+                "moe_high_risk_2023": [0],
             }
         )
         result = calculate_risk_features(
@@ -257,18 +286,8 @@ class TestCalculateRiskFeatures:
         assert result["armed_group_presence"].iloc[0] == 0
         assert result["is_pdet"].iloc[0] == 0
         assert result["coca_hectares"].iloc[0] == 0
+        assert result["risk_level"].iloc[0] == "low"
         assert result["high_risk_flag"].iloc[0] == 0
-
-    def test_risk_level_valid_values(self) -> None:
-        """Risk levels are valid: extreme, high, medium, low."""
-        result = calculate_risk_features(
-            _make_moe_input(),
-            _make_indepaz_input(),
-            _make_pdet_input(),
-            _make_coca_input(),
-        )
-        valid = {"extreme", "high", "medium", "low"}
-        assert result["risk_level"].isin(valid).all()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -308,13 +327,13 @@ class TestBuildRiskMatrix:
 
     def test_creates_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Produces ``risk_factors.csv`` in the given data directory."""
-        moe = _make_moe_input()
+        moe = _make_moe_input_wide()
         indepaz = _make_indepaz_input()
         pdet = _make_pdet_input()
         coca = _make_coca_input()
 
         monkeypatch.setattr(
-            "co_president.ingestion.ingest_risk.fetch_moe_risk_maps",
+            "co_president.ingestion.ingest_risk.load_historical_moe_risk",
             lambda: moe,
         )
         monkeypatch.setattr(
@@ -336,13 +355,13 @@ class TestBuildRiskMatrix:
 
     def test_saved_file_columns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The saved CSV contains the expected columns."""
-        moe = _make_moe_input()
+        moe = _make_moe_input_wide()
         indepaz = _make_indepaz_input()
         pdet = _make_pdet_input()
         coca = _make_coca_input()
 
         monkeypatch.setattr(
-            "co_president.ingestion.ingest_risk.fetch_moe_risk_maps",
+            "co_president.ingestion.ingest_risk.load_historical_moe_risk",
             lambda: moe,
         )
         monkeypatch.setattr(
@@ -365,6 +384,10 @@ class TestBuildRiskMatrix:
         )
         expected = {
             "codigo_municipio",
+            "moe_risk_2022",
+            "moe_high_risk_2022",
+            "moe_risk_2023",
+            "moe_high_risk_2023",
             "risk_level",
             "high_risk_flag",
             "armed_group_presence",

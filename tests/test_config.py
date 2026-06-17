@@ -14,6 +14,9 @@ from co_president.config import (
     CONSULTATION_VOTES,
     FIRST_ROUND_CANDIDATES,
     FIRST_ROUND_CANDIDATES_2026,
+    HISTORICAL_CANDIDATE_IDEOLOGY,
+    HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS,
+    HISTORICAL_ROUND2_IDEOLOGY,
     POLLSTER_RATINGS,
     TRANSFER_BLANCO_SPLIT,
     TRANSFER_FAJARDO_HERNANDEZ,
@@ -535,3 +538,72 @@ class TestConsultationKeyMap:
         """Verify every mapped value exists in FIRST_ROUND_CANDIDATES."""
         for key in CONSULTATION_KEY_MAP.values():
             assert key in FIRST_ROUND_CANDIDATES, f"{key} not in FIRST_ROUND_CANDIDATES"
+
+
+class TestHistoricalCandidateIdeology5Class:
+    """Validation tests for the 5-class ideology master map."""
+
+    _VALID_CLASSES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "Izquierda",
+            "Centro_Izquierda",
+            "Centro",
+            "Centro_Derecha",
+            "Derecha",
+        }
+    )
+
+    def test_all_entries_have_valid_class(self) -> None:
+        """Every candidate in the 5-class map has a valid ideology class."""
+        for (year, round_num), round_map in HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS.items():
+            for candidate, cls in round_map.items():
+                assert cls in self._VALID_CLASSES, (
+                    f"{candidate} in ({year}, {round_num}) has invalid class {cls!r}"
+                )
+
+    def test_all_years_covered(self) -> None:
+        """All presidential election years 2002-2022 are covered."""
+        years = sorted({k[0] for k in HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS})
+        assert years == [2002, 2006, 2010, 2014, 2018, 2022]
+
+
+class TestHistoricalCandidateIdeology:
+    """Auto-derivation validation for 2-class ideology from 5-class master map."""
+
+    _EXPECTED: ClassVar[dict[int, dict[str, str]]] = {
+        2002: {"left": "luis_eduardo_garzon", "right": "alvaro_uribe"},
+        2006: {"left": "carlos_gaviria", "right": "alvaro_uribe"},
+        2010: {"left": "gustavo_petro", "right": "juan_manuel_santos"},
+        2014: {"left": "clara_lopez", "right": "juan_manuel_santos"},
+        2018: {"left": "gustavo_petro", "right": "ivan_duque"},
+        2022: {"left": "gustavo_petro", "right": "rodolfo_hernandez"},
+    }
+
+    def test_derived_values_match_expected(self) -> None:
+        """Auto-derived map matches Option A expected values."""
+        assert HISTORICAL_CANDIDATE_IDEOLOGY == self._EXPECTED
+
+    def test_all_years_covered(self) -> None:
+        """All 6 presidential election years 2002-2022 have an entry."""
+        assert sorted(HISTORICAL_CANDIDATE_IDEOLOGY) == [2002, 2006, 2010, 2014, 2018, 2022]
+
+    def test_left_and_right_differ(self) -> None:
+        """Left and right candidates are distinct for every year."""
+        for year, ideology in HISTORICAL_CANDIDATE_IDEOLOGY.items():
+            assert ideology["left"] != ideology["right"], f"{year} left equals right"
+
+    def test_canonical_names_only(self) -> None:
+        """All left/right values are canonical (lowercase_snake_case)."""
+        for year, ideology in HISTORICAL_CANDIDATE_IDEOLOGY.items():
+            for side, cand in ideology.items():
+                assert "_" in cand, f"{year} {side}={cand!r} has no underscore"
+                assert cand.islower(), f"{year} {side}={cand!r} is not lowercase"
+
+    def test_round2_ideology_consistent(self) -> None:
+        """Round-2 overrides reference valid candidates from the 5-class R2 map."""
+        for year, ideology in HISTORICAL_ROUND2_IDEOLOGY.items():
+            round_map = HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS.get((year, 2), {})
+            for side, candidate in ideology.items():
+                assert candidate in round_map, (
+                    f"{year} R2 {side}={candidate!r} not in 5-class R2 map"
+                )

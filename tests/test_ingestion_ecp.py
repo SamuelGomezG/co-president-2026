@@ -9,6 +9,8 @@ import pytest
 
 from co_president.ingestion.ingest_ecp import (
     _min_max_normalise,
+    _read_csv_from_zip,
+    _warn_ecp_metadata_codes,
     _weighted_groupby,
     build_ecp_features,
     load_ecp_data,
@@ -149,3 +151,71 @@ class TestModuleFunctions:
         """``build_ecp_features`` should raise when no data is available."""
         with pytest.raises(FileNotFoundError):
             build_ecp_features(data_dir=Path("/nonexistent/path"))
+
+
+class TestReadCsvFromZip:
+    """Tests for ``_read_csv_from_zip`` error handling."""
+
+    def test_corrupt_zip_logs_warning_and_returns_none(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """Corrupt zip file should log a warning and return ``None``."""
+        corrupt_zip = tmp_path / "corrupt.zip"
+        corrupt_zip.write_bytes(b"not a zip file content")
+
+        failed_zips: list[str] = []
+        result = _read_csv_from_zip(corrupt_zip, year=2023, failed_zips=failed_zips)
+
+        assert result is None
+        assert corrupt_zip.name in failed_zips
+        assert any("failed to read" in record.message.lower() for record in caplog.records)
+
+
+class TestWarnEcpMetadataCodes:
+    """Tests for ``_warn_ecp_metadata_codes``."""
+
+    def test_valid_data_no_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """All values ≤6 should produce no warnings."""
+        df = pd.DataFrame(
+            {
+                "Q1": ["1", "2", "3"],
+                "Q2": ["4", "5", "6"],
+            }
+        )
+        _warn_ecp_metadata_codes(df, "test_construct", 2023)
+        assert len(caplog.records) == 0
+
+    def test_non_numeric_value_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Non-numeric string in question column logs a warning."""
+        df = pd.DataFrame(
+            {
+                "Q1": ["1", "2", "3"],
+                "Q2": ["1", "not_a_number", "3"],
+            }
+        )
+        _warn_ecp_metadata_codes(df, "test_construct", 2023)
+        assert any("Q2" in r.message for r in caplog.records)
+        assert any("non-numeric" in r.message for r in caplog.records)
+
+    def test_value_above_six_logs_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Value >6 (Likert metadata code) logs a warning."""
+        df = pd.DataFrame(
+            {
+                "Q1": ["1", "2", "3"],
+                "Q2": ["1", "9", "3"],
+            }
+        )
+        _warn_ecp_metadata_codes(df, "test_construct", 2023)
+        assert any("Q2" in r.message for r in caplog.records)
+        assert any("metadata" in r.message for r in caplog.records)

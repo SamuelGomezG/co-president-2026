@@ -21,6 +21,7 @@ from co_president.aggregation import (
 from co_president.config import (
     ELECTION_DATE_ROUND1,
     POLLSTER_RATINGS,
+    pollster_weight_formula,
 )
 
 
@@ -177,6 +178,15 @@ class TestPollsterWeightMap:
         assert result.iloc[0] == pytest.approx(1.0)
         assert result.iloc[1] == pytest.approx(0.82)
         assert 0.8 <= result.iloc[2] <= 1.0
+
+    def test_weights_derived_from_config_formula(self) -> None:
+        """All pollster weights match calling ``pollster_weight_formula`` directly."""
+        custom_ratings = {"A": 0.0, "B": 5.0, "C": 10.0, "D": 3.5}
+        pollsters = pd.Series(list(custom_ratings))
+        result = pollster_weight_map(pollsters, custom_ratings)
+        for idx, (_, rating) in enumerate(custom_ratings.items()):
+            expected = pollster_weight_formula(rating)
+            assert result.iloc[idx] == pytest.approx(expected)
 
     def test_empty_ratings_raises(self) -> None:
         """Empty ratings dict raises ValueError."""

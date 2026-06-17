@@ -9,9 +9,11 @@ import shutil
 import pandas as pd
 import pytest
 
+from co_president.config import EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES
 from co_president.fundamentals.features import (
     HistoricalRecord,
     MunicipalFeatures,
+    _coerce_bool_columns,
     clr,
     load_features,
     logit,
@@ -23,7 +25,7 @@ _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "fundamentals"
 _MATRIX_FIXTURE = _FIXTURE_DIR / "municipal_feature_matrix.csv"
 _HISTORICAL_FIXTURE = _FIXTURE_DIR / "historical_results.csv"
 
-_EXPECTED_MUNICIPALITIES = 1_142
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -552,6 +554,33 @@ class TestLoadFeatures:
         # Fixture has all non-null regions; just check the column exists
         assert "region" in result.columns
 
+    def test_coerce_bool_unknown_value_raises(self) -> None:
+        """_coerce_bool_columns raises ValueError for unrecognized booleans."""
+        df = pd.DataFrame({"ipm_2018_imputed": ["true", "bogus", "false"]})
+        with pytest.raises(ValueError, match="bogus"):
+            _coerce_bool_columns(df)
+
+    def test_coerce_bool_expanded_map(self) -> None:
+        """_coerce_bool_columns accepts all expanded _BOOL_MAP values."""
+        df = pd.DataFrame(
+            {
+                "ipm_2018_imputed": ["yes", "no", "si", "y", "n", "t", "f"],
+            }
+        )
+        _coerce_bool_columns(df)
+        assert list(df["ipm_2018_imputed"]) == [True, False, True, True, False, True, False]
+
+    def test_coerce_bool_numeric_flag(self) -> None:
+        """_coerce_bool_columns handles 0/1 string flags."""
+        df = pd.DataFrame({"is_pdet": ["1", "0", "1", "0"]})
+        _coerce_bool_columns(df)
+        assert list(df["is_pdet"]) == [True, False, True, False]
+
+    def test_coerce_bool_already_bool(self) -> None:
+        """_coerce_bool_columns skips already-bool columns."""
+        df = pd.DataFrame({"ipm_2018_imputed": [True, False, True]})
+        _coerce_bool_columns(df)  # Should not raise
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Real-data smoke tests
@@ -578,8 +607,8 @@ def _real_matrix_has_fiscal(data_dir: Path) -> bool:
 class TestLoadFeaturesRealData:
     """Smoke tests against the real data/processed/ matrix."""
 
-    def test_real_data_returns_1142_rows(self, data_dir: Path) -> None:
-        """load_features() returns exactly 1,142 rows on real data."""
+    def test_real_data_returns_correct_rows(self, data_dir: Path) -> None:
+        """load_features() returns EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES rows on real data."""
         matrix_path = data_dir / "processed" / "municipal_feature_matrix.csv"
         historical_path = data_dir / "fundamentals" / "historical_results.csv"
         if not matrix_path.is_file() or not historical_path.is_file():
@@ -590,7 +619,7 @@ class TestLoadFeaturesRealData:
         if not _real_matrix_has_fiscal(data_dir):
             pytest.skip("Real matrix missing fiscal cols — run build_fiscal_features")
         result = load_features(data_dir=data_dir)
-        assert len(result) == _EXPECTED_MUNICIPALITIES
+        assert len(result) == EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES
 
     def test_real_data_historical_turnout_no_nulls(self, data_dir: Path) -> None:
         """historical_turnout_m is non-NaN for all municipalities."""

@@ -1,10 +1,11 @@
 """Tests for the first-round and runoff Bayesian models (SPEC-06, SPEC-07)."""
 
-import arviz as az  # type: ignore[reportMissingTypeStubs]
+import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
 import pytest
+import xarray as xr  # type: ignore[reportMissingTypeStubs]
 
 from co_president.config import ELECTION_DATES, FIRST_ROUND_CANDIDATES, ModelConfig
 from co_president.data import (
@@ -547,7 +548,7 @@ def test_sample_round1_sanity() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_synthetic_round1_idata() -> az.InferenceData:  # type: ignore[type-arg]
+def _make_synthetic_round1_idata() -> xr.DataTree:  # type: ignore[type-arg]
     """Create synthetic DataTree mimicking a Round 1 posterior.
 
     Uses the full 7-candidate order: ``sorted(FIRST_ROUND_CANDIDATES.keys())``.
@@ -697,7 +698,7 @@ def test_simulate_elections_rank_consistency() -> None:
             )
 
 
-def _make_synthetic_outright_win_idata() -> az.InferenceData:
+def _make_synthetic_outright_win_idata() -> xr.DataTree:
     """Create synthetic InferenceData mimicking a Round 1 posterior with an outright winner.
 
     Gustavo Petro is given overwhelming concentration to ensure his share > 50%
@@ -759,7 +760,7 @@ def test_simulate_elections_outright_win() -> None:
         )
 
 
-def _make_synthetic_runoff_idata() -> az.InferenceData:
+def _make_synthetic_runoff_idata() -> xr.DataTree:
     """Create synthetic InferenceData where no candidate exceeds 50% (runoff scenario)."""
     rng = np.random.default_rng(42)
     n_chains, n_draws = 2, 500
@@ -1385,7 +1386,7 @@ def test_transfer_heuristic_vote_share_bounds() -> None:
     p_time = raw / raw.sum(axis=-1, keepdims=True)
     election_day = p_time[:, :, 0, :]
 
-    shares_first, shares_second = runoff_matrix._compute_transfer_shares(  # noqa: SLF001
+    shares_first, shares_second = runoff_matrix._compute_transfer_shares(
         election_day,
         candidate_order,
         "gustavo_petro",
