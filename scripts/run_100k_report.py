@@ -25,6 +25,8 @@ from co_president.config import (
 from co_president.data import load_and_clean_all, load_canonical_results
 
 if TYPE_CHECKING:
+    import xarray as xr
+
     from co_president.data import CleanPolls, RoundResult
 
 logging.basicConfig(
@@ -92,7 +94,7 @@ def _hdi_95(samples: np.ndarray) -> tuple[float, float]:
 
 
 def _extract_election_day_shares(
-    idata: az.InferenceData,
+    idata: xr.DataTree,
     candidate_keys: list[str],
 ) -> dict[str, np.ndarray]:
     """Extract election-day (t=0) posterior shares from InferenceData.
@@ -113,7 +115,7 @@ def _extract_election_day_shares(
 
 
 def _compute_r1_accuracy(
-    idata_r1: az.InferenceData,
+    idata_r1: xr.DataTree,
     results_r1: RoundResult,
 ) -> dict:
     """Compute round 1 accuracy metrics.
@@ -180,7 +182,7 @@ def _compute_r1_accuracy(
 
 
 def _compute_r2_accuracy(
-    idata_runoff: az.InferenceData,
+    idata_runoff: xr.DataTree,
     results_r1: RoundResult,
     results_r2: RoundResult,
 ) -> dict:
@@ -278,7 +280,7 @@ def _compute_r2_accuracy(
     }
 
 
-def _check_convergence(idata: az.InferenceData, label: str) -> tuple[float, bool]:
+def _check_convergence(idata: xr.DataTree, label: str) -> tuple[float, bool]:
     """Check R-hat convergence.
 
     Args:
@@ -508,7 +510,7 @@ def _run_round2_survey(
     clean_polls: CleanPolls,
     results_r1: RoundResult,
     results_r2: RoundResult,
-    idata_r1: az.InferenceData,
+    idata_r1: xr.DataTree,
 ) -> tuple:
     """Build, sample, and compute metrics for the runoff.
 
