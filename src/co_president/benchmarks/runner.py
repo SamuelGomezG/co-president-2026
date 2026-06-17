@@ -316,6 +316,10 @@ def _intersect_columns(
         Lists where each array is sliced to only columns in the name
         intersection, keeping the first year's column ordering.
 
+    Raises:
+        KeyError: If a column name in the intersection set is not present
+            in an individual year's columns list.
+
     """
     if not arrays_and_cols:
         return [a for a, _ in arrays_and_cols]
@@ -525,6 +529,35 @@ def _impute_nan_columns(x_mat: np.ndarray, *, fill_value: float = 1e-10) -> tupl
         x_mat = np.hstack([x_mat, indicator])
 
     return x_mat, n_imputed
+
+
+def _pad_arrays_to_max_width(arrays: list[np.ndarray]) -> list[np.ndarray]:
+    """Zero-pad arrays to the maximum column count in the list.
+
+    Used before ``np.vstack`` when different years may produce different
+    numbers of feature columns (e.g. indicator columns from
+    ``_impute_nan_columns``).  Padding with zeros ensures shape
+    compatibility while preserving the existing data in each array.
+
+    Args:
+        arrays: List of 2D arrays ``(N_i, F_i)`` with potentially
+            different ``F_i``.
+
+    Returns:
+        List where every array has ``max(F_i)`` columns.
+
+    """
+    if not arrays:
+        return arrays
+    max_cols = max(a.shape[1] for a in arrays)
+    padded: list[np.ndarray] = []
+    for a in arrays:
+        if a.shape[1] < max_cols:
+            pad = np.zeros((a.shape[0], max_cols - a.shape[1]))
+            padded.append(np.hstack([a, pad]))
+        else:
+            padded.append(a)
+    return padded
 
 
 def _impute_and_normalize(
@@ -803,7 +836,18 @@ def run_holdout_benchmarks(
 
     X_train = np.vstack(_intersect_columns(list(zip(train_arrays, train_cols, strict=True))))
     y_train = np.vstack(train_targets)
-    X_test, y_test, _ = _prepare_year_data(df, test_year, n_classes, exclude_year=test_year)
+
+    # Compute column-name intersection across training years so we can
+    # slice the test array to match (avoids n_features mismatch at predict time).
+    common: set[str] = set(train_cols[0] or [])
+    for cols in train_cols[1:]:
+        common &= set(cols)
+    common_order = [c for c in (train_cols[0] or []) if c in common]
+
+    X_test, y_test, test_cols = _prepare_year_data(df, test_year, n_classes, exclude_year=test_year)
+    test_idx_map = {c: i for i, c in enumerate(test_cols or [])}
+    test_indices = [test_idx_map[c] for c in common_order if c in test_idx_map]
+    X_test = X_test[:, test_indices]
 
     logger.info(
         "Holdout train shape %s, test shape %s",
@@ -984,9 +1028,16 @@ def run_combined_benchmarks(
         train_arrays.append(X_y)
         train_targets.append(y_y)
 
-    X_train = np.vstack(train_arrays)
+    X_train = np.vstack(_pad_arrays_to_max_width(train_arrays))
     y_train = np.vstack(train_targets)
     X_test, y_test = _prepare_combined_data(df, test_year, n_classes, exclude_year=test_year)
+    # Align X_test to training column count (pad or truncate)
+    n_train_cols = X_train.shape[1]
+    if X_test.shape[1] < n_train_cols:
+        pad_test = np.zeros((X_test.shape[0], n_train_cols - X_test.shape[1]))
+        X_test = np.hstack([X_test, pad_test])
+    elif X_test.shape[1] > n_train_cols:
+        X_test = X_test[:, :n_train_cols]
 
     logger.info(
         "Combined train shape %s, test shape %s",

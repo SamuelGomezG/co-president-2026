@@ -989,10 +989,14 @@ class TestBuildHistoricalMatrixFillsRegisteredVoters:
         )
 
         build_historical_matrix(data_dir=tmp_path)
-        saved = pd.read_csv(tmp_path / "fundamentals" / "historical_results.csv")
+        saved = pd.read_csv(
+            tmp_path / "fundamentals" / "historical_results.csv", dtype={"codigo_municipio": str}
+        )
         # All 05001 2022 rows (both R1 and R2) should now have 12345
         r1_2022 = saved[(saved["codigo_municipio"] == "05001") & (saved["round"] == 1)]
         r2_2022 = saved[(saved["codigo_municipio"] == "05001") & (saved["round"] == 2)]
+        assert len(r1_2022) > 0, "No round-1 rows found for 05001"
+        assert len(r2_2022) > 0, "No round-2 rows found for 05001"
         assert (r1_2022["registered_voters"] == 12345).all()
         assert (r2_2022["registered_voters"] == 12345).all()
 

@@ -254,14 +254,18 @@ def load_fiscal_features() -> pd.DataFrame:
 
         if not df_txt.empty:
             # Fill fiscal gaps from TXT data (TXT supplements Excel)
+            # Align by codigo_municipio so fillna matches municipalities correctly
+            fiscal_idx = df_fiscal.set_index("codigo_municipio")
+            txt_idx = df_txt.set_index("codigo_municipio")
             txt_fiscal_filled: list[str] = []
-            for col in df_txt.columns:
+            for col in txt_idx.columns:
                 if col.startswith("txt_"):
                     fiscal_col = f"fiscal_{col[4:]}"
-                    if fiscal_col in df_fiscal.columns:
-                        df_fiscal[fiscal_col] = df_fiscal[fiscal_col].fillna(df_txt[col])
+                    if fiscal_col in fiscal_idx.columns:
+                        fiscal_idx[fiscal_col] = fiscal_idx[fiscal_col].fillna(txt_idx[col])
                         txt_fiscal_filled.append(col)
-            df_txt = df_txt.drop(columns=txt_fiscal_filled, errors="ignore")
+            df_fiscal = fiscal_idx.reset_index()
+            df_txt = txt_idx.drop(columns=txt_fiscal_filled, errors="ignore").reset_index()
 
             if not df_txt.empty:
                 df_cache = pd.concat(

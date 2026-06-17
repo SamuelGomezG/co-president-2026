@@ -1069,7 +1069,7 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
     round_numbers: list[int | None] = []
     has_forced_choice = "forced_choice" in result.columns
     for _, row in result.iterrows():
-        if (has_forced_choice and row.get("forced_choice", False)) or _is_round1_candidate(
+        if (has_forced_choice and row.get("forced_choice", False) is True) or _is_round1_candidate(
             row, result.columns
         ):
             round_numbers.append(1)

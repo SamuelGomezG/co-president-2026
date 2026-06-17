@@ -321,7 +321,7 @@ def _aggregate_chunk_f11(chunk: pd.DataFrame) -> pd.DataFrame:
 
     # Years of schooling (exclude 99 = No Informa).
     anosr = chunk["P_NIVEL_ANOSR"].copy().astype(float)
-    anosr_valid = anosr != _P_NIVEL_ANOSR_NO_INFORMA
+    anosr_valid = anosr.notna() & (anosr != _P_NIVEL_ANOSR_NO_INFORMA)
     anosr_sum = (
         chunk.loc[anosr_valid, ["codigo_municipio", "P_NIVEL_ANOSR"]]
         .groupby("codigo_municipio")["P_NIVEL_ANOSR"]
@@ -450,7 +450,7 @@ def _aggregate_chunk_f9(chunk: pd.DataFrame) -> pd.DataFrame:
 
     # Rooms (exclude H_NRO_DORMIT == 99 = No Informa).
     dormit = chunk["H_NRO_DORMIT"].copy().astype(float)
-    dormit_valid = dormit != _H_NRO_DORMIT_NO_INFORMA
+    dormit_valid = dormit.notna() & (dormit != _H_NRO_DORMIT_NO_INFORMA)
     rooms_sum = (
         chunk.loc[dormit_valid, ["codigo_municipio", "H_NRO_DORMIT"]]
         .groupby("codigo_municipio")["H_NRO_DORMIT"]

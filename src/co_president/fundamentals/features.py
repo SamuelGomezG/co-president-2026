@@ -612,13 +612,12 @@ def _filter_valid_historical(historical: pd.DataFrame) -> pd.DataFrame:
     departments 05 (Antioquia) and 08 (Atlántico) are not discarded.
 
     """
-    historical = historical.copy()
+    historical = historical[historical["codigo_municipio"].notna()].copy()
     historical["codigo_municipio"] = (
         historical["codigo_municipio"].astype(str).str.strip().str.zfill(_CNP_CODE_LENGTH)
     )
     return historical[
-        historical["codigo_municipio"].notna()
-        & (historical["codigo_municipio"] != "000NA")
+        (historical["codigo_municipio"] != "000NA")
         & (historical["codigo_municipio"].str.len() == _CNP_CODE_LENGTH)
     ].copy()
 
@@ -670,7 +669,8 @@ def _compute_turnout(
             localidad_mask = (
                 result["codigo_municipio"].astype(str).str.len() == _BOGOTA_LOCALIDAD_CODE_LENGTH
             )
-            result.loc[localidad_mask, "historical_turnout_m"] = float(bogota_val)
+            fill_mask = localidad_mask & result["historical_turnout_m"].isna()
+            result.loc[fill_mask, "historical_turnout_m"] = float(bogota_val)
         if result["historical_turnout_m"].isna().any():
             missing_count = int(result["historical_turnout_m"].isna().sum())
             fill_val = turnout_mean.mean()
@@ -700,6 +700,9 @@ def _compute_turnout(
             fill_val,
         )
         result["historical_turnout_m"] = result["historical_turnout_m"].fillna(fill_val)
+    if result["historical_turnout_m"].isna().all():
+        msg = "historical_turnout_m is entirely NaN after fallback fill"
+        raise ValueError(msg)
     return result
 
 
@@ -925,7 +928,7 @@ def _validate_schema(df: pd.DataFrame) -> None:
         msg = f"Population columns contain nulls: {null_pop}"
         raise ValueError(msg)
 
-    _validate_null_rate(df, scalar_fields)
+    _validate_null_rate(df, scalar_fields - _optional_ipm_fields)
 
 
 def _validate_codigo_municipio(df: pd.DataFrame) -> None:
