@@ -30,6 +30,7 @@ dependencies = [
     "scikit-learn>=1.4",
     "torch>=2.2",
     "transformers>=4.40",
+    "cryptography==48.0.1",
 ]
 
 [project.optional-dependencies]
