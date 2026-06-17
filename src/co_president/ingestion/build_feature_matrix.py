@@ -16,6 +16,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from co_president.fundamentals.features import (
+    _reconcile_overlapping_columns,  # type: ignore[reportPrivateUsage]
+)
 from co_president.ingestion.ingest_bogota import (
     disaggregate_bogota_election_results,
     disaggregate_bogota_population,
@@ -29,6 +32,7 @@ __all__ = [
     "load_all_components",
     "pivot_historical_wide",
     "save_feature_matrix",
+    "validate_component_consistency",
     "validate_component_health",
 ]
 
@@ -53,7 +57,8 @@ _OPTIONAL_COMPONENTS: frozenset[str] = frozenset({"ipm"})
 # NOTE(SPEC-17): ``cnpv_2018.csv`` shares column names with the
 # ``socioeconomic.csv`` stub (pct_afro_colombian, pct_indigenous, etc.).
 # ``build_feature_matrix`` appends ``_x``/``_y`` suffixes during merge.
-# SPEC-21 (Fundamentals API) will reconcile; this file defers that choice.
+# ``save_feature_matrix`` resolves the overlap before writing to disk
+# via ``_reconcile_overlapping_columns`` from ``features`` module.
 
 
 def load_all_components(data_dir: Path) -> dict[str, pd.DataFrame]:
@@ -315,7 +320,7 @@ def _merge_components(
     return matrix
 
 
-def _replace_bogota_with_localidades(  # noqa: C901
+def _replace_bogota_with_localidades(  # noqa: C901, PLR0912
     components: dict[str, pd.DataFrame],
     data_dir: Path,
 ) -> dict[str, pd.DataFrame]:
@@ -326,9 +331,9 @@ def _replace_bogota_with_localidades(  # noqa: C901
     - Historical: Bogotá rows replaced by per-localidad election results
     - Population: Bogotá row replaced by proportionally split rows
 
-    All other components (NBI, IPM, risk, CNPV, socioeconomic) keep
-    Bogotá's row — localidades inherit Bogotá-wide rates via subsequent
-    merge.
+    All other components (NBI, IPM, risk, CNPV, socioeconomic, and fiscal)
+    are duplicated — Bogotá's single-row values are repeated for each of
+    the 21 localidades so every row has a complete feature vector.
 
     If the Bogotá MMV/reg-participacion data files are not available
     (e.g. in test environments), the replacement is skipped entirely and
@@ -404,6 +409,33 @@ def _replace_bogota_with_localidades(  # noqa: C901
                 len(result["population"]),
             )
 
+    # ── Static components (NBI, IPM, risk, CNPV, socioeconomic, fiscal) ──
+    # These inherit Bogotá-wide rates by duplicating the 11001 row for all localidades
+    static_components = ["nbi", "ipm", "socioeconomic", "risk", "cnpv", "fiscal"]
+    localidad_codes = get_bogota_localidad_rows()["codigo_municipio"].tolist()
+
+    for name in static_components:
+        comp = result.get(name)
+        if comp is not None and not comp.empty and "codigo_municipio" in comp.columns:
+            bogo_row = comp[comp["codigo_municipio"] == _BOGOTA_CODE]
+            if not bogo_row.empty:
+                non_bogota = comp[comp["codigo_municipio"] != _BOGOTA_CODE]
+
+                # Duplicate the row for each localidad
+                duplicated_rows: list[pd.DataFrame] = []
+                for code in localidad_codes:
+                    row_copy = bogo_row.copy()
+                    row_copy["codigo_municipio"] = code
+                    duplicated_rows.append(row_copy)
+
+                if duplicated_rows:
+                    result[name] = pd.concat([non_bogota, *duplicated_rows], ignore_index=True)
+                    logger.info(
+                        "%s: duplicated Bogotá row for %d localidades",
+                        name.capitalize(),
+                        len(localidad_codes),
+                    )
+
     return result
 
 
@@ -440,6 +472,23 @@ def build_feature_matrix(data_dir: Path | None = None) -> pd.DataFrame:
         logger.warning("Component health: %s", warning)
 
     components = _replace_bogota_with_localidades(components, data_dir)
+
+    consistency_report = validate_component_consistency(components)
+    for comp_name, issues in consistency_report.items():
+        if issues["extra"]:
+            logger.warning(
+                "%s: %d municipality/municipalities not in DIVIPOLA (will be dropped): %s",
+                comp_name,
+                len(issues["extra"]),
+                sorted(issues["extra"])[:10],
+            )
+        if issues["missing"]:
+            logger.warning(
+                "%s: missing %d municipality/municipalities present in DIVIPOLA (will be NaN): %s",
+                comp_name,
+                len(issues["missing"]),
+                sorted(issues["missing"])[:10],
+            )
 
     divipola = components["divipola"]
     historical = components["historical"]
@@ -554,6 +603,8 @@ def save_feature_matrix(matrix: pd.DataFrame, data_dir: Path | None = None) -> N
         msg = "Cannot save an empty feature matrix"
         raise ValueError(msg)
 
+    matrix = _reconcile_overlapping_columns(matrix)
+
     processed_dir = data_dir / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
 
@@ -622,3 +673,63 @@ def _log_matrix_stats(matrix: pd.DataFrame) -> None:
             null_total / total_cells * 100,
             total_cells,
         )
+
+
+def _get_component_codes(components: dict[str, pd.DataFrame], name: str) -> set[str] | None:
+    """Extract municipality codes from a single component.
+
+    Args:
+        components: Dict of all loaded components keyed by name.
+        name: Component key to extract codes from.
+
+    Returns:
+        Set of municipality code strings, or ``None`` if the component
+        is missing, empty, or lacks a ``codigo_municipio`` column.
+
+    """
+    df = components.get(name)
+    if df is None or df.empty or "codigo_municipio" not in df.columns:
+        return None
+    return set(df["codigo_municipio"].dropna().astype(str).unique())
+
+
+def validate_component_consistency(
+    components: dict[str, pd.DataFrame],
+) -> dict[str, dict[str, set[str]]]:
+    """Validate that every non-empty component's municipality set aligns with DIVIPOLA.
+
+    Compares the set of ``codigo_municipio`` values in each component
+    against the DIVIPOLA master registry after Bogotá replacement.
+    Components that perfectly match DIVIPOLA are omitted from the report.
+
+    Args:
+        components: Dict of all loaded components keyed by name.
+            Must include a ``"divipola"`` entry.
+
+    Returns:
+        Dict mapping each component name with discrepancies to
+        ``{"extra": ..., "missing": ...}``:
+        - ``extra``: codes present in the component but absent from
+          DIVIPOLA (silently dropped during left-join — potential data loss).
+        - ``missing``: codes present in DIVIPOLA but absent from the
+          component (will become NaN after left-join).
+
+    """
+    divipola_codes = _get_component_codes(components, "divipola")
+    if divipola_codes is None:
+        logger.warning("DIVIPOLA component unavailable — skipping consistency check")
+        return {}
+
+    report: dict[str, dict[str, set[str]]] = {}
+    for comp_name in components:
+        if comp_name == "divipola":
+            continue
+        comp_codes = _get_component_codes(components, comp_name)
+        if comp_codes is None:
+            continue
+        extra = comp_codes - divipola_codes
+        missing = divipola_codes - comp_codes
+        if extra or missing:
+            report[comp_name] = {"extra": extra, "missing": missing}
+
+    return report

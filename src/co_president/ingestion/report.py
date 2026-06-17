@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 
+from co_president.config import EXPECTED_MUNICIPALITIES, EXPECTED_MUNICIPALITIES_POPULATION_INCL_ANM
 from co_president.paths import resolve_data_dir
 
 if TYPE_CHECKING:
@@ -28,7 +29,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1_122
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES
 _SOCIOECONOMIC_STUB_THRESHOLD = 5
 _RISK_STUB_THRESHOLD = 15
 
@@ -72,7 +73,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="DIVIPOLA",
-            rows_expected=_EXPECTED_MUNICIPALITIES,
+            rows_expected=EXPECTED_MUNICIPALITIES,
             df=divipola_df,
             row_note=f"{municipios} unique municipality codes" if municipios else "FILE MISSING",
         )
@@ -89,7 +90,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="Historical results",
-            rows_expected=_EXPECTED_MUNICIPALITIES * 6 * 2,
+            rows_expected=EXPECTED_MUNICIPALITIES * 6 * 2,
             df=historical_df,
             row_note=f"{years_count} election years"
             + ("; CONTAINS 000NA PLACEHOLDER" if has_placeholder else ""),
@@ -102,7 +103,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="Socioeconomic",
-            rows_expected=_EXPECTED_MUNICIPALITIES,
+            rows_expected=EXPECTED_MUNICIPALITIES,
             df=socioeconomic_df,
             stub_threshold=_SOCIOECONOMIC_STUB_THRESHOLD,
             row_note=_stub_note(
@@ -118,7 +119,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="Risk",
-            rows_expected=_EXPECTED_MUNICIPALITIES,
+            rows_expected=EXPECTED_MUNICIPALITIES,
             df=risk_df,
             stub_threshold=_RISK_STUB_THRESHOLD,
             row_note=_stub_note("Risk", len(risk_df), _RISK_STUB_THRESHOLD)
@@ -132,7 +133,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="NBI",
-            rows_expected=_EXPECTED_MUNICIPALITIES,
+            rows_expected=EXPECTED_MUNICIPALITIES,
             df=nbi_df,
             row_note="Primary poverty feature (0% imputation)" if not nbi_df.empty else "",
         )
@@ -143,7 +144,7 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="IPM",
-            rows_expected=_EXPECTED_MUNICIPALITIES,
+            rows_expected=EXPECTED_MUNICIPALITIES,
             df=ipm_df,
             row_note="Secondary poverty feature (opt-in; R² guard may drop 2018 column)"
             if not ipm_df.empty
@@ -156,9 +157,11 @@ def generate_coverage_report(data_dir: Path | None = None) -> pd.DataFrame:
     records.append(
         _coverage_row(
             source="Population",
-            rows_expected=1_123,
+            rows_expected=EXPECTED_MUNICIPALITIES_POPULATION_INCL_ANM,
             df=pop_df,
-            row_note="DANE PPED; 1 123 municipalities (incl. ANM)" if not pop_df.empty else "",
+            row_note="DANE PPED + DIVIPOLA fill; 1 124 municipalities (incl. ANM + 27086)"
+            if not pop_df.empty
+            else "",
         )
     )
 
@@ -327,7 +330,7 @@ def _read_safe(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         return pd.read_csv(path, dtype={"codigo_municipio": str, "year": str})
-    except Exception as exc:  # noqa: BLE001
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, OSError) as exc:
         logger.warning("Could not read %s: %s", path, exc)
         return pd.DataFrame()
 
@@ -459,7 +462,7 @@ def _read_cedae_schema(
     try:
         df = pd.read_csv(files[0], compression="gzip", encoding="latin-1", nrows=0)
         result[key] = list(df.columns)  # type: ignore[assignment]
-    except Exception as exc:  # noqa: BLE001
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, OSError) as exc:
         logger.warning("Could not read CEDAE %s file: %s", chamber, exc)
 
 
@@ -480,7 +483,7 @@ def _read_moe_schema(
     try:
         df = pd.read_csv(path, encoding="latin-1", nrows=0)
         result[key] = list(df.columns)  # type: ignore[assignment]
-    except Exception as exc:  # noqa: BLE001
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, OSError) as exc:
         logger.warning("Could not read MOE %s file: %s", chamber, exc)
 
 

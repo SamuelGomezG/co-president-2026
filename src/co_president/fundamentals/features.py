@@ -15,10 +15,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import pandas as pd
 
-from co_president.config import (
-    HISTORICAL_CANDIDATE_IDEOLOGY,
-    HISTORICAL_ROUND2_IDEOLOGY,
-)
+from co_president.config import get_ideology
 from co_president.paths import resolve_data_dir
 
 if TYPE_CHECKING:
@@ -34,39 +31,12 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1_142
 _NULL_RATE_THRESHOLD = 0.20
 _CNP_CODE_LENGTH = 5
 _BOGOTA_LOCALIDAD_CODE_LENGTH = 7
-_ROUND_TWO = 2
+_BOGOTA_CODE = "11001"
 _EPSILON = 1e-10
 
-# Bogotá D.C. localidad code to name mapping (DANE DIVIPOLA localidad codes).
-# Codes 01-20 are the official 20 localidades.  Code 99 is the catch-all for
-# polling stations without a localidad assignment (SIN COMUNA).
-_BOGOTA_LOCALIDADES: dict[str, str] = {
-    "01": "Usaquén",
-    "02": "Chapinero",
-    "03": "Santa Fe",
-    "04": "San Cristóbal",
-    "05": "Usme",
-    "06": "Tunjuelito",
-    "07": "Bosa",
-    "08": "Kennedy",
-    "09": "Fontibón",
-    "10": "Engativá",
-    "11": "Suba",
-    "12": "Barrios Unidos",
-    "13": "Teusaquillo",
-    "14": "Los Mártires",
-    "15": "Antonio Nariño",
-    "16": "Puente Aranda",
-    "17": "La Candelaria",
-    "18": "Rafael Uribe Uribe",
-    "19": "Ciudad Bolívar",
-    "20": "Sumapaz",
-    "99": "BOGOTÁ D.C. - SIN COMUNA",
-}
 # Columns that overlap between the socioeconomic stub (merged first = _x)
 # and the real component files merged second (_y).  We prefer the real
 # component data over the 3-row stub.
@@ -92,9 +62,16 @@ _BOOL_MAP: dict[str, bool] = {
     "true": True,
     "1": True,
     "1.0": True,
+    "yes": True,
+    "y": True,
+    "t": True,
+    "si": True,
     "false": False,
     "0": False,
     "0.0": False,
+    "no": False,
+    "n": False,
+    "f": False,
 }
 
 
@@ -493,23 +470,6 @@ def clr(shares: tuple[float, ...]) -> tuple[float, ...]:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _get_ideology(year: int, round_num: int) -> dict[str, str]:
-    """Return the left/right candidate mapping for a given year and round.
-
-    Args:
-        year: Election year.
-        round_num: Election round (1 or 2).
-
-    Returns:
-        Dict with ``"left"`` and ``"right"`` keys, or empty dict if
-        the year is not in the registry.
-
-    """
-    if round_num == _ROUND_TWO and year in HISTORICAL_ROUND2_IDEOLOGY:
-        return HISTORICAL_ROUND2_IDEOLOGY[year]
-    return HISTORICAL_CANDIDATE_IDEOLOGY.get(year, {})
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Matrix loading
 # ═══════════════════════════════════════════════════════════════════════
@@ -648,12 +608,16 @@ def _filter_valid_historical(historical: pd.DataFrame) -> pd.DataFrame:
     """Filter historical results to valid municipality codes.
 
     Excludes sentinel / placeholder codes (``000NA``) and invalid-length
-    codes.
+    codes.  Zero-pads codes to 5 digits so that 4-digit forms from
+    departments 05 (Antioquia) and 08 (Atlántico) are not discarded.
 
     """
+    historical = historical[historical["codigo_municipio"].notna()].copy()
+    historical["codigo_municipio"] = (
+        historical["codigo_municipio"].astype(str).str.strip().str.zfill(_CNP_CODE_LENGTH)
+    )
     return historical[
-        historical["codigo_municipio"].notna()
-        & (historical["codigo_municipio"] != "000NA")
+        (historical["codigo_municipio"] != "000NA")
         & (historical["codigo_municipio"].str.len() == _CNP_CODE_LENGTH)
     ].copy()
 
@@ -666,6 +630,9 @@ def _compute_turnout(
     Attempts to compute turnout from historical results (``registered_voters``).
     If ``registered_voters`` is unavailable (all NaN), falls back to MOE Cámara
     2022 turnout data from ``fundamentals/historical_turnout_moe.csv``.
+    Municipalities still missing after MOE are filled with the mean of
+    available MOE values.  If no data is available at all, the column is left
+    as NaN for downstream imputation.
 
     Args:
         df: Feature matrix DataFrame (must have ``codigo_municipio``).
@@ -691,11 +658,29 @@ def _compute_turnout(
         # double-weighting election years with runoffs (e.g., 2022).
         turnout_per_yr = valid.groupby(["codigo_municipio", "year"])["turnout"].mean().reset_index()
         turnout_mean = turnout_per_yr.groupby("codigo_municipio")["turnout"].mean()
-        return df.merge(
+        result = df.merge(
             turnout_mean.rename("historical_turnout_m").reset_index(),
             on="codigo_municipio",
             how="left",
         )
+        # Fill Bogotá localidad NaN (7-digit codes) with Bogotá-wide turnout.
+        bogota_val = turnout_mean.get(_BOGOTA_CODE)
+        if bogota_val is not None and pd.notna(bogota_val):
+            localidad_mask = (
+                result["codigo_municipio"].astype(str).str.len() == _BOGOTA_LOCALIDAD_CODE_LENGTH
+            )
+            fill_mask = localidad_mask & result["historical_turnout_m"].isna()
+            result.loc[fill_mask, "historical_turnout_m"] = float(bogota_val)
+        if result["historical_turnout_m"].isna().any():
+            missing_count = int(result["historical_turnout_m"].isna().sum())
+            fill_val = turnout_mean.mean()
+            logger.warning(
+                "%d municipalities without historical data -- filling turnout with %.2f",
+                missing_count,
+                fill_val,
+            )
+            result["historical_turnout_m"] = result["historical_turnout_m"].fillna(fill_val)
+        return result
 
     logger.warning("registered_voters is all NaN -- falling back to MOE 2022 turnout data")
     _moe_turnout = _load_fallback_turnout(df, data_dir=data_dir)
@@ -707,24 +692,52 @@ def _compute_turnout(
     )
     if result["historical_turnout_m"].isna().any():
         missing_count = int(result["historical_turnout_m"].isna().sum())
+        known_mean = result["historical_turnout_m"].mean()
+        if pd.isna(known_mean):
+            msg = "historical_turnout_m is entirely NaN after fallback fill"
+            raise ValueError(msg)
         logger.warning(
-            "%d municipalities missing from fallback turnout -- filling with 0.6",
+            "%d municipalities missing from fallback turnout -- filling with %.2f",
             missing_count,
+            known_mean,
         )
-        result["historical_turnout_m"] = result["historical_turnout_m"].fillna(0.6)
+        result["historical_turnout_m"] = result["historical_turnout_m"].fillna(known_mean)
+    if result["historical_turnout_m"].isna().all():
+        msg = "historical_turnout_m is entirely NaN after fallback fill"
+        raise ValueError(msg)
     return result
 
 
 def _load_fallback_turnout(df: pd.DataFrame, data_dir: Path | None = None) -> pd.DataFrame:
-    """Load MOE-based fallback turnout and align to feature matrix municipalities."""
+    """Load MOE-based fallback turnout and align to feature matrix municipalities.
+
+    Populates Bogotá localidad codes (7-digit) with Bogotá-wide turnout
+    when they are missing from the cached file.
+    """
     base = resolve_data_dir(data_dir)
     turnout_path = base / "fundamentals" / "historical_turnout_moe.csv"
     if turnout_path.is_file():
-        return pd.read_csv(turnout_path, dtype={"codigo_municipio": str}).pipe(
-            lambda f: f[f["codigo_municipio"].isin(df["codigo_municipio"])]
-        )
-    logger.warning("Fallback turnout file not found -- using 0.6 constant")
-    return pd.DataFrame({"codigo_municipio": df["codigo_municipio"], "turnout": 0.6})
+        loaded = pd.read_csv(turnout_path, dtype={"codigo_municipio": str})
+        result = loaded[loaded["codigo_municipio"].isin(df["codigo_municipio"])].copy()
+        # Fill Bogotá localidad codes missing from the cached file
+        bogota_row = loaded[loaded["codigo_municipio"] == _BOGOTA_CODE]
+        if not bogota_row.empty and pd.notna(bogota_row.iloc[0]["turnout"]):
+            bogo_val = float(bogota_row.iloc[0]["turnout"])
+            localidad_codes = df[
+                df["codigo_municipio"].astype(str).str.len() == _BOGOTA_LOCALIDAD_CODE_LENGTH
+            ]["codigo_municipio"]
+            missing_loc = localidad_codes[~localidad_codes.isin(result["codigo_municipio"])]
+            if not missing_loc.empty:
+                loc_rows = pd.DataFrame(
+                    {
+                        "codigo_municipio": missing_loc.tolist(),
+                        "turnout": bogo_val,
+                    }
+                )
+                result = pd.concat([result, loc_rows], ignore_index=True)
+        return result
+    logger.warning("Fallback turnout file not found -- returning NaN turnout")
+    return pd.DataFrame({"codigo_municipio": df["codigo_municipio"], "turnout": float("nan")})
 
 
 def _build_historical_column(df: pd.DataFrame, historical: pd.DataFrame) -> pd.DataFrame:
@@ -750,7 +763,7 @@ def _build_historical_column(df: pd.DataFrame, historical: pd.DataFrame) -> pd.D
         round_num = int(round_raw)  # type: ignore[arg-type]
         if municipio not in records_map:
             continue
-        ideology = _get_ideology(year, round_num)
+        ideology = get_ideology(year, round_num)
         left_cand = ideology.get("left")
         right_cand = ideology.get("right")
         if not left_cand or not right_cand:
@@ -820,7 +833,13 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _coerce_bool_columns(df: pd.DataFrame) -> None:
-    """Coerce known boolean columns from string/int to bool."""
+    """Coerce known boolean columns from string/int to bool.
+
+    Raises:
+        ValueError: If any value in a boolean column cannot be mapped
+            via ``_BOOL_MAP``.
+
+    """
     bool_cols = [
         "ipm_2018_imputed",
         "ipm_2022_imputed",
@@ -831,10 +850,22 @@ def _coerce_bool_columns(df: pd.DataFrame) -> None:
     for col in bool_cols:
         if col in df.columns and not pd.api.types.is_bool_dtype(df[col]):
             mapped = df[col].astype(str).str.strip().str.lower().map(_BOOL_MAP)
-            nan_count = int(mapped.isna().sum())
-            if nan_count > 0:
-                logger.warning("%d unmapped values in %s — coercing to False", nan_count, col)
-            df[col] = mapped.fillna(value=False).astype(bool)
+            if mapped.isna().any():
+                bad_mask = mapped.isna()
+                bad_entries = list(
+                    zip(
+                        df.index[bad_mask].tolist(),
+                        df.loc[bad_mask, col].tolist(),
+                        strict=True,
+                    )
+                )
+                msg = (
+                    f"Unrecognized boolean value(s) in column '{col}': "
+                    f"{bad_entries}. "
+                    f"Accepted values: {sorted(_BOOL_MAP)}"
+                )
+                raise ValueError(msg)
+            df[col] = mapped.astype(bool)
 
 
 def _coerce_population_columns(df: pd.DataFrame) -> None:
@@ -857,7 +888,7 @@ def _validate_schema(df: pd.DataFrame) -> None:
     - All required scalar columns are present.
     - ``codigo_municipio`` is unique and 5-character.
     - ``nbi_rate`` is in [0, 1].
-    - ``historical_turnout_m`` is in [0, 1] and non-null.
+    - ``historical_turnout_m`` is in [0, 1].
     - ``pop_*`` columns are present and non-null.
     - Null rates are within acceptable thresholds.
 
@@ -871,7 +902,10 @@ def _validate_schema(df: pd.DataFrame) -> None:
     mf_fields = {f.name for f in fields(MunicipalFeatures)}
     scalar_fields = mf_fields - {"historical"}
 
-    missing = scalar_fields - set(df.columns)
+    # IPM is an optional component (dropped by R² guard when R² < 0.5).
+    _optional_ipm_fields = {"ipm_2018", "ipm_2018_imputed", "ipm_2022", "ipm_2022_imputed"}
+
+    missing = scalar_fields - set(df.columns) - _optional_ipm_fields
     if missing:
         msg = f"Feature matrix missing required columns: {sorted(missing)}"
         raise ValueError(msg)
@@ -896,7 +930,7 @@ def _validate_schema(df: pd.DataFrame) -> None:
         msg = f"Population columns contain nulls: {null_pop}"
         raise ValueError(msg)
 
-    _validate_null_rate(df, scalar_fields)
+    _validate_null_rate(df, scalar_fields - _optional_ipm_fields)
 
 
 def _validate_codigo_municipio(df: pd.DataFrame) -> None:
@@ -934,14 +968,10 @@ def _validate_nbi_rate(df: pd.DataFrame) -> None:
 
 
 def _validate_turnout(df: pd.DataFrame) -> None:
-    """Validate ``historical_turnout_m`` range and nulls."""
+    """Validate ``historical_turnout_m`` range."""
     vals = df["historical_turnout_m"].dropna()
     if len(vals) > 0 and not vals.between(0.0, 1.0).all():
         msg = "historical_turnout_m has values outside [0, 1]"
-        raise ValueError(msg)
-    null_count = int(df["historical_turnout_m"].isna().sum())
-    if null_count > 0:
-        msg = f"historical_turnout_m has {null_count} null value(s)"
         raise ValueError(msg)
 
 

@@ -18,7 +18,12 @@ from typing import Any
 import warnings
 
 import numpy as np
+from numpy.linalg import LinAlgError
 import pandas as pd  # type: ignore[reportMissingTypeStubs]
+from sklearn.exceptions import (  # type: ignore[reportMissingTypeStubs]
+    ConvergenceWarning,
+    NotFittedError,
+)
 from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
     r2_score,  # type: ignore[reportUnknownVariableType]
     root_mean_squared_error,  # type: ignore[reportUnknownVariableType]
@@ -38,6 +43,7 @@ from co_president.benchmarks.transforms import (
     ilr_inv_transform,
     ilr_transform,
 )
+from co_president.config import HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS
 from co_president.fundamentals.features import load_features
 
 logger = logging.getLogger(__name__)
@@ -96,79 +102,15 @@ _3CLASS_CLASSES: list[str] = [
 IDEOLOGY_CLASSES_5: list[str] = _IDEOLOGY_CLASSES
 IDEOLOGY_CLASSES_3: list[str] = _3CLASS_CLASSES
 
-# Raw-column-suffix → ideology class mapping for each (year, round).
-# Keys match the feature matrix column name after ``vote_share_{year}_r{round}_``.
-# Expert-derived based on Colombian political tradition.
-# Both underscore (canonical) and UPPERCASE variants are listed to support
-# different MMV-ingestion column-name conventions.
-_CANDIDATE_5CLASS_MAP: dict[tuple[int, int], dict[str, str]] = {
-    (2002, 1): {
-        "alvaro_uribe": "Derecha",
-        "horacio_serpa": "Centro",
-        "luis_eduardo_garzon": "Izquierda",
-        "ingrid_betancourt": "Centro",
-        "noemi_sanin": "Centro_Derecha",
-    },
-    (2006, 1): {
-        "alvaro_uribe": "Derecha",
-        "carlos_gaviria": "Izquierda",
-        "horacio_serpa": "Centro",
-        "antanas_mockus": "Centro",
-    },
-    (2010, 1): {
-        "juan_manuel_santos": "Centro_Derecha",
-        "antanas_mockus": "Centro",
-        "gustavo_petro": "Izquierda",
-        "noemi_sanin": "Centro_Derecha",
-    },
-    (2010, 2): {
-        "juan_manuel_santos": "Centro_Derecha",
-        "antanas_mockus": "Centro",
-    },
-    (2014, 1): {
-        "juan_manuel_santos": "Centro_Derecha",
-        "oscar_ivan_zuluaga": "Derecha",
-        "enrique_penalosa": "Centro",
-        "LOPEZ": "Izquierda",
-    },
-    (2014, 2): {
-        "juan_manuel_santos": "Centro_Derecha",
-        "oscar_ivan_zuluaga": "Derecha",
-    },
-    (2018, 1): {
-        "ivan_duque": "Derecha",
-        "gustavo_petro": "Izquierda",
-        "sergio_fajardo": "Centro",
-        "DE LA CALLE": "Centro_Izquierda",
-    },
-    (2018, 2): {
-        "ivan_duque": "Derecha",
-        "gustavo_petro": "Izquierda",
-    },
-    (2022, 1): {
-        "GUSTAVO PETRO": "Izquierda",
-        "gustavo_petro": "Izquierda",
-        "RODOLFO HERNÁNDEZ": "Derecha",
-        "rodolfo_hernandez": "Derecha",
-        "FEDERICO GUTIÉRREZ": "Centro_Derecha",
-        "federico_gutierrez": "Centro_Derecha",
-        "SERGIO FAJARDO": "Centro",
-        "sergio_fajardo": "Centro",
-        "INGRID BETANCOURT": "Centro",
-        "ingrid_betancourt": "Centro",
-        "JOHN MILTON RODRÍGUEZ": "Derecha",
-        "LUIS PÉREZ": "Centro_Derecha",
-    },
-    (2022, 2): {
-        "gustavo_petro": "Izquierda",
-        "rodolfo_hernandez": "Derecha",
-        "GUSTAVO PETRO": "Izquierda",
-        "RODOLFO HERNÁNDEZ": "Derecha",
-    },
-}
+# Deprecated alias — use HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS from config.
+_CANDIDATE_5CLASS_MAP = HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS
 
 
-def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PLR0912  type: ignore[name-defined]
+def _compute_5class_targets(  # noqa: C901, PLR0912
+    df: pd.DataFrame,
+    *,
+    smoke: bool = False,
+) -> pd.DataFrame:  # type: ignore[name-defined]
     """Add 5-class ideology target columns to the feature matrix.
 
     Parses ``vote_share_{year}_r{round}_{candidate}`` columns, maps
@@ -183,9 +125,16 @@ def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PL
 
     Args:
         df: Feature matrix from ``load_features()``.
+        smoke: If True, generate synthetic targets when no
+            ``vote_share_*`` columns exist.  Defaults to False.
 
     Returns:
         DataFrame with added ``y_*`` columns (or synthetic fallback
+        when *smoke* is True).
+
+    Raises:
+        ValueError: If no ``vote_share_*`` columns are found and
+            *smoke* is False.
 
     """
     result = df.copy()
@@ -197,6 +146,13 @@ def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PL
             all_years.add(int(m.group(1)))
 
     if not all_years:
+        if not smoke:
+            msg = (
+                "No vote_share_* columns found in DataFrame. "
+                "Cannot compute 5-class ideology targets without "
+                "vote-share data. Pass smoke=True for synthetic targets."
+            )
+            raise ValueError(msg)
         rng = np.random.default_rng(42)
         n = df.shape[0]
         for cls in _IDEOLOGY_CLASSES:
@@ -244,7 +200,11 @@ def _compute_5class_targets(df: pd.DataFrame) -> pd.DataFrame:  # noqa: C901, PL
     return result
 
 
-def _compute_3class_targets(df: pd.DataFrame) -> pd.DataFrame:  # type: ignore[name-defined]
+def _compute_3class_targets(
+    df: pd.DataFrame,
+    *,
+    smoke: bool = False,
+) -> pd.DataFrame:  # type: ignore[name-defined]
     """Add 3-class ideology target columns (Izquierda, Centro, Derecha).
 
     Computes 5-class targets via :func:`_compute_5class_targets`, then
@@ -253,12 +213,14 @@ def _compute_3class_targets(df: pd.DataFrame) -> pd.DataFrame:  # type: ignore[n
 
     Args:
         df: Feature matrix from ``load_features()``.
+        smoke: If True, generate synthetic targets when no
+            ``vote_share_*`` columns exist.  Defaults to False.
 
     Returns:
         DataFrame with ``y_Izquierda``, ``y_Centro``, ``y_Derecha`` columns.
 
     """
-    result = _compute_5class_targets(df)
+    result = _compute_5class_targets(df, smoke=smoke)
     result["y_Centro"] = (
         result.get("y_Centro", pd.Series(0.0, index=result.index))
         + result.get("y_Centro_Izquierda", pd.Series(0.0, index=result.index))
@@ -336,16 +298,42 @@ def _apply_inverse_transform(name: str, y: np.ndarray) -> np.ndarray:
     raise ValueError(msg)
 
 
-def _standardize_columns(arrays: list[np.ndarray]) -> list[np.ndarray]:
-    """Pad arrays to the same column count with zeros."""
-    max_cols = max(arr.shape[1] for arr in arrays)
+def _intersect_columns(
+    arrays_and_cols: list[tuple[np.ndarray, list[str]]],
+) -> list[np.ndarray]:
+    """Slice arrays to columns present in ALL years (name-based intersection).
+
+    Features common across all years are kept; year-specific indicator columns
+    (appended by ``_impute_and_normalize``) are dropped because their synthetic
+    names never match across years.  This avoids spurious phantom features that
+    zero-padding or positional truncation would create.
+
+    Args:
+        arrays_and_cols: List of ``(array, column_names)`` tuples, one per
+            election year.
+
+    Returns:
+        Lists where each array is sliced to only columns in the name
+        intersection, keeping the first year's column ordering.
+
+    Raises:
+        KeyError: If a column name in the intersection set is not present
+            in an individual year's columns list.
+
+    """
+    if not arrays_and_cols:
+        return [a for a, _ in arrays_and_cols]
+
+    common: set[str] = set(arrays_and_cols[0][1])
+    for _, cols in arrays_and_cols[1:]:
+        common &= set(cols)
+
+    first_order = [c for c in arrays_and_cols[0][1] if c in common]
     result: list[np.ndarray] = []
-    for arr in arrays:
-        if arr.shape[1] < max_cols:
-            pad = np.zeros((arr.shape[0], max_cols - arr.shape[1]))
-            result.append(np.hstack([arr, pad]))
-        else:
-            result.append(arr)
+    for arr, cols in arrays_and_cols:
+        name_to_idx = {c: i for i, c in enumerate(cols)}
+        indices = [name_to_idx[c] for c in first_order]
+        result.append(arr[:, indices])
     return result
 
 
@@ -394,9 +382,11 @@ def _r2_rmse_per_class(
     """
     results: list[dict[str, float | str]] = []
     for k, name in enumerate(class_names):
-        r2 = float(
-            np.nan_to_num(r2_score(y_true[:, k], y_pred[:, k], force_finite=True), nan=0.0)  # type: ignore[reportUnknownArgumentType]
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+            r2 = float(
+                np.nan_to_num(r2_score(y_true[:, k], y_pred[:, k], force_finite=True), nan=0.0)  # type: ignore[reportUnknownArgumentType]
+            )
         rmse = float(root_mean_squared_error(y_true[:, k], y_pred[:, k]))  # type: ignore[reportUnknownArgumentType]
         results.append({"class_name": name, "r2": r2, "rmse": rmse})
     return results
@@ -472,7 +462,9 @@ def run_benchmarks(
         for m_name in model_names:
             model = _make_sklearn_model(m_name, n_train=train_n)
             try:
-                model.fit(X_train, y_train_t)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                    model.fit(X_train, y_train_t)
                 y_pred_t = model.predict(X_test)
                 y_pred = _apply_inverse_transform(t_name, y_pred_t)
                 per_class = _r2_rmse_per_class(y_test_full, y_pred, class_names)
@@ -489,7 +481,7 @@ def run_benchmarks(
                     }
                     for pc in per_class
                 )
-            except Exception:
+            except (ValueError, TypeError, LinAlgError, NotFittedError):
                 logger.exception("Model %s + transform %s failed", m_name, t_name)
                 rows.extend(
                     {
@@ -506,6 +498,68 @@ def run_benchmarks(
     return rows
 
 
+def _impute_nan_columns(x_mat: np.ndarray, *, fill_value: float = 1e-10) -> tuple[np.ndarray, int]:
+    """Impute NaN features with column medians, add indicator for all-NaN cols.
+
+    Args:
+        x_mat: Feature matrix ``(N, F)``, may contain NaN.
+        fill_value: Value to fill entirely NaN columns (default ``1e-10``).
+
+    Returns:
+        ``(x_clean, n_imputed)`` where *x_clean* has NaN replaced by
+        column medians (``fill_value`` for all-NaN cols) with binary
+        indicator columns appended, and *n_imputed* is the count of
+        all-NaN columns found.
+
+    """
+    nan_mask = np.isnan(x_mat)
+    n_imputed = 0
+    if nan_mask.any():
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
+            col_median = np.nanmedian(x_mat, axis=0)
+        all_nan = np.isnan(col_median)
+        n_imputed = int(all_nan.sum())
+        if all_nan.any():
+            col_median[all_nan] = fill_value
+        x_mat = np.where(nan_mask, col_median, x_mat)
+
+    if n_imputed > 0:
+        indicator = np.ones((x_mat.shape[0], n_imputed), dtype=np.float64)
+        x_mat = np.hstack([x_mat, indicator])
+
+    return x_mat, n_imputed
+
+
+def _pad_arrays_to_max_width(arrays: list[np.ndarray]) -> list[np.ndarray]:
+    """Zero-pad arrays to the maximum column count in the list.
+
+    Used before ``np.vstack`` when different years may produce different
+    numbers of feature columns (e.g. indicator columns from
+    ``_impute_nan_columns``).  Padding with zeros ensures shape
+    compatibility while preserving the existing data in each array.
+
+    Args:
+        arrays: List of 2D arrays ``(N_i, F_i)`` with potentially
+            different ``F_i``.
+
+    Returns:
+        List where every array has ``max(F_i)`` columns.
+
+    """
+    if not arrays:
+        return arrays
+    max_cols = max(a.shape[1] for a in arrays)
+    padded: list[np.ndarray] = []
+    for a in arrays:
+        if a.shape[1] < max_cols:
+            pad = np.zeros((a.shape[0], max_cols - a.shape[1]))
+            padded.append(np.hstack([a, pad]))
+        else:
+            padded.append(a)
+    return padded
+
+
 def _impute_and_normalize(
     x_mat: np.ndarray, y_mat: np.ndarray, n_classes: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -519,18 +573,12 @@ def _impute_and_normalize(
     Returns:
         ``(x_clean, y_norm)`` where *x_clean* has NaN replaced by
         column medians (1e-10 for all-NaN cols) and *y_norm* is
-        eps-clipped then row-normalised to sum-to-1.
+        eps-clipped then row-normalised to sum-to-1.  All-NaN columns
+        get a binary indicator column appended to *x_clean* so downstream
+        models can distinguish imputed values from genuine near-zero data.
 
     """
-    x_nan = np.isnan(x_mat)
-    if x_nan.any():
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", "All-NaN slice", RuntimeWarning)
-            col_median = np.nanmedian(x_mat, axis=0)
-        all_nan = np.isnan(col_median)
-        if all_nan.any():
-            col_median[all_nan] = 1e-10
-        x_mat = np.where(x_nan, col_median, x_mat)
+    x_mat, _ = _impute_nan_columns(x_mat, fill_value=1e-10)
 
     eps = 1e-12
     y_mat = np.clip(y_mat, eps, None)
@@ -545,7 +593,7 @@ def _prepare_year_data(
     n_classes: int,
     *,
     exclude_year: int | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute features + class targets for a single election year.
 
     Static features (no year suffix) are taken from the feature matrix.
@@ -562,7 +610,7 @@ def _prepare_year_data(
             mode, e.g. excluding ``pop_2022`` when predicting 2022).
 
     Returns:
-        ``(X_year, y_year)`` where each row is one municipality.
+        ``(X_year, y_year, column_names)`` where each row is one municipality.
 
     """
     is_3class = n_classes == 3
@@ -595,11 +643,18 @@ def _prepare_year_data(
         except (FileNotFoundError, ImportError):
             pass
 
+    x_cols = list(x_df.columns)
     x_mat = x_df.to_numpy(np.float64)
 
     y = y_df[y_cols].to_numpy(np.float64)
 
-    return _impute_and_normalize(x_mat, y, n_classes)
+    x_clean, y_clean = _impute_and_normalize(x_mat, y, n_classes)
+
+    # NaN indicators appended by imputation get synthetic names — different
+    # per year, so they are excluded from the name-based column intersection.
+    n_indicators = x_clean.shape[1] - len(x_cols)
+    x_cols = x_cols + [f"__imputed_{i}__" for i in range(n_indicators)]
+    return x_clean, y_clean, x_cols
 
 
 def _detect_available_rounds(df: pd.DataFrame, year: int) -> list[int]:
@@ -656,7 +711,8 @@ def _prepare_combined_data(  # noqa: C901
         logger.warning(
             "No vote-share columns found for year %d; falling back to _prepare_year_data", year
         )
-        return _prepare_year_data(df, year, n_classes, exclude_year=exclude_year)
+        x_y, y_y, _ = _prepare_year_data(df, year, n_classes, exclude_year=exclude_year)
+        return x_y, y_y
 
     leaked_suffix = str(exclude_year) if exclude_year else None
     static_cols = [
@@ -726,24 +782,17 @@ def _prepare_combined_data(  # noqa: C901
 
 
 def _load_feature_matrix() -> pd.DataFrame:
-    """Load feature matrix, falling back to raw Parquet on ValueError/FileNotFoundError.
+    """Load and validate feature matrix through the canonical pipeline.
 
     Returns:
         DataFrame with features + vote-share columns.
 
+    Raises:
+        FileNotFoundError: If load_features cannot find required files.
+        ValueError: If schema validation fails.
+
     """
-    try:
-        return load_features()
-    except FileNotFoundError as exc:
-        logger.warning("load_features() not found; loading raw Parquet matrix: %s", exc)
-        parquet_path = Path("data/processed/municipal_feature_matrix.parquet")
-        if not parquet_path.exists():
-            parquet_path = (
-                Path(__file__).parents[3] / "data/processed/municipal_feature_matrix.parquet"
-            )
-        df = pd.read_parquet(str(parquet_path))
-        logger.info("Loaded raw Parquet matrix: %d rows x %d columns", *df.shape)
-        return df
+    return load_features()
 
 
 def run_holdout_benchmarks(
@@ -778,14 +827,27 @@ def run_holdout_benchmarks(
 
     train_arrays: list[np.ndarray] = []
     train_targets: list[np.ndarray] = []
+    train_cols: list[list[str]] = []
     for y in train_years:
-        X_y, y_y = _prepare_year_data(df, y, n_classes, exclude_year=test_year)
+        X_y, y_y, cols = _prepare_year_data(df, y, n_classes, exclude_year=test_year)
         train_arrays.append(X_y)
         train_targets.append(y_y)
+        train_cols.append(cols)
 
-    X_train = np.vstack(train_arrays)
+    X_train = np.vstack(_intersect_columns(list(zip(train_arrays, train_cols, strict=True))))
     y_train = np.vstack(train_targets)
-    X_test, y_test = _prepare_year_data(df, test_year, n_classes, exclude_year=test_year)
+
+    # Compute column-name intersection across training years so we can
+    # slice the test array to match (avoids n_features mismatch at predict time).
+    common: set[str] = set(train_cols[0] or [])
+    for cols in train_cols[1:]:
+        common &= set(cols)
+    common_order = [c for c in (train_cols[0] or []) if c in common]
+
+    X_test, y_test, test_cols = _prepare_year_data(df, test_year, n_classes, exclude_year=test_year)
+    test_idx_map = {c: i for i, c in enumerate(test_cols or [])}
+    test_indices = [test_idx_map[c] for c in common_order if c in test_idx_map]
+    X_test = X_test[:, test_indices]
 
     logger.info(
         "Holdout train shape %s, test shape %s",
@@ -802,7 +864,9 @@ def run_holdout_benchmarks(
         for m_name in ("svr", "rfr", "gbr", "knn", "fnn"):
             model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
             try:
-                model.fit(X_train, y_train_t)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                    model.fit(X_train, y_train_t)
                 y_pred_t = model.predict(X_test)
                 y_pred = _apply_inverse_transform(t_name, y_pred_t)
                 per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
@@ -819,7 +883,7 @@ def run_holdout_benchmarks(
                     }
                     for pc in per_class
                 )
-            except Exception:
+            except (ValueError, TypeError, LinAlgError, NotFittedError):
                 logger.exception("Model %s + transform %s failed (holdout)", m_name, t_name)
                 rows.extend(
                     {
@@ -866,12 +930,14 @@ def run_random_benchmarks(
 
     train_arrays: list[np.ndarray] = []
     train_targets: list[np.ndarray] = []
+    train_cols: list[list[str]] = []
     for y in train_years:
-        X_y, y_y = _prepare_year_data(df, y, n_classes)
+        X_y, y_y, cols = _prepare_year_data(df, y, n_classes)
         train_arrays.append(X_y)
         train_targets.append(y_y)
+        train_cols.append(cols)
 
-    X_all = np.vstack(_standardize_columns(train_arrays))
+    X_all = np.vstack(_intersect_columns(list(zip(train_arrays, train_cols, strict=True))))
     y_all = np.vstack(train_targets)
     X_train, X_test, y_train, y_test = _train_test_split(X_all, y_all, train_ratio=train_ratio)
 
@@ -890,7 +956,9 @@ def run_random_benchmarks(
         for m_name in ("svr", "rfr", "gbr", "knn", "fnn"):
             model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
             try:
-                model.fit(X_train, y_train_t)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                    model.fit(X_train, y_train_t)
                 y_pred_t = model.predict(X_test)
                 y_pred = _apply_inverse_transform(t_name, y_pred_t)
                 per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
@@ -907,7 +975,7 @@ def run_random_benchmarks(
                     }
                     for pc in per_class
                 )
-            except Exception:
+            except (ValueError, TypeError, LinAlgError, NotFittedError):
                 logger.exception("Model %s + transform %s failed (random)", m_name, t_name)
                 rows.extend(
                     {
@@ -960,9 +1028,16 @@ def run_combined_benchmarks(
         train_arrays.append(X_y)
         train_targets.append(y_y)
 
-    X_train = np.vstack(train_arrays)
+    X_train = np.vstack(_pad_arrays_to_max_width(train_arrays))
     y_train = np.vstack(train_targets)
     X_test, y_test = _prepare_combined_data(df, test_year, n_classes, exclude_year=test_year)
+    # Align X_test to training column count (pad or truncate)
+    n_train_cols = X_train.shape[1]
+    if X_test.shape[1] < n_train_cols:
+        pad_test = np.zeros((X_test.shape[0], n_train_cols - X_test.shape[1]))
+        X_test = np.hstack([X_test, pad_test])
+    elif X_test.shape[1] > n_train_cols:
+        X_test = X_test[:, :n_train_cols]
 
     logger.info(
         "Combined train shape %s, test shape %s",
@@ -979,7 +1054,9 @@ def run_combined_benchmarks(
         for m_name in ("svr", "rfr", "gbr", "knn", "fnn"):
             model = _make_sklearn_model(m_name, n_train=X_train.shape[0])
             try:
-                model.fit(X_train, y_train_t)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                    model.fit(X_train, y_train_t)
                 y_pred_t = model.predict(X_test)
                 y_pred = _apply_inverse_transform(t_name, y_pred_t)
                 per_class = _r2_rmse_per_class(y_test, y_pred, class_names)
@@ -996,7 +1073,7 @@ def run_combined_benchmarks(
                     }
                     for pc in per_class
                 )
-            except Exception:
+            except (ValueError, TypeError, LinAlgError, NotFittedError):
                 logger.exception("Model %s + transform %s failed (combined)", m_name, t_name)
                 rows.extend(
                     {
@@ -1116,20 +1193,15 @@ def load_historical_data(
     y = np.clip(y, EPSILON, None)
 
     x_mat = df[X_cols].to_numpy(np.float64)
-    nan_mask = np.isnan(x_mat)
-    if nan_mask.any():
+    nan_count = int(np.isnan(x_mat).any(axis=0).sum())
+    if nan_count:
+        logger.warning("Imputing %d feature columns with column medians", nan_count)
+    x_mat, n_imputed = _impute_nan_columns(x_mat, fill_value=1e-10)
+    if n_imputed:
         logger.warning(
-            "Imputing %d feature columns with column medians", int(nan_mask.any(axis=0).sum())
+            "%d feature columns entirely NaN; filling with 1e-10",
+            n_imputed,
         )
-        col_median = np.nanmedian(x_mat, axis=0)
-        all_nan_cols = np.isnan(col_median)
-        if all_nan_cols.any():
-            logger.warning(
-                "%d feature columns entirely NaN; filling with 0",
-                int(all_nan_cols.sum()),
-            )
-            col_median[all_nan_cols] = 0.0
-        x_mat = np.where(nan_mask, col_median, x_mat)
 
     return x_mat, y
 

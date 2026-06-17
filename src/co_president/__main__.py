@@ -1477,7 +1477,7 @@ def _validate_before_2026_forecast(config: ModelConfig) -> None:
                 summary["n_transforms"],
                 best_str,
             )
-    except Exception:
+    except (ValueError, TypeError, KeyError, ImportError, OSError):
         logger.exception("Benchmark baseline skipped (non-fatal)")
 
     logger.info("2026 gating tests complete")

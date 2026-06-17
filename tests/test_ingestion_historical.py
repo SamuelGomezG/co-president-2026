@@ -9,6 +9,9 @@ import pandas as pd
 import pytest
 
 from co_president.ingestion.ingest_historical import (
+    _MMV_CODE_OVERRIDES,
+    _crosswalk_mmv_municipalities,
+    _load_moe_registered_voters,
     build_historical_matrix,
     compute_derived_features,
     compute_lagged_features,
@@ -673,3 +676,389 @@ class TestBuildHistoricalMatrix:
             "delta_abstention",
         }
         assert set(saved.columns) == expected
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MMV crosswalk
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestCrosswalkMmvMunicipalities:
+    """``_crosswalk_mmv_municipalities`` maps all MMV codes without error."""
+
+    def test_all_municipalities_mapped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        data_dir: Path,
+    ) -> None:
+        """All rows receive a DANE code (level 1 match + override)."""
+        divipola = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001", "20443"],
+                "nombre_municipio": ["Medellin", "La Paz"],
+                "departamento": ["Antioquia", "Cesar"],
+            }
+        )
+
+        def mock_read_csv(path: str, **_kwargs: object) -> pd.DataFrame:
+            if "divipola_master.csv" in str(path):
+                return divipola
+            msg = f"Unexpected path: {path}"
+            raise FileNotFoundError(msg)
+
+        monkeypatch.setattr(pd, "read_csv", mock_read_csv)
+
+        mmv = pd.DataFrame(
+            {
+                "DEP": ["05", "12"],
+                "MUN": ["001", "625"],
+                "DEPNOMBRE": ["ANTIOQUIA", "ARAUCA"],
+                "MUNNOMBRE": ["MEDELLIN", "LA PAZ"],
+            }
+        )
+
+        result = _crosswalk_mmv_municipalities(mmv, data_dir)
+        assert result["codigo_municipio"].notna().all()
+        assert list(result["codigo_municipio"]) == ["05001", "20443"]
+
+    def test_unmatched_municipality_raises(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        data_dir: Path,
+    ) -> None:
+        """A municipality absent from overrides raises ``ValueError``."""
+        divipola = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001"],
+                "nombre_municipio": ["Medellin"],
+                "departamento": ["Antioquia"],
+            }
+        )
+
+        def mock_read_csv(path: str, **_kwargs: object) -> pd.DataFrame:
+            if "divipola_master.csv" in str(path):
+                return divipola
+            msg = f"Unexpected path: {path}"
+            raise FileNotFoundError(msg)
+
+        monkeypatch.setattr(pd, "read_csv", mock_read_csv)
+
+        mmv = pd.DataFrame(
+            {
+                "DEP": ["99"],
+                "MUN": ["999"],
+                "DEPNOMBRE": ["NONEXIST"],
+                "MUNNOMBRE": ["NOWHERE"],
+            }
+        )
+
+        with pytest.raises(ValueError, match="MMV crosswalk"):
+            _crosswalk_mmv_municipalities(mmv, data_dir)
+
+    def test_override_keys_exist_in_divipola(self) -> None:
+        """Representative DANE codes from ``_MMV_CODE_OVERRIDES`` match valid codes.
+
+        Uses a minimal hardcoded fixture instead of loading the full DIVIPOLA
+        master CSV to keep the test isolated from external data files.
+        """
+        fixture = pd.DataFrame(
+            {
+                "codigo_municipio": [
+                    "05042",
+                    "05101",
+                    "05148",
+                    "05585",
+                    "05697",
+                    "05893",
+                    "13062",
+                    "13600",
+                    "15109",
+                    "15407",
+                ],
+            }
+        )
+        codes = set(fixture["codigo_municipio"].unique())
+        sampled = list(_MMV_CODE_OVERRIDES.values())[:10]
+        for dane in sampled:
+            assert dane in codes, f"Override DANE code {dane} not found in fixture"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MOE registered-voters backfill
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _write_moe_csv(directory: Path, name: str, rows: list[dict[str, object]]) -> None:
+    """Write a minimal MOE censo electoral CSV to *directory*/*name*."""
+    pd.DataFrame(rows).to_csv(directory / name, index=False)
+
+
+def _make_moe_input() -> list[dict[str, object]]:
+    """Three municipalities, two election years, multiple polling stations each.
+
+    The aggregation must sum ``total`` per (code_dane, ano) and pad the
+    DANE code to 5 digits.
+    """
+    return [
+        # 2014 presidencia — 05001 Medellín
+        {
+            "code_dane": 5001,
+            "ano": 2014,
+            "eleccion": "Presidencia",
+            "total": 100,
+            "mujeres": 50,
+            "hombres": 50,
+        },
+        {
+            "code_dane": 5001,
+            "ano": 2014,
+            "eleccion": "Presidencia",
+            "total": 200,
+            "mujeres": 100,
+            "hombres": 100,
+        },
+        # 2014 — 05002 Abejorral
+        {
+            "code_dane": 5002,
+            "ano": 2014,
+            "eleccion": "Presidencia",
+            "total": 50,
+            "mujeres": 25,
+            "hombres": 25,
+        },
+        # 2022 presidencia — 05001 + 05002
+        {
+            "code_dane": 5001,
+            "ano": 2022,
+            "eleccion": "Presidencia",
+            "total": 400,
+            "mujeres": 200,
+            "hombres": 200,
+        },
+        {
+            "code_dane": 5002,
+            "ano": 2022,
+            "eleccion": "Presidencia",
+            "total": 80,
+            "mujeres": 40,
+            "hombres": 40,
+        },
+        # Congreso rows for years WITHOUT presidencia coverage
+        {
+            "code_dane": 5001,
+            "ano": 2006,
+            "eleccion": "Congreso",
+            "total": 150,
+            "mujeres": 75,
+            "hombres": 75,
+        },
+        {
+            "code_dane": 5002,
+            "ano": 2006,
+            "eleccion": "Congreso",
+            "total": 60,
+            "mujeres": 30,
+            "hombres": 30,
+        },
+        # Congreso row for year WITH presidencia coverage (must be ignored)
+        {
+            "code_dane": 5001,
+            "ano": 2022,
+            "eleccion": "Congreso",
+            "total": 999,
+            "mujeres": 0,
+            "hombres": 0,
+        },
+    ]
+
+
+class TestLoadMoeRegisteredVoters:
+    """``_load_moe_registered_voters`` aggregates MOE polling-station data."""
+
+    def test_aggregates_total_per_municipality(self, tmp_path: Path) -> None:
+        """Sums ``total`` per (code_dane, ano) and zero-pads DANE codes."""
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+        _write_moe_csv(moe_dir, "2014_presidencia.csv", _make_moe_input()[:3])
+        _write_moe_csv(moe_dir, "2022_presidencia.csv", _make_moe_input()[3:5])
+
+        result = _load_moe_registered_voters(moe_dir=moe_dir)
+
+        assert isinstance(result, pd.DataFrame)
+        assert list(result.columns) == ["codigo_municipio", "year", "round", "registered_voters"]
+        # 05001 sum for 2014 = 100+200 = 300; 05002 = 50. Both R1 and R2 broadcasted.
+        m_2014 = result[(result["codigo_municipio"] == "05001") & (result["year"] == 2014)]
+        assert len(m_2014) == 2  # R1 + R2 broadcast
+        assert (m_2014["registered_voters"] == 300).all()
+        m_2014_5002 = result[(result["codigo_municipio"] == "05002") & (result["year"] == 2014)]
+        assert (m_2014_5002["registered_voters"] == 50).all()
+
+    def test_broadcasts_to_round_2(self, tmp_path: Path) -> None:
+        """Each R1 row is duplicated as R2 (registered voters do not change)."""
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+        _write_moe_csv(moe_dir, "2022_presidencia.csv", _make_moe_input()[3:5])
+
+        result = _load_moe_registered_voters(moe_dir=moe_dir)
+
+        r1 = result[(result["year"] == 2022) & (result["round"] == 1)]
+        r2 = result[(result["year"] == 2022) & (result["round"] == 2)]
+        assert len(r1) == 2
+        assert len(r2) == 2
+        merged = r1.merge(r2, on=["codigo_municipio", "year"], suffixes=("_r1", "_r2"))
+        assert (merged["registered_voters_r1"] == merged["registered_voters_r2"]).all()
+
+    def test_congreso_fills_missing_years(self, tmp_path: Path) -> None:
+        """Congreso data fills years without presidencia coverage."""
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+        # 2006 congreso data only (no presidencia file for 2006 exists)
+        _write_moe_csv(moe_dir, "2006_congreso.csv", _make_moe_input()[5:7])
+
+        result = _load_moe_registered_voters(moe_dir=moe_dir)
+        assert not result.empty
+        # 05001 should have 150 registered voters in both rounds
+        m_2006_5001 = result[(result["codigo_municipio"] == "05001") & (result["year"] == 2006)]
+        assert len(m_2006_5001) == 2
+        assert (m_2006_5001["registered_voters"] == 150).all()
+        # 05002 should have 60
+        m_2006_5002 = result[(result["codigo_municipio"] == "05002") & (result["year"] == 2006)]
+        assert (m_2006_5002["registered_voters"] == 60).all()
+
+    def test_empty_directory_returns_empty(self, tmp_path: Path) -> None:
+        """An empty MOE directory yields an empty (but well-formed) DataFrame."""
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+
+        result = _load_moe_registered_voters(moe_dir=moe_dir)
+        assert result.empty
+        assert list(result.columns) == ["codigo_municipio", "year", "round", "registered_voters"]
+
+    def test_presidencia_takes_priority_over_congreso(self, tmp_path: Path) -> None:
+        """Presidencia data takes priority over congreso for same (municipio, year)."""
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+        _write_moe_csv(moe_dir, "2014_presidencia.csv", _make_moe_input()[:3])
+        _write_moe_csv(moe_dir, "2022_presidencia.csv", _make_moe_input()[3:5])
+        _write_moe_csv(moe_dir, "2006_congreso.csv", _make_moe_input()[5:7])
+        _write_moe_csv(moe_dir, "2022_congreso.csv", _make_moe_input()[7:])
+
+        result = _load_moe_registered_voters(moe_dir=moe_dir)
+
+        # 2014 presidencia values — 05001 should be 300, NOT overridden by congreso
+        m_2014 = result[(result["codigo_municipio"] == "05001") & (result["year"] == 2014)]
+        assert (m_2014["registered_voters"] == 300).all()
+        # 2006 congreso values — fill gap since no presidencia file for 2006
+        m_2006_5001 = result[(result["codigo_municipio"] == "05001") & (result["year"] == 2006)]
+        assert (m_2006_5001["registered_voters"] == 150).all()
+        m_2006_5002 = result[(result["codigo_municipio"] == "05002") & (result["year"] == 2006)]
+        assert (m_2006_5002["registered_voters"] == 60).all()
+        # 2022 from presidencia (rows 3-4), NOT congreso (row 7)
+        m_2022 = result[(result["codigo_municipio"] == "05001") & (result["year"] == 2022)]
+        assert (m_2022["registered_voters"] == 400).all()
+
+
+class TestBuildHistoricalMatrixFillsRegisteredVoters:
+    """``build_historical_matrix`` backfills ``registered_voters`` from MOE."""
+
+    def test_fills_nan_registered_voters_from_moe(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """NaN ``registered_voters`` in source data is replaced with MOE values."""
+        # Source: 2022 R1 and R2 for 05001, with NaN registered_voters
+        raw = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001", "05001", "05001"],
+                "year": [2022, 2022, 2022],
+                "round": [1, 1, 2],
+                "candidate": ["gustavo_petro", "rodolfo_hernandez", "gustavo_petro"],
+                "votes": [300, 200, 400],
+                "total_votes": [500, 500, 500],
+                "registered_voters": [pd.NA, pd.NA, pd.NA],
+            }
+        )
+
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+        _write_moe_csv(
+            moe_dir,
+            "2022_presidencia.csv",
+            [
+                {
+                    "code_dane": 5001,
+                    "ano": 2022,
+                    "eleccion": "Presidencia",
+                    "total": 12345,
+                    "mujeres": 0,
+                    "hombres": 0,
+                }
+            ],
+        )
+
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_historical._fetch_all_years",
+            lambda _: raw,
+        )
+        # Point MOE discovery at our tmp directory
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_historical.resolve_data_dir",
+            lambda _: tmp_path,
+        )
+
+        build_historical_matrix(data_dir=tmp_path)
+        saved = pd.read_csv(
+            tmp_path / "fundamentals" / "historical_results.csv", dtype={"codigo_municipio": str}
+        )
+        # All 05001 2022 rows (both R1 and R2) should now have 12345
+        r1_2022 = saved[(saved["codigo_municipio"] == "05001") & (saved["round"] == 1)]
+        r2_2022 = saved[(saved["codigo_municipio"] == "05001") & (saved["round"] == 2)]
+        assert len(r1_2022) > 0, "No round-1 rows found for 05001"
+        assert len(r2_2022) > 0, "No round-2 rows found for 05001"
+        assert (r1_2022["registered_voters"] == 12345).all()
+        assert (r2_2022["registered_voters"] == 12345).all()
+
+    def test_preserves_existing_non_null_registered_voters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-null source values are NOT overwritten by MOE values."""
+        raw = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001", "05001"],
+                "year": [2022, 2022],
+                "round": [1, 1],
+                "candidate": ["gustavo_petro", "rodolfo_hernandez"],
+                "votes": [300, 200],
+                "total_votes": [500, 500],
+                "registered_voters": [7777, 7777],
+            }
+        )
+
+        moe_dir = tmp_path / "moe_censo_electoral"
+        moe_dir.mkdir()
+        _write_moe_csv(
+            moe_dir,
+            "2022_presidencia.csv",
+            [
+                {
+                    "code_dane": 5001,
+                    "ano": 2022,
+                    "eleccion": "Presidencia",
+                    "total": 12345,
+                    "mujeres": 0,
+                    "hombres": 0,
+                }
+            ],
+        )
+
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_historical._fetch_all_years",
+            lambda _: raw,
+        )
+        monkeypatch.setattr(
+            "co_president.ingestion.ingest_historical.resolve_data_dir",
+            lambda _: tmp_path,
+        )
+
+        build_historical_matrix(data_dir=tmp_path)
+        saved = pd.read_csv(tmp_path / "fundamentals" / "historical_results.csv")
+        assert (saved["registered_voters"] == 7777).all()

@@ -12,7 +12,7 @@ Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
 Per-candidate constants were calibrated to match this aggregate split.
 Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
 Petro and Hernandez). The derivation is documented in
-``notebooks/derive_transfer_constants.py``.
+``scripts/derive_transfer_constants.py``.
 
 Ecological inference limitation: per-candidate transfer rates cannot be
 identified from aggregate data alone. The constants below are heuristics,
@@ -28,6 +28,8 @@ import statistics
 from typing import Literal
 
 __all__ = [
+    "BELEN_DE_BAJIRA_CODE",
+    "BOGOTA_LOCALIDADES",
     "COALITION_TO_CANDIDATE",
     "CONSULTATION_DATE",
     "CONSULTATION_KEY_MAP",
@@ -35,6 +37,9 @@ __all__ = [
     "ELECTION_DATES",
     "ELECTION_DATE_ROUND1",
     "ELECTION_DATE_ROUND2",
+    "EXPECTED_MUNICIPALITIES",
+    "EXPECTED_MUNICIPALITIES_POPULATION_INCL_ANM",
+    "EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES",
     "FIRST_ROUND_CANDIDATES",
     "FIRST_ROUND_CANDIDATES_2026",
     "HISTORICAL_CANDIDATE_IDEOLOGY",
@@ -52,6 +57,7 @@ __all__ = [
     "consultation_log_share_prior",
     "get_active_candidates",
     "get_candidate_column_map",
+    "get_ideology",
     "pollster_weight_formula",
 ]
 
@@ -324,6 +330,52 @@ POLLSTER_RATINGS: dict[str, float] = {
 }
 
 
+# Bogotá D.C. localidad code to name mapping (DANE DIVIPOLA localidad codes).
+# Codes 01-20 are the official 20 localidades.  Code 99 is the catch-all for
+# polling stations without a localidad assignment (SIN COMUNA).
+BOGOTA_LOCALIDADES: dict[str, str] = {
+    "01": "Usaquén",
+    "02": "Chapinero",
+    "03": "Santa Fe",
+    "04": "San Cristóbal",
+    "05": "Usme",
+    "06": "Tunjuelito",
+    "07": "Bosa",
+    "08": "Kennedy",
+    "09": "Fontibón",
+    "10": "Engativá",
+    "11": "Suba",
+    "12": "Barrios Unidos",
+    "13": "Teusaquillo",
+    "14": "Los Mártires",
+    "15": "Antonio Nariño",
+    "16": "Puente Aranda",
+    "17": "La Candelaria",
+    "18": "Rafael Uribe Uribe",
+    "19": "Ciudad Bolívar",
+    "20": "Sumapaz",
+    "99": "BOGOTÁ D.C. - SIN COMUNA",
+}
+
+# Canonical municipality count per DIVIPOLA master catalog
+# (data/fundamentals/divipola_master.csv).  Colombia has 1,122
+# municipalities.  This is the pre-Bogotá-disaggregation count:
+# Bogotá (11001) counts as a single municipality.
+EXPECTED_MUNICIPALITIES: int = 1_122
+
+# Post-Bogotá-disaggregation count used by features.py after
+# build_feature_matrix replaces Bogotá (11001) with 21 localidad
+# codes (01-20 + 99 catch-all).  1,122 - 1 + 21 + 1 (Belén de Bajirá) = 1,143.
+EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES: int = 1_143
+
+# Population vintage including Archipiélago de San Andrés, Providencia y
+# Santa Catalina (ANM, codigo_municipio 88xxx).
+#   1,122 + 1 ANM + 1 (Belén de Bajirá) = 1,124.
+EXPECTED_MUNICIPALITIES_POPULATION_INCL_ANM: int = 1_124
+
+BELEN_DE_BAJIRA_CODE: str = "27086"
+
+
 def pollster_weight_formula(rating: float) -> float:
     """Convert pollster rating to a weight factor.
 
@@ -452,36 +504,184 @@ def get_candidate_column_map(year: int = 2022) -> dict[str, str]:
     return {key: key for key in candidates}
 
 
-# Historical candidate ideology registry for the 2002-2022 elections.
-# Maps election year -> {left candidate key, right candidate key}.
-# Used by ``load_features()`` to construct ``HistoricalRecord`` objects.
-HISTORICAL_CANDIDATE_IDEOLOGY: dict[int, dict[str, str]] = {
-    2002: {"left": "horacio_serpa", "right": "alvaro_uribe"},
-    2006: {"left": "carlos_gaviria", "right": "alvaro_uribe"},
-    2010: {"left": "gustavo_petro", "right": "juan_manuel_santos"},
-    2014: {"left": "clara_lopez", "right": "oscar_ivan_zuluaga"},
-    2018: {"left": "gustavo_petro", "right": "ivan_duque"},
-    2022: {"left": "gustavo_petro", "right": "federico_gutierrez"},
-}
+# Ideology classes for left/right grouping in 2-class derivation.
+_IDEOLOGY_LEFT = frozenset({"Izquierda", "Centro_Izquierda"})
+_IDEOLOGY_RIGHT = frozenset({"Derecha", "Centro_Derecha"})
+_ROUND_TWO = 2
+
+
+def _first_candidate(
+    mapping: dict[str, str],
+    target_classes: frozenset[str],
+) -> str | None:
+    """First candidate in *mapping* with class in *target_classes*, preferring canonical names."""
+    canon: str | None = None
+    raw: str | None = None
+    for k, v in mapping.items():
+        if v in target_classes:
+            is_canon = "_" in k and k.islower()
+            if is_canon:
+                if canon is None:
+                    canon = k
+            elif raw is None:
+                raw = k
+        if canon is not None and raw is not None:
+            break
+    return canon or raw
+
+
+def _first_centro(mapping: dict[str, str]) -> str | None:
+    """Return first Centro candidate in *mapping*, preferring canonical names."""
+    canon: str | None = None
+    raw: str | None = None
+    for k, v in mapping.items():
+        if v == "Centro":
+            if "_" in k and k.islower():
+                if canon is None:
+                    canon = k
+            elif raw is None:
+                raw = k
+        if canon is not None and raw is not None:
+            break
+    return canon or raw
+
+
+def _derive_ideology_2class() -> dict[int, dict[str, str]]:
+    """Auto-derive 2-class ideology from the 5-class master map.
+
+    Centro candidates are excluded from automatic derivation per Option A.
+    If a year has no left or right candidate from non-Centro classes, the
+    first Centro candidate is used as a fallback for the missing side.
+    Canonical (lowercase_snake_case) names are preferred over raw MMV names.
+
+    Returns:
+        Dict mapping year -> ``{"left": candidate, "right": candidate}``.
+
+    """
+    result: dict[int, dict[str, str]] = {}
+    for (year, round_num), round_map in HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS.items():
+        if round_num != 1:
+            continue
+        left = _first_candidate(round_map, _IDEOLOGY_LEFT)
+        right = _first_candidate(round_map, _IDEOLOGY_RIGHT)
+        centro = _first_centro(round_map) if left is None or right is None else None
+        if left is None:
+            left = centro
+        if right is None:
+            right = centro
+        if left is not None and right is not None:
+            result[year] = {"left": left, "right": right}
+    return result
+
 
 # 5-class ideological classification for each presidential election (2002-2022).
-# Maps each year to ideology class -> candidate key.
+# Maps (year, round) -> {candidate: ideology_class}.
 # Expert-derived mapping based on Colombian political tradition.
 # Classes: Izquierda, Centro_Izquierda, Centro, Centro_Derecha, Derecha.
-HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS: dict[int, dict[str, str]] = {
-    2002: {"Centro_Izquierda": "horacio_serpa", "Derecha": "alvaro_uribe"},
-    2006: {"Izquierda": "carlos_gaviria", "Derecha": "alvaro_uribe"},
-    2010: {"Izquierda": "gustavo_petro", "Centro_Derecha": "juan_manuel_santos"},
-    2014: {"Izquierda": "clara_lopez", "Derecha": "oscar_ivan_zuluaga"},
-    2018: {"Izquierda": "gustavo_petro", "Derecha": "ivan_duque"},
-    2022: {"Izquierda": "gustavo_petro", "Derecha": "federico_gutierrez"},
+# Both canonical (lowercase_underscore) and raw MMV name variants are included
+# to support different column-name conventions in the feature matrix.
+# Canonical entries are ordered by approximate vote power so that the first
+# left/right match produces the expected 2-class derivation.
+HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS: dict[tuple[int, int], dict[str, str]] = {
+    (2002, 1): {
+        "alvaro_uribe": "Derecha",
+        "horacio_serpa": "Centro",
+        "luis_eduardo_garzon": "Izquierda",
+        "ingrid_betancourt": "Centro",
+        "noemi_sanin": "Centro_Derecha",
+    },
+    (2006, 1): {
+        "alvaro_uribe": "Derecha",
+        "carlos_gaviria": "Izquierda",
+        "horacio_serpa": "Centro",
+        "antanas_mockus": "Centro",
+    },
+    (2010, 1): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "antanas_mockus": "Centro",
+        "gustavo_petro": "Izquierda",
+        "noemi_sanin": "Centro_Derecha",
+    },
+    (2010, 2): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "antanas_mockus": "Centro",
+    },
+    (2014, 1): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "oscar_ivan_zuluaga": "Derecha",
+        "enrique_penalosa": "Centro",
+        "LOPEZ": "Izquierda",
+        "clara_lopez": "Izquierda",
+    },
+    (2014, 2): {
+        "juan_manuel_santos": "Centro_Derecha",
+        "oscar_ivan_zuluaga": "Derecha",
+    },
+    (2018, 1): {
+        "ivan_duque": "Derecha",
+        "gustavo_petro": "Izquierda",
+        "sergio_fajardo": "Centro",
+        "DE LA CALLE": "Centro_Izquierda",
+    },
+    (2018, 2): {
+        "ivan_duque": "Derecha",
+        "gustavo_petro": "Izquierda",
+    },
+    (2022, 1): {
+        "GUSTAVO PETRO": "Izquierda",
+        "gustavo_petro": "Izquierda",
+        "RODOLFO HERNÁNDEZ": "Derecha",
+        "rodolfo_hernandez": "Derecha",
+        "FEDERICO GUTIÉRREZ": "Centro_Derecha",
+        "federico_gutierrez": "Centro_Derecha",
+        "SERGIO FAJARDO": "Centro",
+        "sergio_fajardo": "Centro",
+        "INGRID BETANCOURT": "Centro",
+        "ingrid_betancourt": "Centro",
+        "JOHN MILTON RODRÍGUEZ": "Derecha",
+        "LUIS PÉREZ": "Centro_Derecha",
+    },
+    (2022, 2): {
+        "gustavo_petro": "Izquierda",
+        "rodolfo_hernandez": "Derecha",
+        "GUSTAVO PETRO": "Izquierda",
+        "RODOLFO HERNÁNDEZ": "Derecha",
+    },
 }
+
+
+# Auto-derived 2-class ideology from the 5-class master map.
+# Centro candidates excluded; canonical names preferred over raw MMV.
+HISTORICAL_CANDIDATE_IDEOLOGY: dict[int, dict[str, str]] = _derive_ideology_2class()
 
 # Round-2 overrides: when the runoff right-wing candidate differs from the
 # round-1 right-wing candidate (e.g. 2022: Rodolfo Hernandez).
 HISTORICAL_ROUND2_IDEOLOGY: dict[int, dict[str, str]] = {
     2022: {"left": "gustavo_petro", "right": "rodolfo_hernandez"},
 }
+
+
+def get_ideology(year: int, round_num: int) -> dict[str, str]:
+    """Return the left/right candidate mapping for a given year and round.
+
+    Uses ``HISTORICAL_ROUND2_IDEOLOGY`` for round 2 when available (e.g. 2022
+    R2 uses Rodolfo Hernández instead of the round-1 right candidate).  Falls
+    back to ``HISTORICAL_CANDIDATE_IDEOLOGY`` (auto-derived from 5-class map)
+    otherwise.
+
+    Args:
+        year: Election year.
+        round_num: Election round (1 or 2).
+
+    Returns:
+        Dict with ``"left"`` and ``"right"`` keys, or empty dict if the year
+        is not in the registry.
+
+    """
+    if round_num == _ROUND_TWO and year in HISTORICAL_ROUND2_IDEOLOGY:
+        return HISTORICAL_ROUND2_IDEOLOGY[year]
+    return HISTORICAL_CANDIDATE_IDEOLOGY.get(year, {})
+
 
 # Source definition for historical turnout data.
 # Each entry maps an election year to the primary data source for municipal
@@ -501,7 +701,7 @@ HISTORICAL_TURNOUT_SOURCE: dict[int, str] = {
 
 # Transfer-heuristic constants were calibrated to match the aggregate split
 # across 8 pollsters (~27% to Petro, ~73% to Hernandez). See
-# ``notebooks/derive_transfer_constants.py`` for the derivation.
+# ``scripts/derive_transfer_constants.py`` for the derivation.
 # NOTE: These values invert and adjust the SPEC-02 placeholder values.
 TRANSFER_FAJARDO_PETRO: float = 0.40
 TRANSFER_FAJARDO_HERNANDEZ: float = 0.60

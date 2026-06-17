@@ -9,9 +9,11 @@ helpers for use by ``runner.py``.
 from __future__ import annotations
 
 import logging
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
+from sklearn.exceptions import ConvergenceWarning  # type: ignore[reportMissingTypeStubs]
 from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
     r2_score,  # type: ignore[reportUnknownVariableType]
     root_mean_squared_error,  # type: ignore[reportUnknownVariableType]
@@ -69,7 +71,9 @@ def fit_model(
         Fitted model.
 
     """
-    model.fit(x, y)  # type: ignore[reportUnknownMemberType]
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ConvergenceWarning, module="sklearn")
+        model.fit(x, y)  # type: ignore[reportUnknownMemberType]
     return model
 
 

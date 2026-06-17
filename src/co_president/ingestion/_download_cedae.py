@@ -200,8 +200,8 @@ def _cedae_candidate_key(row: dict[str, object]) -> str:
 
     Concatenates ``nombres`` + ``primer_apellido`` (and optionally
     ``segundo_apellido``) and looks it up in
-    ``_CEDAE_CANDIDATE_MAP``.  Falls back to ``primer_apellido`` when
-    no match is found, then to ``nombres``.
+    ``_CEDAE_CANDIDATE_MAP``.  Falls back to ``"UNKNOWN"``
+    when no match is found, distinguishable from any real canonical key.
     """
     nombres = str(row.get("nombres", "") or "").strip()
     primer = str(row.get("primer_apellido", "") or "").strip()
@@ -217,11 +217,24 @@ def _cedae_candidate_key(row: dict[str, object]) -> str:
     if name_2 in _CEDAE_CANDIDATE_MAP:
         return _CEDAE_CANDIDATE_MAP[name_2]
 
-    if primer:
-        logger.debug("Unmapped CEDAE candidate: %s (using raw last name)", full_name)
-        return primer
+    if full_name:
+        logger.debug("Unmapped CEDAE candidate: %s", full_name)
 
-    return nombres or "UNKNOWN"
+    return f"UNKNOWN_{full_name}" if full_name else "UNKNOWN"
+
+
+def _log_unknown_candidates(records: pd.DataFrame, filename: str) -> None:
+    """Log a warning if any rows have unmapped (``UNKNOWN_*``) candidate keys."""
+    unknown = records[records["candidate"].str.startswith("UNKNOWN", na=False)]
+    if unknown.empty:
+        return
+    unknown_keys = unknown["candidate"].unique().tolist()
+    logger.warning(
+        "CEDAE %s: %d rows have unmapped candidates (%s)",
+        filename,
+        len(unknown),
+        unknown_keys,
+    )
 
 
 _ROUND_FILE_PATTERNS: dict[int, list[str]] = {
@@ -236,6 +249,18 @@ def _validate_round_num(round_num: int) -> None:
         keys = list(_ROUND_FILE_PATTERNS.keys())
         msg = f"Invalid round_num={round_num!r}. Expected one of {keys}."
         raise ValueError(msg)
+
+
+def _find_cedae_file(data_dir: Path, year: int, round_num: int) -> Path | None:
+    """Locate a CEDAE CSV file for *year*/*round_num* under *data_dir*."""
+    cedae_dir = data_dir / "raw" / "cedae"
+    if not cedae_dir.is_dir():
+        return None
+    for suffix in _ROUND_FILE_PATTERNS[round_num]:
+        candidate = cedae_dir / f"{year}{suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def fetch_local_cedae_results(
@@ -268,19 +293,7 @@ def fetch_local_cedae_results(
     if data_dir is None:
         data_dir = resolve_data_dir(None)
 
-    cedae_dir = data_dir / "raw" / "cedae"
-    if not cedae_dir.is_dir():
-        return None
-
-    patterns = _ROUND_FILE_PATTERNS[round_num]
-    candidate_path: Path | None = None
-
-    for suffix in patterns:
-        candidate = cedae_dir / f"{year}{suffix}"
-        if candidate.is_file():
-            candidate_path = candidate
-            break
-
+    candidate_path = _find_cedae_file(data_dir, year, round_num)
     if candidate_path is None:
         return None
 
@@ -291,7 +304,7 @@ def fetch_local_cedae_results(
             encoding="latin-1",
             dtype={"codmpio": str, "coddpto": str},
         )
-    except Exception as exc:  # noqa: BLE001
+    except (pd.errors.ParserError, OSError, ValueError) as exc:
         logger.warning("Failed to read CEDAE file %s: %s", candidate_path, exc)
         return None
 
@@ -321,11 +334,13 @@ def fetch_local_cedae_results(
                     candidate_path.name,
                 )
             )
-        except Exception as exc:  # noqa: BLE001
+        except (ValueError, KeyError) as exc:
             logger.warning("Failed to process group %s/%s: %s", codmpio, ano, exc)
             continue
 
     df = pd.DataFrame(records)
+    if not df.empty:
+        _log_unknown_candidates(df, candidate_path.name)
     n_munis = df["codigo_municipio"].nunique() if not df.empty else 0
     logger.info(
         "Loaded local CEDAE %s (%d rows, %d municipalities)",

@@ -22,10 +22,15 @@ from co_president.ingestion.ingest_cnpv import (
     _aggregate_chunk_f9,
     _aggregate_chunk_f11,
     _compute_percentages,
-    _zero_pad_dane_code,
+    _seen_code_warnings,
     iter_cnpv_zip,
     validate_cnpv,
 )
+
+
+def _zero_pad_dane_code(u_dpto: str | int, u_mpio: str | int) -> str:
+    """Combine department and municipality codes into a 5-digit DANE code."""
+    return str(u_dpto).strip().zfill(2) + str(u_mpio).strip().zfill(3)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -111,7 +116,7 @@ class TestZeroPadDaneCode:
 
     def test_integer_inputs(self) -> None:
         """Integer inputs are converted to strings."""
-        assert _zero_pad_dane_code(5, 1) == "05001"  # type: ignore[arg-type]
+        assert _zero_pad_dane_code(5, 1) == "05001"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -253,6 +258,36 @@ class TestF11Aggregation:
         by_code = out.set_index("codigo_municipio")["poblacion_total"]
         assert by_code["05001"] == 2
         assert by_code["05002"] == 3
+
+    def test_unrecognized_p_trabajo_code_warns(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """P_TRABAJO code 99 is excluded and logs warning."""
+        _seen_code_warnings.clear()
+        chunk = _synthetic_f11(
+            rows=3,
+            overrides=_F11Overrides(trabajo={0: 1, 1: 99, 2: 99}),
+        )
+        out = _aggregate_chunk_f11(chunk)
+        assert out["labor_force_active"].sum() == 1.0
+        assert out["labor_force_denom"].sum() == 1.0
+        assert any("P_TRABAJO" in r.message for r in caplog.records)
+
+    def test_unrecognized_pa_asistencia_code_warns(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """PA_ASISTENCIA code 88 is excluded and logs warning."""
+        _seen_code_warnings.clear()
+        chunk = _synthetic_f11(
+            rows=3,
+            overrides=_F11Overrides(asistencia={0: 1, 1: 88, 2: 88}),
+        )
+        out = _aggregate_chunk_f11(chunk)
+        assert out["school_attendance_yes"].sum() == 1.0
+        assert out["school_attendance_denom"].sum() == 1.0
+        assert any("PA_ASISTENCIA" in r.message for r in caplog.records)
 
 
 # ═══════════════════════════════════════════════════════════════════════

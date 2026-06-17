@@ -45,8 +45,10 @@ def _classify_with_pysentimiento(tweets: list[str]) -> pd.DataFrame:
                 raw = pred.probas  # type: ignore[reportUnknownVariableType, union-attr]
                 if isinstance(raw, dict):
                     probas = {k: float(v) for k, v in raw.items()}  # type: ignore[reportUnknownVariableType]
-        except Exception:  # noqa: BLE001
-            logger.warning("pysentimiento failed for tweet, using zero probs")
+        except Exception:
+            logger.exception(
+                "pysentimiento failed for tweet, using zero probs", extra={"tweet_len": len(tweet)}
+            )
         row = {label: probas.get(label, 0.0) for label in _EMOTION_LABELS}
         for extra in ("anger", "surprise"):
             if extra in probas:
@@ -77,8 +79,10 @@ def _classify_with_transformers(tweets: list[str]) -> pd.DataFrame:
                 probas = {item["label"].lower(): item["score"] for item in output}
             else:
                 probas = {output["label"].lower(): output["score"]}  # type: ignore[reportIndexIssue]
-        except Exception:  # noqa: BLE001
-            logger.warning("transformers failed for tweet, using zero probs")
+        except Exception:
+            logger.exception(
+                "transformers failed for tweet, using zero probs", extra={"tweet_len": len(tweet)}
+            )
         row = {label: probas.get(label, 0.0) for label in _EMOTION_LABELS}
         for extra in ("anger", "surprise"):
             if extra in probas:
@@ -119,7 +123,7 @@ def classify_emotions(
     except ImportError:
         logger.info("pysentimiento not installed, falling back to transformers")
         result = _classify_with_transformers(input_list)
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, ValueError, OSError, KeyError) as exc:
         logger.warning("pysentimiento failed (%s), falling back to transformers", exc)
         result = _classify_with_transformers(input_list)
 

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from co_president.config import EXPECTED_MUNICIPALITIES
 from co_president.paths import resolve_data_dir
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1_122
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES
 
 # Column indices in the Municipios sheet (0-indexed after skiprows).
 _COL_DEPT_CODE = 0
@@ -135,8 +136,8 @@ def validate_nbi(df: pd.DataFrame) -> list[str]:
     if bad_length > 0:
         warnings.append(f"{bad_length} codigo_municipio value(s) with length != 5")
 
-    if len(df) < _EXPECTED_MUNICIPALITIES:
-        warnings.append(f"Expected {_EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
+    if len(df) < EXPECTED_MUNICIPALITIES:
+        warnings.append(f"Expected {EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
 
     return warnings
 

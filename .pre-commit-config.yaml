@@ -15,13 +15,13 @@ repos:
     hooks:
       - id: pyright
         name: pyright
-        entry: uv run pyright src/
+        entry: env NODE_OPTIONS="--max-old-space-size=4096" uv run pyright src/
         language: system
         types: [python]
         pass_filenames: false
 
       - id: large-files
         name: check for large files
-        entry: bash -c 'for f in "$@"; do case "$f" in data/2022-presidential-results/*|data/raw/cedae/*|data/fundamentals/*|data/processed/*) continue;; esac; if [ $(stat -c%s "$f") -gt 1048576 ]; then echo "$f exceeds 1MB"; exit 1; fi; done' --
+        entry: bash -c 'for f in "$@"; do case "$f" in data/2022-presidential-results/*|data/raw/cedae/*|data/fundamentals/*|data/processed/*|data/moe_censo_electoral/*) continue;; esac; if [ $(stat -c%s "$f") -gt 1048576 ]; then echo "$f exceeds 1MB"; exit 1; fi; done' --
         language: system
         types: [file]

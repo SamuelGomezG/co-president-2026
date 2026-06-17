@@ -395,7 +395,7 @@ def _log_ml_baseline_comparison(
                 bayesian_r2,
                 best_str,
             )
-    except Exception:
+    except (ValueError, TypeError, KeyError, ImportError, OSError):
         logger.exception("ML baseline comparison skipped (non-fatal)")
 
 
@@ -809,10 +809,11 @@ def run_sensitivity_ablation(
             loo_result = az.loo(idata, var_name="p_natl")  # type: ignore[reportUnknownMemberType]
             waic_val = float(waic_result.waic)  # type: ignore[reportUnknownMemberType]
             loo_val = float(loo_result.loo)  # type: ignore[reportUnknownMemberType]
-        except Exception:
+        except (ValueError, RuntimeError, TypeError, AttributeError):
             logger.exception(
                 "run_sensitivity_ablation: WAIC/LOO computation failed for '%s'",
                 name,
+                extra={"configuration": name},
             )
             waic_val = float("nan")
             loo_val = float("nan")

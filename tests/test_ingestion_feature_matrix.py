@@ -15,6 +15,7 @@ from co_president.ingestion.build_feature_matrix import (
     load_all_components,
     pivot_historical_wide,
     save_feature_matrix,
+    validate_component_consistency,
     validate_component_health,
 )
 
@@ -637,6 +638,145 @@ class TestSaveFeatureMatrix:
         empty = pd.DataFrame()
         with pytest.raises(ValueError, match="empty"):
             save_feature_matrix(empty, data_dir=tmp_path)
+
+    def test_reconciles_overlapping_columns(self, tmp_path: Path) -> None:
+        """Resolves ``_x``/``_y`` suffixes before writing to disk."""
+        matrix = pd.DataFrame(
+            {
+                "codigo_municipio": ["05001", "05002"],
+                "pct_afro_colombian_x": [0.1, 0.2],
+                "pct_afro_colombian_y": [0.15, 0.25],
+                "nbi_rate_x": [0.3, 0.4],
+                "nbi_rate_y": [0.35, 0.45],
+            }
+        )
+        save_feature_matrix(matrix, data_dir=tmp_path)
+        loaded = pd.read_csv(
+            tmp_path / "processed" / "municipal_feature_matrix.csv",
+            dtype={"codigo_municipio": str},
+        )
+        suffix_cols = [c for c in loaded.columns if c.endswith(("_x", "_y"))]
+        assert not suffix_cols, f"Found unresolved overlapping columns: {suffix_cols}"
+        assert "pct_afro_colombian" in loaded.columns
+        assert "nbi_rate" in loaded.columns
+
+
+# ═══════════════════════════════════════════════════════════════════
+# validate_component_consistency
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestValidateComponentConsistency:
+    """``validate_component_consistency`` detects municipality-set mismatches."""
+
+    def test_clean_components_return_empty_report(self) -> None:
+        """All municipalities match DIVIPOLA exactly."""
+        divipola = _make_divipola(3)
+        codes = list(divipola["codigo_municipio"])
+        components: dict[str, pd.DataFrame] = {
+            "divipola": divipola,
+            "nbi": pd.DataFrame(
+                {
+                    "codigo_municipio": codes,
+                    "nbi_rate": [0.10, 0.72, 0.50],
+                }
+            ).astype({"codigo_municipio": str}),
+        }
+        report = validate_component_consistency(components)
+        assert report == {}
+
+    def test_extra_codes_detected(self) -> None:
+        """Component with codes absent from DIVIPOLA appears in report."""
+        divipola = _make_divipola(3)
+        codes = list(divipola["codigo_municipio"])
+        components: dict[str, pd.DataFrame] = {
+            "divipola": divipola,
+            "nbi": pd.DataFrame(
+                {
+                    "codigo_municipio": [*codes, "00004"],
+                    "nbi_rate": [0.10, 0.72, 0.50, 0.60],
+                }
+            ).astype({"codigo_municipio": str}),
+        }
+        report = validate_component_consistency(components)
+        assert "nbi" in report
+        assert report["nbi"]["extra"] == {"00004"}
+        assert not report["nbi"]["missing"]
+
+    def test_missing_codes_detected(self) -> None:
+        """Component lacking DIVIPOLA codes appears in report."""
+        divipola = _make_divipola(5)
+        codes = list(divipola["codigo_municipio"])
+        components: dict[str, pd.DataFrame] = {
+            "divipola": divipola,
+            "nbi": pd.DataFrame(
+                {
+                    "codigo_municipio": codes[:3],
+                    "nbi_rate": [0.10, 0.72, 0.50],
+                }
+            ).astype({"codigo_municipio": str}),
+        }
+        report = validate_component_consistency(components)
+        assert "nbi" in report
+        assert not report["nbi"]["extra"]
+        assert report["nbi"]["missing"] == {"00004", "00005"}
+
+    def test_both_extra_and_missing(self) -> None:
+        """Component with both surplus and deficit."""
+        divipola = _make_divipola(3)
+        components: dict[str, pd.DataFrame] = {
+            "divipola": divipola,
+            "nbi": pd.DataFrame(
+                {
+                    "codigo_municipio": [f"{i:05d}" for i in range(2, 6)],
+                    "nbi_rate": [0.72, 0.50, 0.60, 0.80],
+                }
+            ).astype({"codigo_municipio": str}),
+        }
+        report = validate_component_consistency(components)
+        assert "nbi" in report
+        assert report["nbi"]["extra"] == {"00004", "00005"}
+        assert report["nbi"]["missing"] == {"00001"}
+
+    def test_missing_divipola_returns_empty(self) -> None:
+        """No DIVIPOLA key produces empty report instead of crashing."""
+        components: dict[str, pd.DataFrame] = {"nbi": _make_nbi(3)}
+        report = validate_component_consistency(components)
+        assert report == {}
+
+    def test_empty_component_skipped(self) -> None:
+        """Empty DataFrames are silently skipped."""
+        divipola = _make_divipola(3)
+        codes = list(divipola["codigo_municipio"])
+        components: dict[str, pd.DataFrame] = {
+            "divipola": divipola,
+            "nbi": pd.DataFrame(
+                {
+                    "codigo_municipio": codes,
+                    "nbi_rate": [0.10, 0.72, 0.50],
+                }
+            ).astype({"codigo_municipio": str}),
+            "empty_comp": pd.DataFrame(),
+        }
+        report = validate_component_consistency(components)
+        assert "empty_comp" not in report
+
+    def test_component_missing_codigo_column_skipped(self) -> None:
+        """DataFrames without ``codigo_municipio`` are skipped."""
+        divipola = _make_divipola(3)
+        codes = list(divipola["codigo_municipio"])
+        components: dict[str, pd.DataFrame] = {
+            "divipola": divipola,
+            "nbi": pd.DataFrame(
+                {
+                    "codigo_municipio": codes,
+                    "nbi_rate": [0.10, 0.72, 0.50],
+                }
+            ).astype({"codigo_municipio": str}),
+            "bad": pd.DataFrame({"foo": [1, 2, 3]}),
+        }
+        report = validate_component_consistency(components)
+        assert "bad" not in report
 
 
 # ═══════════════════════════════════════════════════════════════════

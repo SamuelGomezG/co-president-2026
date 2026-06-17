@@ -98,6 +98,7 @@ def build_ecp_features(data_dir: Path | None = None) -> None:
     """
     base = resolve_data_dir(data_dir)
     wave_frames: list[pd.DataFrame] = []
+    failed_zips: list[str] = []
 
     for year in _ECP_WAVES:
         wave_dir = base / "raw" / f"DANE-DIMPE-ECP-{year}"
@@ -105,7 +106,7 @@ def build_ecp_features(data_dir: Path | None = None) -> None:
             logger.info("ECP wave %d not found at %s — skipping", year, wave_dir)
             continue
 
-        df = _build_wave_panel(wave_dir, year)
+        df = _build_wave_panel(wave_dir, year, failed_zips)
         if df is not None:
             wave_frames.append(df)
             logger.info(
@@ -113,6 +114,13 @@ def build_ecp_features(data_dir: Path | None = None) -> None:
                 year,
                 df["region_code"].nunique(),
             )
+
+    if failed_zips:
+        logger.warning(
+            "ECP: %d zip file(s) failed to parse: %s",
+            len(failed_zips),
+            ", ".join(sorted(failed_zips)),
+        )
 
     if not wave_frames:
         msg = f"No ECP wave data found under {base / 'raw' / 'DANE-DIMPE-ECP-*'}"
@@ -213,7 +221,11 @@ def validate_ecp(df: pd.DataFrame) -> list[str]:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
+def _build_wave_panel(
+    wave_dir: Path,
+    year: int,
+    failed_zips: list[str],
+) -> pd.DataFrame | None:
     """Assemble a single ECP wave into region-level panel rows.
 
     Steps:
@@ -224,12 +236,13 @@ def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
     Args:
         wave_dir: Path to the wave directory.
         year: The survey wave year.
+        failed_zips: Accumulator for failed zip filenames.
 
     Returns:
         DataFrame with one row per region, or ``None`` if no data.
 
     """
-    housing = _load_housing_table(wave_dir, year)
+    housing = _load_housing_table(wave_dir, year, failed_zips)
     if housing is None or housing.empty:
         logger.debug("ECP %d: no housing table found", year)
         return None
@@ -257,7 +270,9 @@ def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
     module_indices: dict[str, pd.Series] = {}
 
     for construct, zip_fragments in _MODULE_ZIP_FRAGMENTS.items():
-        series = _compute_module_index(wave_dir, year, construct, zip_fragments, housing)
+        series = _compute_module_index(
+            wave_dir, year, construct, zip_fragments, housing, failed_zips
+        )
         if series is not None:
             module_indices[construct] = series
 
@@ -286,12 +301,59 @@ def _build_wave_panel(wave_dir: Path, year: int) -> pd.DataFrame | None:
     return result[_OUTPUT_COLUMNS].copy()
 
 
-def _compute_module_index(
+_METADATA_PATTERN_THRESHOLD: int = 6
+
+
+def _warn_ecp_metadata_codes(
+    questions: pd.DataFrame,
+    construct: str,
+    year: int,
+) -> None:
+    """Warn if any question column contains non-numeric or >6 values.
+
+    ECP Likert-scale questions should be 1-5 or 1-6.  Values >6 are
+    metadata codes (e.g., 9 = No Informa) that ``pd.to_numeric`` with
+    ``errors="coerce"`` would silently convert to NaN.
+
+    Args:
+        questions: DataFrame of question columns (``dtype=str``).
+        construct: Module construct name for warning context.
+        year: Survey wave year for warning context.
+
+    """
+    numeric = questions.apply(pd.to_numeric, errors="coerce")
+    for col in questions.columns:
+        col_str = questions[col]
+        col_num = numeric[col]
+        bad_parse = col_str.notna() & col_num.isna()
+        if bad_parse.any():
+            logger.warning(
+                "ECP %d %s: %s contains non-numeric values — will become NaN after coercion",
+                year,
+                construct,
+                col,
+            )
+            continue
+        vals = numeric[col].dropna()
+        above = (vals > _METADATA_PATTERN_THRESHOLD).sum()
+        if above > 0:
+            logger.warning(
+                "ECP %d %s: %d values > %d in %s — likely metadata codes (e.g., 9=No Informa)",
+                year,
+                construct,
+                above,
+                _METADATA_PATTERN_THRESHOLD,
+                col,
+            )
+
+
+def _compute_module_index(  # noqa: PLR0913
     wave_dir: Path,
     year: int,
     construct: str,
     zip_fragments: list[str],
     housing: pd.DataFrame,
+    failed_zips: list[str],
 ) -> pd.Series | None:
     """Compute one region-level index for a thematic module.
 
@@ -303,7 +365,7 @@ def _compute_module_index(
         Series ``region_code → weighted_mean``, or ``None``.
 
     """
-    module_df = _load_module(wave_dir, zip_fragments, year)
+    module_df = _load_module(wave_dir, zip_fragments, year, failed_zips)
     if module_df is None:
         logger.debug("ECP %d: module %s not found", year, construct)
         return None
@@ -326,6 +388,7 @@ def _compute_module_index(
     if not question_cols:
         return None
 
+    _warn_ecp_metadata_codes(merged[question_cols], construct, year)
     merged[question_cols] = merged[question_cols].apply(pd.to_numeric, errors="coerce")
 
     person_mean = merged[question_cols].mean(axis=1, skipna=True)
@@ -351,12 +414,13 @@ def _find_zip(wave_dir: Path, fragment: str) -> Path | None:
     return None
 
 
-def _read_csv_from_zip(zip_path: Path, year: int) -> pd.DataFrame | None:
+def _read_csv_from_zip(zip_path: Path, year: int, failed_zips: list[str]) -> pd.DataFrame | None:
     """Read the first CSV/TSV from *zip_path* with format detection.
 
     Args:
         zip_path: Path to the zip archive.
         year: Wave year (pre-2013 uses tab delimiter, otherwise comma).
+        failed_zips: Accumulator for failed zip filenames.
 
     Returns:
         DataFrame, or ``None`` on failure.
@@ -376,12 +440,13 @@ def _read_csv_from_zip(zip_path: Path, year: int) -> pd.DataFrame | None:
                         df = pd.read_csv(fh, sep=",", encoding="utf-8-sig", dtype=str)
                     if len(df.columns) >= _MIN_COLUMNS_VALID_ZIP:
                         return df
-    except Exception:  # noqa: BLE001
-        logger.debug("Failed to read %s", zip_path, exc_info=True)
+    except (zipfile.BadZipFile, pd.errors.ParserError, OSError):
+        logger.warning("ECP: failed to read %s", zip_path, exc_info=True)
+        failed_zips.append(zip_path.name)
     return None
 
 
-def _load_housing_table(wave_dir: Path, year: int) -> pd.DataFrame | None:
+def _load_housing_table(wave_dir: Path, year: int, failed_zips: list[str]) -> pd.DataFrame | None:
     """Load the housing / household table containing FEX_P and REGION.
 
     In 2011 the household table is ``Tabla hogares.zip``.
@@ -391,7 +456,7 @@ def _load_housing_table(wave_dir: Path, year: int) -> pd.DataFrame | None:
     for frag in ["Tabla", "Viviendas", "viviendas", "hogares"]:
         zip_path = _find_zip(wave_dir, frag)
         if zip_path is not None:
-            df = _read_csv_from_zip(zip_path, year)
+            df = _read_csv_from_zip(zip_path, year, failed_zips)
             if df is not None and _WEIGHT_COLUMN in df.columns:
                 return df
     return None
@@ -401,12 +466,13 @@ def _load_module(
     wave_dir: Path,
     zip_fragments: list[str],
     year: int,
+    failed_zips: list[str],
 ) -> pd.DataFrame | None:
     """Load the first available module zip matching *zip_fragments*."""
     for frag in zip_fragments:
         zip_path = _find_zip(wave_dir, frag)
         if zip_path is not None:
-            df = _read_csv_from_zip(zip_path, year)
+            df = _read_csv_from_zip(zip_path, year, failed_zips)
             if df is not None and len(df.columns) >= _MIN_COLUMNS_VALID_MODULE:
                 return df
     return None

@@ -2,10 +2,10 @@
 
 Extends SPEC-13.2 with a three-tier data cascade for each source:
 (1) local cached file in ``data/conflict/``, (2) remote download, (3)
-hardcoded fallback.  The MOE risk classifier is expanded to full DIVIPOLA
-coverage, INDEPAZ covers all known conflict-affected municipalities, and
-UNODC covers all major coca-growing areas.  PDET is read from the
-official catalog Excel when available.
+hardcoded fallback.  MOE risk uses historical CSV files (2007-2023),
+INDEPAZ covers all known conflict-affected municipalities, and UNODC
+covers all major coca-growing areas.  PDET is read from the official
+catalog Excel when available.
 """
 
 from __future__ import annotations
@@ -18,16 +18,15 @@ import tempfile
 from bs4 import BeautifulSoup
 import pandas as pd
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from co_president.paths import resolve_data_dir
 
 __all__ = [
     "build_risk_matrix",
     "calculate_risk_features",
-    "fetch_moe_risk_maps",
     "fetch_pdet_list",
     "fetch_unodc_coca",
+    "load_historical_moe_risk",
     "parse_indepaz_pdf",
 ]
 
@@ -37,8 +36,9 @@ _EXPECTED_PDET_COUNT = 170
 _MIN_PDF_TABLE_COLUMNS = 2
 
 _CONFLICT_DIR_NAME = "conflict"
+_MOE_CSV_DIR = "moe_mapas_riesgo_consolidado"
 
-# Minimal name→code lookup for PDET municipalities scraped from the remote portal.
+# Minimal name code lookup for PDET municipalities scraped from the remote portal.
 _PDET_NAME_TO_CODE: dict[str, str] = {
     "Quibdó": "27001",
     "Istmina": "27361",
@@ -85,14 +85,12 @@ _PDET_NAME_TO_CODE: dict[str, str] = {
     "Unión Panamericana": "27175",
 }
 
-_MOE_RISK_URL = "https://moe.org.co/datos-electorales/mapas-de-riesgo-electoral/"
 _INDEPAZ_PDF_URL = "https://indepaz.org.co/wp-content/uploads/2022/11/RESUMEN_GRUPOS_2022.pdf"
 _PDET_URL = "https://centralpdet.renovacionterritorio.gov.co/conoce-los-pdet/"
 _UNODC_COCA_URL = (
     "https://www.unodc.org/documents/colombia/2022/coca_cultivation_municipal_2022.pdf"
 )
 
-_LOCAL_MOE_RISK_PDF = "Mapas-de-Riesgo-Electoral-2022_DIGITAL-1.pdf"
 _LOCAL_INDEPAZ_PDF = "indepaz_RESUMEN_GRUPOS_2022.pdf"
 _LOCAL_PDET_XLSX = "MunicipiosPDET.xlsx"
 _LOCAL_UNODC_PDF = "UNODC_Colombia_informe_monitoreo_2023.pdf"
@@ -127,51 +125,72 @@ def _try_extract_pdf_pymupdf(pdf_path: str) -> pd.DataFrame | None:
             return pd.DataFrame(records)
     except ImportError:
         logger.warning("pymupdf not installed; cannot parse PDF %s", pdf_path)
-    except Exception as exc:  # noqa: BLE001
+    except (RuntimeError, FileNotFoundError) as exc:
         logger.warning("Failed to extract tables with pymupdf from PDF %s: %s", pdf_path, exc)
     return None
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
-def _fetch_moe_page() -> requests.Response:
-    """Fetch MOE risk maps page with retries — raises on failure."""
-    response = requests.get(_MOE_RISK_URL, timeout=30)
-    response.raise_for_status()
-    return response
+def load_historical_moe_risk(data_dir: Path | None = None) -> pd.DataFrame:
+    """Load historical MOE electoral risk data from CSV files (2007-2023).
 
+    Reads all CSV files from ``data/conflict/moe_mapas_riesgo_consolidado/``,
+    maps the ``riesgo`` text to standardised levels (extreme, high, medium, low),
+    and pivots wide so each year gets ``moe_risk_{year}`` and
+    ``moe_high_risk_{year}`` columns.  Municipalities not listed in any year
+    are assigned ``low`` risk.
 
-def fetch_moe_risk_maps() -> pd.DataFrame:
-    """Fetch MOE electoral risk classification.
-
-    Three-tier cascade:
-    1. Parse the local MOE risk map PDF in ``data/conflict/``.
-    2. Scrape the MOE risk maps page for CSV/Excel download links.
-    3. Fall back to a full-coverage classification based on DIVIPOLA.
+    Args:
+        data_dir: Root data directory. If ``None``, resolved from the
+            package's default data location.
 
     Returns:
-        DataFrame with ``codigo_municipio`` and ``risk_level`` columns.
+        DataFrame with ``codigo_municipio`` and one ``moe_risk_*`` /
+        ``moe_high_risk_*`` column per election year.
+
+    Raises:
+        FileNotFoundError: If the MOE risk directory or any required CSV
+            is missing.
 
     """
-    local = _try_local_moe_pdf()
-    if local is not None:
-        return local
-    try:
-        response = _fetch_moe_page()
-        soup = BeautifulSoup(response.text, "html.parser")
-        for link in soup.select("a[href$='.csv'], a[href$='.xlsx']"):
-            href = str(link.get("href", ""))
-            if not href:
-                continue
-            try:
-                df = pd.read_csv(href) if href.endswith(".csv") else pd.read_excel(href)  # type: ignore[reportUnknownMemberType]
-                if _is_valid_moe_df(df):
-                    return df
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to parse MOE download from %s: %s", href, exc)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("MOE risk page fetch failed: %s", exc)
-    logger.warning("All MOE fetch attempts failed; using hardcoded fallback")
-    return _moe_hardcoded_fallback()
+    riesgo_map: dict[str, str] = {
+        "Extremo (por alto nivel de la variable)": "extreme",
+        "Alto (por alto nivel de la variable)": "high",
+        "Medio (por alto nivel de la variable)": "medium",
+    }
+
+    data_dir = resolve_data_dir(data_dir)
+    moe_dir = data_dir / _CONFLICT_DIR_NAME / _MOE_CSV_DIR
+
+    yearly_frames: list[pd.DataFrame] = []
+    for csv_path in sorted(moe_dir.glob("*.csv")):
+        raw = pd.read_csv(csv_path, dtype={"codmpio": str, "annoh": int, "riesgo": str})
+        raw["codigo_municipio"] = raw["codmpio"].str.zfill(5)
+        raw["riesgo_std"] = raw["riesgo"].map(riesgo_map)
+        year = int(raw["annoh"].iloc[0])
+        if (raw["annoh"] != year).any():
+            msg = f"Multiple years in {csv_path.name}"
+            raise ValueError(msg)
+
+        year_df = raw[["codigo_municipio", "riesgo_std"]].copy()
+        year_df = year_df.rename(columns={"riesgo_std": f"moe_risk_{year}"})
+        year_df[f"moe_high_risk_{year}"] = (
+            year_df[f"moe_risk_{year}"].isin(["extreme", "high"]).astype(int)
+        )
+        yearly_frames.append(year_df)
+
+    divipola = pd.read_csv(
+        data_dir / "fundamentals" / "divipola_master.csv",
+        dtype={"codigo_municipio": str},
+    )
+    result = divipola[["codigo_municipio"]].copy()
+
+    for ydf in yearly_frames:
+        year = ydf.columns[1].replace("moe_risk_", "")
+        result = result.merge(ydf, on="codigo_municipio", how="left")
+        result[f"moe_risk_{year}"] = result[f"moe_risk_{year}"].fillna("low")
+        result[f"moe_high_risk_{year}"] = result[f"moe_high_risk_{year}"].fillna(0).astype(int)
+
+    return result
 
 
 def parse_indepaz_pdf(pdf_path: str | None = None) -> pd.DataFrame:
@@ -238,7 +257,7 @@ def fetch_pdet_list() -> pd.DataFrame:
                     logger.warning("PDET municipality name not in lookup: %s", name)
             if codes:
                 return pd.DataFrame({"codigo_municipio": codes, "is_pdet": 1})
-    except Exception as exc:  # noqa: BLE001
+    except (requests.RequestException, AttributeError) as exc:
         logger.warning("PDET portal fetch failed: %s", exc)
     logger.warning("PDET remote fetch failed; using hardcoded fallback")
     return _pdet_hardcoded_fallback()
@@ -271,10 +290,23 @@ def fetch_unodc_coca() -> pd.DataFrame:
                 df = df.rename(columns={"municipio": "codigo_municipio", "value": "coca_hectares"})
                 df["coca_hectares"] = pd.to_numeric(df["coca_hectares"], errors="coerce").fillna(0)
                 return df
-    except Exception as exc:  # noqa: BLE001
+    except requests.RequestException as exc:
         logger.warning("UNODC PDF fetch failed: %s", exc)
     logger.warning("All UNODC coca fetch attempts failed; using hardcoded fallback")
     return _coca_hardcoded_fallback()
+
+
+def _latest_year_from_columns(columns: pd.Index, prefix: str = "moe_risk_") -> int | None:
+    """Extract the most recent year from a set of column names matching *prefix*."""
+    years: list[int] = []
+    for col in columns:
+        if str(col).startswith(prefix):
+            suffix = str(col).removeprefix(prefix)
+            try:
+                years.append(int(suffix))
+            except ValueError:
+                continue
+    return max(years) if years else None
 
 
 def calculate_risk_features(
@@ -286,7 +318,8 @@ def calculate_risk_features(
     """Combine all risk indicators into a single feature set.
 
     Args:
-        moe: DataFrame with ``codigo_municipio`` and ``risk_level``.
+        moe: Wide-format DataFrame with ``codigo_municipio`` and
+            ``moe_risk_{year}`` / ``moe_high_risk_{year}`` columns.
         indepaz: DataFrame with ``codigo_municipio`` and
             ``armed_group_presence``.
         pdet: DataFrame with ``codigo_municipio`` and ``is_pdet``.
@@ -294,7 +327,8 @@ def calculate_risk_features(
 
     Returns:
         DataFrame with one row per municipality and all risk indicators.
-        Municipalities not found in a source get zero-filled values.
+        Backward-compatible ``risk_level`` and ``high_risk_flag`` columns
+        are derived from the most recent MOE year present.
 
     """
     combined = moe.copy()
@@ -321,9 +355,13 @@ def calculate_risk_features(
     else:
         coca_col = pd.Series(0, index=combined.index)
     combined["coca_hectares"] = coca_col
-    if "risk_level" in combined.columns:
-        combined["high_risk_flag"] = combined["risk_level"].isin(["extreme", "high"]).astype(int)
+
+    latest_year = _latest_year_from_columns(combined.columns)
+    if latest_year is not None:
+        combined["risk_level"] = combined[f"moe_risk_{latest_year}"]
+        combined["high_risk_flag"] = combined[f"moe_high_risk_{latest_year}"].astype(int)
     else:
+        combined["risk_level"] = "low"
         combined["high_risk_flag"] = 0
     return combined
 
@@ -341,7 +379,7 @@ def build_risk_matrix(data_dir: Path | None = None) -> None:
     """
     if data_dir is None:
         data_dir = resolve_data_dir(None)
-    moe = fetch_moe_risk_maps()
+    moe = load_historical_moe_risk()
     indepaz = parse_indepaz_pdf(None)
     pdet = fetch_pdet_list()
     coca = fetch_unodc_coca()
@@ -361,30 +399,6 @@ def build_risk_matrix(data_dir: Path | None = None) -> None:
 # ═══════════════════════════════════════════════════════════════════
 # Private helpers
 # ═══════════════════════════════════════════════════════════════════
-
-
-def _is_valid_moe_df(df: pd.DataFrame) -> bool:
-    """Check that a DataFrame has MOE risk classification columns."""
-    required = {"codigo_municipio", "risk_level"}
-    return required.issubset(set(df.columns))
-
-
-def _try_local_moe_pdf() -> pd.DataFrame | None:
-    """Attempt to extract MOE risk data from the local PDF in ``data/conflict/``."""
-    try:
-        data_dir = resolve_data_dir(None)
-        pdf_path = str(data_dir / _CONFLICT_DIR_NAME / _LOCAL_MOE_RISK_PDF)
-        if Path(pdf_path).is_file():
-            df = _try_extract_pdf(pdf_path)
-            if df is not None and not df.empty:
-                df = df.rename(columns={"municipio": "codigo_municipio", "value": "risk_level"})
-                if _is_valid_moe_df(df):
-                    return df
-                logger.warning("Local MOE PDF failed schema validation; falling through")
-                return None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to read local MOE risk PDF: %s", exc)
-    return None
 
 
 def _parse_armed_group_presence(value: object) -> int:
@@ -410,7 +424,7 @@ def _try_local_indepaz_pdf() -> pd.DataFrame | None:
         pdf_path = str(data_dir / _CONFLICT_DIR_NAME / _LOCAL_INDEPAZ_PDF)
         if Path(pdf_path).is_file():
             return _parse_single_indepaz_pdf(pdf_path)
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, FileNotFoundError, ValueError) as exc:
         logger.warning("Failed to read local INDEPAZ PDF: %s", exc)
     return None
 
@@ -449,7 +463,7 @@ def _try_extract_pdf_pdfplumber(pdf_path: str) -> pd.DataFrame | None:
             return pd.DataFrame(records)
     except ImportError:
         logger.warning("pdfplumber not installed; cannot parse PDF %s", pdf_path)
-    except Exception as exc:  # noqa: BLE001
+    except RuntimeError as exc:
         logger.warning("Failed to extract tables from PDF %s: %s", pdf_path, exc)
     return None
 
@@ -465,7 +479,7 @@ def _try_local_unodc_pdf() -> pd.DataFrame | None:
                 df = df.rename(columns={"municipio": "codigo_municipio", "value": "coca_hectares"})
                 df["coca_hectares"] = pd.to_numeric(df["coca_hectares"], errors="coerce").fillna(0)
                 return df
-    except Exception as exc:  # noqa: BLE001
+    except (OSError, FileNotFoundError) as exc:
         logger.warning("Failed to read local UNODC PDF: %s", exc)
     return None
 
@@ -479,7 +493,7 @@ def _try_download_indepaz_pdf() -> pd.DataFrame | None:
             pdf_path = Path(tmp_dir) / "indepaz_2022.pdf"
             pdf_path.write_bytes(response.content)
             return _parse_single_indepaz_pdf(str(pdf_path))
-    except Exception as exc:  # noqa: BLE001
+    except (requests.RequestException, ValueError) as exc:
         logger.warning("INDEPAZ PDF download failed: %s", exc)
     return None
 
@@ -500,253 +514,9 @@ def _try_local_pdet_excel() -> pd.DataFrame | None:
         mun_str = df["Código DANE Municipio"].astype(str).str.zfill(3)
         codes = (dept_str + mun_str).tolist()
         return pd.DataFrame({"codigo_municipio": codes, "is_pdet": 1})
-    except Exception as exc:  # noqa: BLE001
+    except (pd.errors.ParserError, OSError, ValueError) as exc:
         logger.warning("Failed to read local PDET Excel: %s", exc)
     return None
-
-
-# Known extreme electoral risk municipalities — primarily in conflict zones
-# where armed groups actively disrupt elections (Nariño, Cauca, Chocó,
-# Putumayo, Norte de Santander, Arauca, Caquetá, Guaviare).
-_EXTREME_RISK_CODES: list[str] = [
-    "08001",
-    "50001",
-    "86001",
-    "95001",
-    "81001",
-    "54001",
-    "41001",
-    "20001",
-    "68001",
-    "44001",
-    "47001",
-    "23001",
-    "76001",
-    "05001",
-    "27001",
-    "85001",
-    "94001",
-    "91001",
-    "99001",
-    "97001",
-    "54006",
-    "54245",
-    "54405",
-    "54051",
-    "54344",
-    "54206",
-    "86220",
-    "86568",
-    "86569",
-    "86571",
-    "86320",
-    "52001",
-    "52835",
-    "52079",
-    "52250",
-    "19050",
-    "19075",
-    "19110",
-    "19130",
-    "19137",
-    "19142",
-    "19212",
-    "19256",
-    "19364",
-    "19450",
-    "19455",
-    "19473",
-    "19532",
-    "19548",
-    "19698",
-    "19780",
-    "19809",
-    "19821",
-    "52612",
-    "52520",
-]
-
-# High electoral risk municipalities.
-_HIGH_RISK_CODES: list[str] = [
-    "68001",
-    "41001",
-    "20001",
-    "81001",
-    "73001",
-    "18001",
-    "13001",
-    "15001",
-    "17001",
-    "54001",
-    "05107",
-    "05120",
-    "05154",
-    "05172",
-    "05234",
-    "05361",
-    "05475",
-    "05480",
-    "05490",
-    "05495",
-    "13212",
-    "13244",
-    "13248",
-    "13442",
-    "13473",
-    "13654",
-    "13657",
-    "13670",
-    "13688",
-    "13744",
-    "13894",
-    "18029",
-    "18094",
-    "18150",
-    "18205",
-    "18247",
-    "18410",
-    "18460",
-    "18479",
-    "18592",
-    "18610",
-    "18753",
-    "18860",
-    "27006",
-    "27099",
-    "27150",
-    "27205",
-    "27361",
-    "27425",
-    "27450",
-    "27491",
-    "27615",
-    "27745",
-    "27800",
-    "44090",
-    "44279",
-    "44650",
-    "47053",
-    "47189",
-    "47288",
-    "50250",
-    "50325",
-    "50330",
-    "50350",
-    "50370",
-    "50577",
-    "50590",
-    "50711",
-    "52233",
-    "52256",
-    "52390",
-    "52405",
-    "52418",
-    "52427",
-    "52473",
-    "52490",
-    "52540",
-    "52621",
-    "52696",
-    "54250",
-    "54670",
-    "54720",
-    "54800",
-    "54810",
-    "70204",
-    "70230",
-    "70418",
-    "70473",
-    "70508",
-    "70523",
-    "70713",
-    "70823",
-    "73067",
-    "73168",
-    "73555",
-    "73616",
-    "76109",
-    "76275",
-    "76563",
-    "81065",
-    "81300",
-    "81736",
-    "81794",
-    "86757",
-    "86865",
-    "86885",
-]
-
-# Medium electoral risk municipalities.
-_MEDIUM_RISK_CODES: list[str] = [
-    "05001",
-    "15047",
-    "15238",
-    "15425",
-    "15759",
-    "25001",
-    "25269",
-    "25290",
-    "25307",
-    "25599",
-    "63111",
-    "63302",
-    "63401",
-    "63594",
-    "66001",
-    "66170",
-    "66318",
-    "66456",
-    "66682",
-    "23001",
-    "23336",
-    "44098",
-    "44847",
-    "13001",
-    "17855",
-    "17614",
-    "70708",
-    "70742",
-    "23682",
-    "23807",
-    "23855",
-    "18150",
-]
-
-
-def _moe_hardcoded_fallback() -> pd.DataFrame:
-    """Return MOE risk classification covering all 1,123 DIVIPOLA municipalities.
-
-    Loads DIVIPOLA as the authoritative municipal registry, assigns
-    ``"low"`` as the default risk, then overrides municipalities that
-    are known (from public MOE reports) to face ``medium``, ``high``,
-    or ``extreme`` electoral risk.
-
-    Returns:
-        DataFrame with columns ``codigo_municipio`` and ``risk_level``.
-
-    """
-    data_dir = resolve_data_dir(None)
-    divipola = pd.read_csv(
-        data_dir / "fundamentals" / "divipola_master.csv",
-        dtype={"codigo_municipio": str},
-    )
-    result = divipola[["codigo_municipio"]].copy()
-    result["risk_level"] = "low"
-
-    _overwrite_risk_levels(result, _MEDIUM_RISK_CODES, "medium")
-    _overwrite_risk_levels(result, _HIGH_RISK_CODES, "high")
-    _overwrite_risk_levels(result, _EXTREME_RISK_CODES, "extreme")
-    return result
-
-
-def _overwrite_risk_levels(
-    df: pd.DataFrame,
-    codes: list[str],
-    level: str,
-) -> None:
-    """Set *level* for every municipality in *codes*."""
-    mask = df["codigo_municipio"].isin(codes)
-    df.loc[mask, "risk_level"] = level
 
 
 def _indepaz_hardcoded_fallback() -> pd.DataFrame:

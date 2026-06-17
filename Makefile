@@ -22,7 +22,7 @@ lint-fix:  ## Auto-fix lint issues (unused imports, refactors, etc.)
 	@uv run ruff check --fix src/ tests/
 
 typecheck:  ## Type-check with pyright (strict mode, src/ only)
-	@uv run pyright src/
+	@NODE_OPTIONS="--max-old-space-size=4096" uv run pyright src/
 
 test:  ## Run all tests with coverage
 	@uv run pytest tests/ -v -n auto --cov=src/co_president --cov-report=term-missing --cov-report=xml

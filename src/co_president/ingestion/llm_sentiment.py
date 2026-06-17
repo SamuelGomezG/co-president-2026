@@ -16,6 +16,15 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+try:
+    from openai import (  # type: ignore[reportMissingModuleSource]
+        APIConnectionError,  # type: ignore[reportUnknownVariableType]
+        APIError,  # type: ignore[reportUnknownVariableType]
+        RateLimitError,  # type: ignore[reportUnknownVariableType]
+    )
+except ImportError:
+    APIError = APIConnectionError = RateLimitError = Exception  # type: ignore[assignment,misc]
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -82,8 +91,15 @@ def _call_openai(
             raw_label = parsed.get("label", "NEUTRO").upper()
             label = _LABEL_MAP.get(raw_label, "neutral")
             explanation = parsed.get("explanation", "")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("OpenAI API call failed for tweet: %s", exc)
+        except (
+            json.JSONDecodeError,
+            KeyError,
+            ValueError,
+            APIError,
+            APIConnectionError,
+            RateLimitError,
+        ):
+            logger.exception("OpenAI API call failed for tweet", extra={"model": model})
             label = "neutral"
             explanation = ""
 
@@ -145,8 +161,10 @@ def classify_with_gpt(
         except ImportError:
             logger.info("openai package not installed, using mock classifier")
             results = _mock_classifier(input_list)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("OpenAI initialisation failed (%s), using mock classifier", exc)
+        except Exception:
+            logger.exception(
+                "OpenAI initialisation failed, using mock classifier", extra={"model": model}
+            )
             results = _mock_classifier(input_list)
     else:
         logger.info("OPENAI_API_KEY not set, using mock classifier")

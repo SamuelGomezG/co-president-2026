@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from co_president.config import BOGOTA_LOCALIDADES
 from co_president.paths import resolve_data_dir
 
 if TYPE_CHECKING:
@@ -39,32 +40,6 @@ _BOGOTA_DANE_MUN = "11001"
 _BOGOTA_DEP_CODE = 11
 _BOGOTA_MUN_CODE = 1
 
-# Bogotá D.C. localidad code to name mapping (DANE DIVIPOLA localidad codes).
-# Codes 01-20 are the official 20 localidades.  Code 99 is the catch-all for
-# polling stations without a localidad assignment (SIN COMUNA).
-_BOGOTA_LOCALIDADES: dict[str, str] = {
-    "01": "Usaquén",
-    "02": "Chapinero",
-    "03": "Santa Fe",
-    "04": "San Cristóbal",
-    "05": "Usme",
-    "06": "Tunjuelito",
-    "07": "Bosa",
-    "08": "Kennedy",
-    "09": "Fontibón",
-    "10": "Engativá",
-    "11": "Suba",
-    "12": "Barrios Unidos",
-    "13": "Teusaquillo",
-    "14": "Los Mártires",
-    "15": "Antonio Nariño",
-    "16": "Puente Aranda",
-    "17": "La Candelaria",
-    "18": "Rafael Uribe Uribe",
-    "19": "Ciudad Bolívar",
-    "20": "Sumapaz",
-    "99": "BOGOTÁ D.C. - SIN COMUNA",
-}
 _BOGOTA_CODIGO_MUNICIPIO = 11001
 _PUESTO_CODE_LENGTH = 11
 _MMV_RECONSTRUCT_LENGTH = 9
@@ -150,7 +125,7 @@ def _localidad_name(localidad_code: str | None) -> str | None:
         Localidad name, or ``None`` if the code is unknown.
 
     """
-    return _BOGOTA_LOCALIDADES.get(localidad_code or "99")
+    return BOGOTA_LOCALIDADES.get(localidad_code or "99")
 
 
 def _classify_localidad(localidad_code: str | None) -> str:
@@ -167,7 +142,7 @@ def _classify_localidad(localidad_code: str | None) -> str:
         localidades, ``"99"`` for the catch-all.
 
     """
-    if localidad_code and localidad_code in _BOGOTA_LOCALIDADES:
+    if localidad_code and localidad_code in BOGOTA_LOCALIDADES:
         return localidad_code
     return "99"
 
@@ -583,7 +558,7 @@ def get_bogota_localidad_rows() -> pd.DataFrame:
 
     """
     rows: list[dict[str, str | None]] = []
-    for code, name in _BOGOTA_LOCALIDADES.items():
+    for code, name in BOGOTA_LOCALIDADES.items():
         rows.append(
             {
                 "codigo_municipio": _build_7digit_code(code),

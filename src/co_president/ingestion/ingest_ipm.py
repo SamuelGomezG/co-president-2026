@@ -42,13 +42,13 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1_122
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES
 _R2_GUARD_THRESHOLD = 0.5
 
 # Map year → (subdirectory, zip_basename, csv_name, separator).
 _IPM_YEARS: dict[int, tuple[str, str, str | None, str]] = {
-    2018: ("IPM-2018", "Hogares (departamental)", "Hogares (departamental) .csv", ";"),
-    2022: ("IPM-2022", "hogares (Departamental) 2022", None, ","),
+    2018: ("IPM-2018", "Hogares_departamental", "Hogares (departamental) .csv", ";"),
+    2022: ("IPM-2022", "hogares_departamental_2022", "hogares (Departamental) 2022.csv", ","),
 }
 
 _CRITICAL_COLUMNS: list[str] = ["ipm_2018", "ipm_2022"]

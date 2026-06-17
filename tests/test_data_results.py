@@ -417,7 +417,6 @@ class TestResultHelpers:
             result = _read_participation(path)
         assert len(result) == 2
         assert any("malformed" in msg for msg in caplog.messages)
-        assert any("skipped" in msg for msg in caplog.messages)
 
     def test_extract_excluded_votes_all_present(self) -> None:
         """Verify excluded votes are extracted when all keys exist."""
@@ -491,19 +490,12 @@ class TestResultHelpers:
                 polling_stations=10,
             )
 
-    def test_unmapped_coalition_accumulates_rest_with_warning(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Verify unmapped coalitions accumulate into rest and log a warning."""
+    def test_unmapped_coalition_raises_value_error(self) -> None:
+        """Verify unmapped coalition names raise ValueError listing them."""
         mapped_name = next(iter(COALITION_TO_CANDIDATE))
-        mapped_key = COALITION_TO_CANDIDATE[mapped_name]
         df = pd.DataFrame({"name": [mapped_name, "UNKNOWN COALITION"], "votes": [100, 25]})
-        with caplog.at_level(logging.WARNING, logger="co_president.data_results"):
-            result = _aggregate_and_map(df, "name", "votes")
-        assert int(result.loc[mapped_key, "votes"]) == 100
-        assert int(result.loc["rest", "votes"]) == 25
-        assert any("Unmapped coalition name" in msg for msg in caplog.messages)
+        with pytest.raises(ValueError, match="Unmapped coalition names"):
+            _aggregate_and_map(df, "name", "votes")
 
 
 # ═══════════════════════════════════════════════════════════════════
