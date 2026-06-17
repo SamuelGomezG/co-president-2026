@@ -22,6 +22,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
+from co_president.config import EXPECTED_MUNICIPALITIES
 from co_president.paths import resolve_data_dir
 
 if TYPE_CHECKING:
@@ -143,6 +144,11 @@ _UA_CLASE_RURAL_DISPERSO: int = 3
 # P_TRABAJO codes 0-8 are valid labor statuses; 9 = No Informa (excluded).
 _P_TRABAJO_VALID_CODES: frozenset[float] = frozenset({0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0})
 
+# Full DDI code sets for validation (includes metadata codes like No Informa).
+_PA1_GRP_ETNIC_DDI_CODES: frozenset[int] = frozenset({1, 2, 3, 4, 5, 6, 9})
+_PA_ASISTENCIA_DDI_CODES: frozenset[int] = frozenset({1, 2, 4, 9})
+_P_TRABAJO_DDI_CODES: frozenset[int] = frozenset({0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Pure helpers
@@ -164,25 +170,8 @@ def _extract_dept_code(zip_path: Path) -> str:
     return zip_path.stem[:2]
 
 
-def _zero_pad_dane_code(u_dpto: str, u_mpio: str) -> str:  # pyright: ignore[reportUnusedFunction]
-    """Combine department and municipality codes into a 5-digit DANE code.
-
-    Args:
-        u_dpto: 1-2 digit department code.
-        u_mpio: 1-3 digit municipality code.
-
-    Returns:
-        5-character zero-padded DANE code (e.g., ``"05001"``).
-
-    """
-    return str(u_dpto).strip().zfill(2) + str(u_mpio).strip().zfill(3)
-
-
 def _format_dane_code_col(u_dpto: pd.Series, u_mpio: pd.Series) -> pd.Series:
     """Combine DANE department and municipality codes into a 5-character string.
-
-    Vectorized version of ``_zero_pad_dane_code`` for use in aggregation
-    kernels.
 
     Args:
         u_dpto: Series of 1-2 digit department codes.
@@ -193,6 +182,39 @@ def _format_dane_code_col(u_dpto: pd.Series, u_mpio: pd.Series) -> pd.Series:
 
     """
     return u_dpto.astype(str).str.strip().str.zfill(2) + u_mpio.astype(str).str.strip().str.zfill(3)
+
+
+# Module-level dedup tracker for unexpected code warnings (issue #27).
+_seen_code_warnings: set[tuple[str, int]] = set()
+
+
+def _warn_unexpected_codes(
+    series: pd.Series,
+    known_codes: set[int] | frozenset[int],
+    column_name: str,
+) -> None:
+    """Log a warning (once per column+value) for codes outside *known_codes*.
+
+    Args:
+        series: The raw column values (string or numeric).
+        known_codes: All codes expected by the DDI for this column.
+        column_name: Column name for the warning message.
+
+    """
+    vals = set(
+        pd.to_numeric(series.dropna(), errors="coerce").dropna().astype(int).unique(),
+    )
+    unexpected = sorted(vals - known_codes)
+    global _seen_code_warnings  # noqa: PLW0602
+    for v in unexpected:
+        key = (column_name, v)
+        if key not in _seen_code_warnings:
+            _seen_code_warnings.add(key)
+            logger.warning(
+                "CNPV %s: unexpected DDI code %d — excluded from computation",
+                column_name,
+                v,
+            )
 
 
 def _csv_name_for_kind(inner_zf: zipfile.ZipFile, dept: str, kind: str) -> str:
@@ -245,6 +267,7 @@ def _read_kind_chunks(
             text_file,
             sep=",",
             usecols=columns,
+            dtype=str,
             chunksize=_CHUNK_SIZE,
         )
 
@@ -270,12 +293,14 @@ def _aggregate_chunk_f11(chunk: pd.DataFrame) -> pd.DataFrame:
     """
     chunk = chunk.copy()
     chunk["codigo_municipio"] = _format_dane_code_col(chunk["U_DPTO"], chunk["U_MPIO"])
+    chunk["P_NIVEL_ANOSR"] = pd.to_numeric(chunk["P_NIVEL_ANOSR"], errors="coerce")
 
     # Total persons.
     grouped_total = chunk.groupby("codigo_municipio").size().to_frame("poblacion_total")
 
     # Ethnicity (exclude PA1_GRP_ETNIC == 9 = No Informa).
-    ethnic = chunk["PA1_GRP_ETNIC"].copy()
+    ethnic = chunk["PA1_GRP_ETNIC"].copy().astype(float)
+    _warn_unexpected_codes(chunk["PA1_GRP_ETNIC"], _PA1_GRP_ETNIC_DDI_CODES, "PA1_GRP_ETNIC")
     grouped_indigena = (
         chunk.loc[ethnic == _PA1_GRP_ETNIC_INDIGENA]
         .groupby("codigo_municipio")
@@ -309,6 +334,7 @@ def _aggregate_chunk_f11(chunk: pd.DataFrame) -> pd.DataFrame:
 
     # School attendance (exclude 4=No Aplica, 9=No Informa).
     asist = chunk["PA_ASISTENCIA"].copy().astype(float)
+    _warn_unexpected_codes(chunk["PA_ASISTENCIA"], _PA_ASISTENCIA_DDI_CODES, "PA_ASISTENCIA")
     asist_valid = asist.isin({1, 2})
     asist_yes = (
         chunk.loc[asist == 1].groupby("codigo_municipio").size().to_frame("school_attendance_yes")
@@ -322,6 +348,7 @@ def _aggregate_chunk_f11(chunk: pd.DataFrame) -> pd.DataFrame:
 
     # Labour force participation (codes 1-4 = active, 0-8 = valid denom).
     trabajo = chunk["P_TRABAJO"].copy().astype(float)
+    _warn_unexpected_codes(chunk["P_TRABAJO"], _P_TRABAJO_DDI_CODES, "P_TRABAJO")
     trabajo_valid = trabajo.isin(_P_TRABAJO_VALID_CODES)
     trabajo_active = chunk.loc[trabajo.isin({1.0, 2.0, 3.0, 4.0})]
     active = trabajo_active.groupby("codigo_municipio").size().to_frame("labor_force_active")
@@ -418,6 +445,8 @@ def _aggregate_chunk_f9(chunk: pd.DataFrame) -> pd.DataFrame:
     """
     chunk = chunk.copy()
     chunk["codigo_municipio"] = _format_dane_code_col(chunk["U_DPTO"], chunk["U_MPIO"])
+    chunk["H_NRO_DORMIT"] = pd.to_numeric(chunk["H_NRO_DORMIT"], errors="coerce")
+    chunk["HA_TOT_PER"] = pd.to_numeric(chunk["HA_TOT_PER"], errors="coerce")
 
     # Rooms (exclude H_NRO_DORMIT == 99 = No Informa).
     dormit = chunk["H_NRO_DORMIT"].copy().astype(float)
@@ -733,13 +762,12 @@ def build_cnpv_features(data_dir: Path | None = None) -> None:
     _compute_percentages(final)
 
     # Post-aggregation validation: Colombia has 1 122 municipalities.
-    expected_municipalities = 1_122
-    if len(final) != expected_municipalities:
+    if len(final) != EXPECTED_MUNICIPALITIES:
         logger.warning(
             "CNPV output has %d municipalities; expected %d "
             "(verify all departmental zips processed)",
             len(final),
-            expected_municipalities,
+            EXPECTED_MUNICIPALITIES,
         )
 
     fundamentals_dir = base / "fundamentals"

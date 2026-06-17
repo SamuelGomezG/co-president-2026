@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from co_president.config import BOGOTA_LOCALIDADES, get_ideology
 from co_president.ingestion._download_cedae import fetch_local_cedae_results
 from co_president.paths import resolve_data_dir
 
@@ -32,6 +33,11 @@ __all__ = [
     "map_historical_candidate",
     "validate_vote_shares",
 ]
+
+_MOE_PRESIDENCIA_GLOB = "*_presidencia*.csv"
+_MOE_CONGRESO_GLOB = "*_congreso*.csv"
+_MOE_REQUIRED_COLS = ["code_dane", "ano", "eleccion", "total"]
+_TURNOUT_NEAR_ONE_THRESHOLD = 0.999
 
 logger = logging.getLogger(__name__)
 
@@ -94,12 +100,8 @@ _MMV_CODE_OVERRIDES: dict[str, str] = {
     "07139": "15407",
     # --- Boyacá ---
     "07031": "15109",
-    # --- Caldas ---
-    # --- Caquetá ---
-    # --- Casanare ---
-    "12625": "20443",
-    # --- Cauca ---
     # --- Cesar ---
+    "12625": "20443",
     # --- Chocó ---
     "17006": "27025",
     "17008": "27075",
@@ -118,8 +120,6 @@ _MMV_CODE_OVERRIDES: dict[str, str] = {
     "50070": "94343",
     "50083": "94888",
     "50087": "94887",
-    # --- Guaviare ---
-    # --- Huila ---
     # --- La Guajira ---
     "48005": "44090",
     # --- Magdalena ---
@@ -128,6 +128,7 @@ _MMV_CODE_OVERRIDES: dict[str, str] = {
     "21055": "47570",
     "21095": "47980",
     # --- Meta ---
+    "52060": "50689",
     # --- Nariño ---
     "23004": "52019",
     "23013": "52051",
@@ -148,11 +149,6 @@ _MMV_CODE_OVERRIDES: dict[str, str] = {
     "64004": "86573",
     "64018": "86757",
     "64028": "86865",
-    # --- Quindío ---
-    # --- Risaralda ---
-    "52060": "50689",
-    # --- San Andrés ---
-    # --- Santander ---
     # --- Sucre ---
     "28030": "70204",
     "28048": "70235",
@@ -196,33 +192,6 @@ _HISTORICAL_CANDIDATE_MAP: dict[str, str] = {
     "noemi_sanin": "noemi_sanin",
     "enrique_penalosa": "enrique_penalosa",
 }
-
-_CANDIDATE_IDEOLOGY: dict[int, dict[str, str]] = {
-    2002: {"left": "horacio_serpa", "right": "alvaro_uribe"},
-    2006: {"left": "carlos_gaviria", "right": "alvaro_uribe"},
-    2010: {"left": "gustavo_petro", "right": "juan_manuel_santos"},
-    2014: {"left": "clara_lopez", "right": "oscar_ivan_zuluaga"},
-    2018: {"left": "gustavo_petro", "right": "ivan_duque"},
-    2022: {"left": "gustavo_petro", "right": "federico_gutierrez"},
-}
-
-# Round-2 overrides for elections that had different right-wing candidates in runoff
-_ROUND2_IDEOLOGY: dict[int, dict[str, str]] = {
-    2022: {"left": "gustavo_petro", "right": "rodolfo_hernandez"},
-}
-_ROUND2: int = 2  # Round number for the runoff election
-
-
-def _get_ideology(year: int, round_num: int) -> dict[str, str]:
-    """Return the left/right ideology mapping for a given year and round.
-
-    The main ``_CANDIDATE_IDEOLOGY`` covers round-1 configurations.
-    ``_ROUND2_IDEOLOGY`` provides round-specific overrides (e.g., 2022 R2
-    used Rodolfo Hernandez as the right candidate instead of Gutierrez).
-    """
-    if round_num == _ROUND2 and year in _ROUND2_IDEOLOGY:
-        return _ROUND2_IDEOLOGY[year]
-    return _CANDIDATE_IDEOLOGY.get(year, {})
 
 
 _historical_candidate_lookup: dict[str, str] | None = None
@@ -340,7 +309,7 @@ def compute_lagged_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute per-municipality per-year historical features.
 
     For each (municipality, year) pair identifies the left and right
-    candidates from ``_CANDIDATE_IDEOLOGY`` and returns their vote
+    candidates from ``get_ideology`` and returns their vote
     shares together with the abstention rate and election-to-election
     deltas.
 
@@ -378,7 +347,7 @@ def compute_lagged_features(df: pd.DataFrame) -> pd.DataFrame:
         # year/round_num are Hashable from groupby; cast to int for lookup
         year_int: int = int(year)  # type: ignore[arg-type]
         round_int: int = int(round_num)  # type: ignore[arg-type]
-        ideology = _get_ideology(year_int, round_int)
+        ideology = get_ideology(year_int, round_int)
         left_cand: str | None = ideology.get("left")
         right_cand: str | None = ideology.get("right")
 
@@ -465,6 +434,7 @@ def build_historical_matrix(data_dir: Path | None = None) -> None:
             _ELECTION_YEARS,
         )
         return
+    combined = _fill_registered_voters_from_moe(combined, data_dir)
     features = compute_derived_features(combined)
 
     # Canonicalize candidate names before writing to disk and before
@@ -498,6 +468,21 @@ def build_historical_matrix(data_dir: Path | None = None) -> None:
         len(features),
         features["year"].nunique(),
     )
+
+    # Build and persist turnout file from MOE registered voters + MMV total votes.
+    turnout_df = _build_turnout_from_moe(features, data_dir)
+    if not turnout_df.empty:
+        turnout_path = target_dir / "historical_turnout_moe.csv"
+        turnout_df.to_csv(turnout_path, index=False)
+        n_over_1 = int((turnout_df["turnout"] > 1.0).sum())
+        n_eq_1 = int((turnout_df["turnout"] == 1.0).sum())
+        logger.info(
+            "Turnout file saved to %s (%d rows, %d >1.0, %d =1.0)",
+            turnout_path,
+            len(turnout_df),
+            n_over_1,
+            n_eq_1,
+        )
 
     if not lagged.empty:
         lagged_path = target_dir / "historical_lagged_features.csv"
@@ -617,17 +602,14 @@ def _crosswalk_mmv_municipalities(
 
     remaining3 = munis[munis["codigo_municipio"].isna()]
     if not remaining3.empty:
-        logger.warning(
-            "MMV crosswalk: %d municipalities could not be mapped to DANE codes",
-            len(remaining3),
+        unmapped: str = "; ".join(
+            f"DEP={row['DEP']} MUN={row['MUN']} ({row['MUNNOMBRE']})"
+            for _, row in remaining3.iterrows()
         )
-        for _, row in remaining3.iterrows():
-            logger.warning(
-                "  Unmapped: DEP=%s MUN=%s (%s)",
-                row["DEP"],
-                row["MUN"],
-                row["MUNNOMBRE"],
-            )
+        msg = (
+            f"MMV crosswalk: {len(remaining3)} municipalities unmapped after overrides: {unmapped}"
+        )
+        raise ValueError(msg)
 
     return munis
 
@@ -687,14 +669,14 @@ def _fetch_2022_mmv(round_num: int, data_dir: Path) -> pd.DataFrame | None:
         encoding="latin-1",
         compression="gzip",
         dtype={"DEP": str, "MUN": str},
-        usecols=["DEP", "MUN", "MUNNOMBRE", "CANNOMBRE", "VOTOS"],
+        usecols=["DEP", "MUN", "MUNNOMBRE", "CANNOMBRE", "VOTOS", "DEPNOMBRE"],
     )
 
     raw = raw[raw["DEP"] != "88"]
 
     # Build municipality crosswalk once from the full MMV data
     mmv_munis = raw[["DEP", "MUN"]].drop_duplicates().copy()
-    dept_names = _get_mmv_department_names(data_dir)
+    dept_names = dict(zip(raw["DEP"], raw["DEPNOMBRE"], strict=False))
     mmv_munis["DEPNOMBRE"] = mmv_munis["DEP"].map(dept_names)
     muni_names = _get_mmv_muni_names(raw)
     mmv_munis = mmv_munis.merge(muni_names, on=["DEP", "MUN"], how="left")
@@ -728,25 +710,12 @@ def _fetch_2022_mmv(round_num: int, data_dir: Path) -> pd.DataFrame | None:
     return result
 
 
-def _get_mmv_department_names(data_dir: Path) -> dict[str, str]:
-    """Extract unique (DEP → DEPNOMBRE) mapping from MMV data."""
-    raw = pd.read_csv(
-        data_dir / "2022-presidential-results" / "MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz",
-        sep=";",
-        encoding="latin-1",
-        compression="gzip",
-        dtype={"DEP": str},
-        usecols=["DEP", "DEPNOMBRE"],
-    )
-    return dict(zip(raw["DEP"], raw["DEPNOMBRE"], strict=False))
-
-
 def _get_mmv_muni_names(raw: pd.DataFrame) -> pd.DataFrame:
     """Extract unique (DEP, MUN, MUNNOMBRE) triples from MMV data."""
     return raw[["DEP", "MUN", "MUNNOMBRE"]].drop_duplicates(subset=["DEP", "MUN"]).copy()
 
 
-def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901, PLR0912, PLR0915
+def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C901, PLR0912
     """Fetch data for every combination of election year and round.
 
     Priority order:
@@ -803,7 +772,7 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C90
                 frame = fetch_cedae_results(year, round_num)
                 all_frames.append(frame)
                 logger.info("Fetched %s round %d (%d rows)", year, round_num, len(frame))
-            except Exception as exc:  # noqa: BLE001
+            except (requests.RequestException, ValueError) as exc:
                 logger.warning(
                     "Failed to fetch %s round %d (%s); trying fallback",
                     year,
@@ -833,7 +802,7 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C90
                             year,
                             round_num,
                         )
-                except Exception:
+                except (pd.errors.ParserError, ValueError):
                     logger.exception(
                         "Fallback also failed for %s round %d",
                         year,
@@ -866,19 +835,265 @@ def _fetch_all_years(data_dir: Path | None = None) -> pd.DataFrame:  # noqa: C90
         lambda x: _safe_map_candidate(x) if pd.notna(x) else x  # type: ignore[reportUnknownArgumentType, reportUnknownLambdaType]
     )
 
-    # Propagate Bogotá D.C. (11001) data to localidad codes (1100101-1100199)
-    bogota_localidad = [str(1100100 + i) for i in range(1, 21)] + ["1100199"]
-    bogota_data = result[result["codigo_municipio"].astype(str) == "11001"]
-    if not bogota_data.empty:
-        localidad_frames: list[pd.DataFrame] = []
-        for loc_code in bogota_localidad:
-            loc = bogota_data.copy()
-            loc["codigo_municipio"] = loc_code
-            localidad_frames.append(loc)
-        result = pd.concat([result, *localidad_frames], ignore_index=True)
-        logger.info(
-            "Propagated Bogotá data to %d localidad rows (%d total rows)",
-            len(bogota_localidad),
-            len(result),
-        )
     return result
+
+
+_MOE_DIR_NAME = "moe_censo_electoral"
+_DANE_CODE_WIDTH = 5
+_EMPTY_MOE_DF: pd.DataFrame = pd.DataFrame(
+    columns=["codigo_municipio", "year", "round", "registered_voters"]
+)
+_BOGOTA_CODE = "11001"
+_BOGOTA_LOCALIDAD_CODE_LENGTH = 7
+
+
+def _build_turnout_from_moe(
+    historical_df: pd.DataFrame,
+    data_dir: Path,
+) -> pd.DataFrame:
+    """Build municipal turnout from MOE registered voters and historical results.
+
+    Computes ``turnout = total_votes / registered_voters`` per municipality
+    using MOE censo electoral data for registered voters and historical results
+    for total votes. Averages across all available election years to produce a
+    single turnout per municipality. Includes Bogotá D.C. localidad codes
+    (``1100101``--``1100120``, ``1100199``) populated with Bogotá-wide turnout.
+
+    Args:
+        historical_df: Historical results DataFrame with columns
+            ``codigo_municipio``, ``year``, ``round``, ``total_votes``.
+        data_dir: Root data directory.
+
+    Returns:
+        DataFrame with columns ``codigo_municipio`` (str, zero-padded),
+        ``turnout`` (float, clipped to ``[0, 1]``).  Returns an empty DataFrame
+        if MOE data is unavailable.
+
+    """
+    moe_dir = data_dir / _MOE_DIR_NAME
+    if not moe_dir.is_dir():
+        logger.warning("MOE directory not found -- skipping turnout rebuild")
+        return pd.DataFrame(columns=["codigo_municipio", "turnout"])
+
+    moe_rv = _load_moe_registered_voters(moe_dir=moe_dir)
+    if moe_rv.empty:
+        logger.warning("No MOE registered voters data -- skipping turnout rebuild")
+        return pd.DataFrame(columns=["codigo_municipio", "turnout"])
+
+    # Aggregate registered voters: one value per (municipio, year)
+    moe_agg = moe_rv.groupby(["codigo_municipio", "year"], as_index=False)[
+        "registered_voters"
+    ].first()
+
+    # Total votes per (municipio, year), averaged across rounds
+    hist = historical_df.copy()
+    hist["codigo_municipio"] = hist["codigo_municipio"].astype(str).str.zfill(_DANE_CODE_WIDTH)
+    hist["year"] = hist["year"].astype(int)
+    votes_per_yr = hist.groupby(["codigo_municipio", "year"], as_index=False)["total_votes"].mean()
+
+    # Merge and compute turnout
+    merged: pd.DataFrame = moe_agg.merge(votes_per_yr, on=["codigo_municipio", "year"], how="inner")
+    merged["turnout"] = (merged["total_votes"] / merged["registered_voters"]).clip(0.0, 1.0)
+
+    near_1 = merged[merged["turnout"] > _TURNOUT_NEAR_ONE_THRESHOLD]
+    if not near_1.empty:
+        logger.info(
+            "%d municipality-year pairs have turnout >= %s",
+            len(near_1),
+            _TURNOUT_NEAR_ONE_THRESHOLD,
+        )
+
+    # Average across years per municipality
+    turnout = merged.groupby("codigo_municipio", as_index=False)[["turnout"]].mean()
+
+    # Add Bogotá localidad entries with Bogotá-wide turnout
+    bogota_row = turnout[turnout["codigo_municipio"] == _BOGOTA_CODE]
+    if not bogota_row.empty:
+        bogo_val = float(bogota_row.iloc[0]["turnout"])
+        localidad_codes: list[str] = [_BOGOTA_CODE + code for code in BOGOTA_LOCALIDADES]
+        localidad_turnout = pd.DataFrame(
+            {
+                "codigo_municipio": localidad_codes,
+                "turnout": bogo_val,
+            }
+        )
+        turnout = pd.concat([turnout, localidad_turnout], ignore_index=True)
+        logger.info(
+            "Added %d Bogotá localidad entries with turnout=%.4f",
+            len(localidad_codes),
+            bogo_val,
+        )
+
+    return turnout[["codigo_municipio", "turnout"]]
+
+
+def _aggregate_moe_files(
+    moe_dir: Path,
+    glob_pattern: str,
+    election_type: str,
+) -> pd.DataFrame:
+    """Load MOE CSV files matching *glob_pattern* and aggregate by election type.
+
+    Reads all files matching ``*glob_pattern*``, filters rows where
+    ``eleccion == election_type``, sums ``total`` per ``(code_dane, ano)``,
+    and broadcasts to both rounds.
+
+    Args:
+        moe_dir: Directory containing MOE CSV files.
+        glob_pattern: Glob pattern for file selection.
+        election_type: Value to filter the ``eleccion`` column by.
+
+    Returns:
+        DataFrame with columns ``codigo_municipio``, ``year``, ``round``,
+        ``registered_voters``, or an empty well-formed DataFrame if no data.
+
+    """
+    files = sorted(moe_dir.glob(glob_pattern))
+    if not files:
+        return _EMPTY_MOE_DF.copy()
+
+    frames: list[pd.DataFrame] = []
+    for path in files:
+        try:
+            df = pd.read_csv(path, usecols=_MOE_REQUIRED_COLS)
+        except (ValueError, OSError) as exc:
+            logger.warning("Skipping MOE file %s: %s", path.name, exc)
+            continue
+        if df.empty:
+            continue
+        df = df[df["eleccion"] == election_type]
+        if df.empty:
+            continue
+        df["code_dane"] = df["code_dane"].astype("Int64").astype(str).str.zfill(_DANE_CODE_WIDTH)
+        frames.append(df)
+
+    if not frames:
+        return _EMPTY_MOE_DF.copy()
+
+    combined: pd.DataFrame = pd.concat(frames, ignore_index=True)
+    grouped_sum: pd.DataFrame = combined.groupby(["code_dane", "ano"], as_index=False)[
+        "total"
+    ].sum()  # type: ignore[reportUnknownMemberType]
+    grouped_sum = grouped_sum.rename(  # type: ignore[reportUnknownMemberType]
+        columns={
+            "code_dane": "codigo_municipio",
+            "ano": "year",
+            "total": "registered_voters",
+        }
+    )
+    aggregated: pd.DataFrame = grouped_sum
+    aggregated["year"] = aggregated["year"].astype(int)  # type: ignore[reportUnknownMemberType]
+    aggregated["registered_voters"] = aggregated["registered_voters"].astype(  # type: ignore[reportUnknownMemberType]
+        int
+    )
+
+    r1: pd.DataFrame = aggregated.copy()  # type: ignore[reportUnknownMemberType]
+    r1["round"] = 1
+    r2: pd.DataFrame = aggregated.copy()  # type: ignore[reportUnknownMemberType]
+    r2["round"] = 2
+    result: pd.DataFrame = pd.concat([r1, r2], ignore_index=True)  # type: ignore[reportUnknownArgumentType]
+    return result[["codigo_municipio", "year", "round", "registered_voters"]]
+
+
+def _load_moe_registered_voters(moe_dir: Path | None = None) -> pd.DataFrame:
+    """Aggregate MOE censo electoral registered voters by municipality.
+
+    Two-pass approach:
+    1. Load presidencia files (``*_presidencia*.csv``) filtered to
+       ``eleccion == "Presidencia"`` — these are the authoritative source
+       for presidential election years.
+    2. Load congreso files (``*_congreso*.csv``) filtered to
+       ``eleccion == "Congreso"`` but only keep ``(codigo_municipio, year)``
+       keys that are **not** already covered by presidencia data.
+
+    This ensures presidencia polling stations are the primary source for
+    presidential years (2014, 2018, 2022), while congreso data fills gaps
+    for earlier years (2006, 2010) where presidencia files do not exist.
+
+    Args:
+        moe_dir: Directory containing MOE CSV files. Defaults to
+            ``<data_dir>/moe_censo_electoral/``. If the directory does not
+            exist, returns an empty (well-formed) DataFrame.
+
+    Returns:
+        DataFrame with columns ``codigo_municipio`` (5-digit zero-padded
+        string), ``year`` (int), ``round`` (int 1 or 2),
+        ``registered_voters`` (int).
+
+    """
+    if moe_dir is None:
+        from co_president.paths import resolve_data_dir  # noqa: PLC0415
+
+        moe_dir = resolve_data_dir(None) / _MOE_DIR_NAME
+    if not moe_dir.is_dir():
+        logger.warning("MOE censo electoral directory not found: %s", moe_dir)
+        return _EMPTY_MOE_DF.copy()
+
+    presidencia = _aggregate_moe_files(moe_dir, _MOE_PRESIDENCIA_GLOB, "Presidencia")
+    congreso = _aggregate_moe_files(moe_dir, _MOE_CONGRESO_GLOB, "Congreso")
+
+    if presidencia.empty:
+        return congreso
+    if congreso.empty:
+        return presidencia
+
+    existing_keys = presidencia[["codigo_municipio", "year"]].drop_duplicates()
+    existing_keys["_in_presidencia"] = True
+
+    congreso_fill = congreso.merge(existing_keys, on=["codigo_municipio", "year"], how="left")
+    congreso_only = congreso_fill[congreso_fill["_in_presidencia"].isna()]
+    congreso_only = congreso_only.drop(columns=["_in_presidencia"])
+
+    if congreso_only.empty:
+        return presidencia
+
+    return pd.concat([presidencia, congreso_only], ignore_index=True)
+
+
+def _fill_registered_voters_from_moe(combined: pd.DataFrame, data_dir: Path) -> pd.DataFrame:
+    """Backfill NaN ``registered_voters`` from the MOE censo electoral mapping.
+
+    Existing non-null values in ``combined`` are preserved; only NaN entries
+    are replaced via left-merge on ``(codigo_municipio, year, round)``.
+
+    Args:
+        combined: Combined CEDAE/MMV historical results with columns
+            ``codigo_municipio``, ``year``, ``round``, ``registered_voters``.
+        data_dir: Project data directory used to locate the MOE directory.
+
+    Returns:
+        Combined DataFrame with NaN ``registered_voters`` filled where MOE
+        data is available. Rows that have no MOE counterpart remain NaN.
+
+    """
+    if "registered_voters" not in combined.columns:
+        return combined
+    moe = _load_moe_registered_voters(moe_dir=data_dir / _MOE_DIR_NAME)
+    if moe.empty:
+        return combined
+
+    combined = combined.copy()
+    combined["codigo_municipio"] = (
+        combined["codigo_municipio"].astype(str).str.zfill(_DANE_CODE_WIDTH)
+    )
+    combined["year"] = combined["year"].astype(int)
+    combined["round"] = combined["round"].astype(int)
+
+    before_na = int(combined["registered_voters"].isna().sum())
+    merged = combined.merge(
+        moe.rename(columns={"registered_voters": "_moe_rv"}),
+        on=["codigo_municipio", "year", "round"],
+        how="left",
+    )
+    filled = merged["registered_voters"].isna() & merged["_moe_rv"].notna()
+    merged.loc[filled, "registered_voters"] = merged.loc[filled, "_moe_rv"]
+    merged = merged.drop(columns=["_moe_rv"])
+    after_na = int(merged["registered_voters"].isna().sum())
+    if before_na > after_na:
+        logger.info(
+            "Backfilled %d registered_voters rows from MOE censo electoral "
+            "(%d NaN remaining for years without MOE coverage)",
+            before_na - after_na,
+            after_na,
+        )
+    return merged

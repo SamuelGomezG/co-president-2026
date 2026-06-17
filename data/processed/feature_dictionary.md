@@ -1,7 +1,7 @@
 # Municipal Feature Matrix — Data Dictionary
 
-Generated: 2026-06-12 22:26:04
-Rows: 1143, Columns: 159
+Generated: 2026-06-16 23:11:09
+Rows: 1143, Columns: 169
 
 ## REGION
 
@@ -33,12 +33,6 @@ Rows: 1143, Columns: 159
 - **Nulls**: 0 / 1143
 - **Sample**: Abejorral
 
-## comuna_nombre_x
-
-- **Type**: str
-- **Nulls**: 1122 / 1143
-- **Sample**: Usaquén
-
 ## region
 
 - **Type**: str
@@ -48,145 +42,145 @@ Rows: 1143, Columns: 159
 ## vote_share_2002_r1_BEDOYA
 
 - **Type**: float64
-- **Nulls**: 13 / 1143
+- **Nulls**: 27 / 1143
 - **Sample**: 0.0040615647712697
 
 ## vote_share_2002_r1_CARDONA
 
 - **Type**: float64
-- **Nulls**: 72 / 1143
+- **Nulls**: 86 / 1143
 - **Sample**: 0.0012825994014536
 
 ## vote_share_2002_r1_CRISTANCHO
 
 - **Type**: float64
-- **Nulls**: 58 / 1143
+- **Nulls**: 72 / 1143
 - **Sample**: 0.0014963659683625
 
 ## vote_share_2002_r1_LORA
 
 - **Type**: float64
-- **Nulls**: 41 / 1143
+- **Nulls**: 55 / 1143
 - **Sample**: 0.0014963659683625
 
 ## vote_share_2002_r1_RINCON
 
 - **Type**: float64
-- **Nulls**: 116 / 1143
+- **Nulls**: 130 / 1143
 - **Sample**: 0.0004275331338178
 
 ## vote_share_2002_r1_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 8 / 1143
+- **Nulls**: 22 / 1143
 - **Sample**: 0.0123984608807182
 
 ## vote_share_2002_r1_TOVAR
 
 - **Type**: float64
-- **Nulls**: 21 / 1143
+- **Nulls**: 35 / 1143
 - **Sample**: 0.0042753313381787
 
 ## vote_share_2002_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 8 / 1143
+- **Nulls**: 22 / 1143
 - **Sample**: 0.0153911928174433
 
 ## vote_share_2002_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 8 / 1143
+- **Nulls**: 22 / 1143
 - **Sample**: 0.0166737922188969
 
 ## vote_share_2002_r1_alvaro_uribe
 
 - **Type**: float64
-- **Nulls**: 8 / 1143
+- **Nulls**: 22 / 1143
 - **Sample**: 0.5823001282599402
 
 ## vote_share_2002_r1_horacio_serpa
 
 - **Type**: float64
-- **Nulls**: 8 / 1143
+- **Nulls**: 22 / 1143
 - **Sample**: 0.2351432235998289
 
 ## vote_share_2002_r1_ingrid_betancourt
 
 - **Type**: float64
-- **Nulls**: 30 / 1143
+- **Nulls**: 44 / 1143
 - **Sample**: 0.0047028644719965
 
 ## vote_share_2002_r1_luis_eduardo_garzon
 
 - **Type**: float64
-- **Nulls**: 10 / 1143
+- **Nulls**: 24 / 1143
 - **Sample**: 0.0331338178708849
 
 ## vote_share_2002_r1_noemi_sanin
 
 - **Type**: float64
-- **Nulls**: 8 / 1143
+- **Nulls**: 22 / 1143
 - **Sample**: 0.0872167592988456
 
 ## vote_share_2006_r1_LEYVA
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.002804262478968
 
 ## vote_share_2006_r1_PAREJO
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.0061693774537296
 
 ## vote_share_2006_r1_RINCON
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.0013086558235184
 
 ## vote_share_2006_r1_TARJETAS NO MARCADAS
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.0102822957562161
 
 ## vote_share_2006_r1_VOTOS EN BLANCO
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.0147691157225649
 
 ## vote_share_2006_r1_VOTOS NULOS
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.0115909515797345
 
 ## vote_share_2006_r1_alvaro_uribe
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.8498784819592448
 
 ## vote_share_2006_r1_antanas_mockus
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.001869508319312
 
 ## vote_share_2006_r1_carlos_gaviria
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.0596373153860534
 
 ## vote_share_2006_r1_horacio_serpa
 
 - **Type**: float64
-- **Nulls**: 5 / 1143
+- **Nulls**: 6 / 1143
 - **Sample**: 0.041690035520658
 
 ## vote_share_2010_r1_ARAUJO
@@ -462,7 +456,7 @@ Rows: 1143, Columns: 159
 ## vote_share_2022_r1_ENRIQUE GÓMEZ MARTÍNEZ
 
 - **Type**: float64
-- **Nulls**: 63 / 1143
+- **Nulls**: 25 / 1143
 - **Sample**: 0.0025641025641025
 
 ## vote_share_2022_r1_FEDERICO GUTIÉRREZ
@@ -486,13 +480,13 @@ Rows: 1143, Columns: 159
 ## vote_share_2022_r1_JOHN MILTON RODRÍGUEZ
 
 - **Type**: float64
-- **Nulls**: 62 / 1143
+- **Nulls**: 24 / 1143
 - **Sample**: 0.0048582995951417
 
 ## vote_share_2022_r1_LUIS PÉREZ
 
 - **Type**: float64
-- **Nulls**: 286 / 1143
+- **Nulls**: 263 / 1143
 - **Sample**: 0.0010796221322537
 
 ## vote_share_2022_r1_RODOLFO HERNÁNDEZ
@@ -510,49 +504,49 @@ Rows: 1143, Columns: 159
 ## vote_share_2022_r1_VOTOS EN BLANCO .
 
 - **Type**: float64
-- **Nulls**: 47 / 1143
+- **Nulls**: 8 / 1143
 - **Sample**: 0.0152496626180836
 
 ## vote_share_2022_r1_VOTOS NO MARCADOS .
 
 - **Type**: float64
-- **Nulls**: 66 / 1143
+- **Nulls**: 28 / 1143
 - **Sample**: 0.0056680161943319
 
 ## vote_share_2022_r1_VOTOS NULOS .
 
 - **Type**: float64
-- **Nulls**: 50 / 1143
+- **Nulls**: 12 / 1143
 - **Sample**: 0.0120107962213225
 
 ## vote_share_2022_r1_federico_gutierrez
 
 - **Type**: float64
-- **Nulls**: 43 / 1143
+- **Nulls**: 4 / 1143
 - **Sample**: 0.6669365721997301
 
 ## vote_share_2022_r1_gustavo_petro
 
 - **Type**: float64
-- **Nulls**: 43 / 1143
+- **Nulls**: 3 / 1143
 - **Sample**: 0.092442645074224
 
 ## vote_share_2022_r1_ingrid_betancourt
 
 - **Type**: float64
-- **Nulls**: 171 / 1143
+- **Nulls**: 138 / 1143
 - **Sample**: 0.0008097165991902
 
 ## vote_share_2022_r1_rodolfo_hernandez
 
 - **Type**: float64
-- **Nulls**: 44 / 1143
+- **Nulls**: 4 / 1143
 - **Sample**: 0.1500674763832658
 
 ## vote_share_2022_r1_sergio_fajardo
 
 - **Type**: float64
-- **Nulls**: 43 / 1143
+- **Nulls**: 3 / 1143
 - **Sample**: 0.0483130904183535
 
 ## vote_share_2022_r2_GUSTAVO PETRO
@@ -570,389 +564,455 @@ Rows: 1143, Columns: 159
 ## vote_share_2022_r2_VOTOS EN BLANCO .
 
 - **Type**: float64
-- **Nulls**: 45 / 1143
+- **Nulls**: 7 / 1143
 - **Sample**: 0.0165267914783731
 
 ## vote_share_2022_r2_VOTOS NO MARCADOS .
 
 - **Type**: float64
-- **Nulls**: 89 / 1143
+- **Nulls**: 52 / 1143
 - **Sample**: 0.0028405422853453
 
 ## vote_share_2022_r2_VOTOS NULOS .
 
 - **Type**: float64
-- **Nulls**: 49 / 1143
+- **Nulls**: 11 / 1143
 - **Sample**: 0.0087798579728857
 
 ## vote_share_2022_r2_gustavo_petro
 
 - **Type**: float64
-- **Nulls**: 43 / 1143
+- **Nulls**: 3 / 1143
 - **Sample**: 0.1323434473854099
 
 ## vote_share_2022_r2_rodolfo_hernandez
 
 - **Type**: float64
-- **Nulls**: 43 / 1143
+- **Nulls**: 3 / 1143
 - **Sample**: 0.8395093608779858
-
-## nbi_rate_x
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.1395891424344164
 
 ## nbi_urban
 
 - **Type**: float64
-- **Nulls**: 42 / 1143
+- **Nulls**: 21 / 1143
 - **Sample**: 0.0875775501370653
 
 ## nbi_rural
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
+- **Nulls**: 1 / 1143
 - **Sample**: 0.17346363465514
 
 ## ipm_2018
 
 - **Type**: float64
-- **Nulls**: 21 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 0.1588426984159165
 
 ## ipm_2018_imputed
 
-- **Type**: object
-- **Nulls**: 21 / 1143
+- **Type**: bool
+- **Nulls**: 0 / 1143
 - **Sample**: True
 
 ## ipm_2022
 
 - **Type**: float64
-- **Nulls**: 21 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 0.1588426984159165
 
 ## ipm_2022_imputed
 
-- **Type**: object
-- **Nulls**: 21 / 1143
+- **Type**: bool
+- **Nulls**: 0 / 1143
 - **Sample**: True
 
 ## nombre_municipio_y
 
 - **Type**: str
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: Cali
-
-## poblacion_total_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 2172527.0
-
-## poblacion_afrocolombiana_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 580000.0
-
-## poblacion_indigena_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 2100.0
-
-## poblacion_rural_dispersa_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 2000.0
 
 ## anos_escolaridad
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 10.5
 
 ## hogares_con_internet
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 580000.0
 
 ## hogares_totales
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 750000.0
-
-## pct_afro_colombian_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 0.2669702148695965
-
-## pct_indigenous_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 0.0009666162952175
-
-## pct_rural_disperso_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 0.0009205869478261
 
 ## years_schooling
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 10.5
-
-## internet_access_rate_x
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 0.7733333333333333
 
 ## ipm_score
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 0.098
-
-## nbi_rate_y
-
-- **Type**: float64
-- **Nulls**: 1141 / 1143
-- **Sample**: 0.071
 
 ## proyeccion_2022
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 2300000.0
 
 ## population_2022
 
 - **Type**: float64
-- **Nulls**: 1141 / 1143
+- **Nulls**: 1120 / 1143
 - **Sample**: 2300000.0
 
-## risk_level
+## moe_risk_2007
 
 - **Type**: str
-- **Nulls**: 1134 / 1143
-- **Sample**: extreme
+- **Nulls**: 0 / 1143
+- **Sample**: medium
+
+## moe_high_risk_2007
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2010
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2010
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2011
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2011
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2014
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: high
+
+## moe_high_risk_2014
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 1
+
+## moe_risk_2015
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2015
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2016
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2016
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2018
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2018
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2019
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2019
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2022
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2022
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## moe_risk_2023
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
+
+## moe_high_risk_2023
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
+
+## armed_group_presence
+
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
 
 ## is_pdet
 
-- **Type**: float64
-- **Nulls**: 1134 / 1143
-- **Sample**: 0.0
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
 
 ## coca_hectares
 
 - **Type**: float64
-- **Nulls**: 1134 / 1143
-- **Sample**: 4500.0
-
-## armed_group_presence
-
-- **Type**: float64
-- **Nulls**: 1134 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 0.0
+
+## risk_level
+
+- **Type**: str
+- **Nulls**: 0 / 1143
+- **Sample**: low
 
 ## high_risk_flag
 
-- **Type**: float64
-- **Nulls**: 1134 / 1143
-- **Sample**: 1.0
-
-## poblacion_total_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 20368.0
-
-## poblacion_afrocolombiana_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 1036.0
-
-## poblacion_indigena_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 625.0
-
-## poblacion_rural_dispersa_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 4129.0
-
-## pct_afro_colombian_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.0508
-
-## pct_indigenous_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.0307
-
-## pct_rural_disperso_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.2027
-
-## years_schooling_promedio
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 10.1605
-
-## pct_school_attendance
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.8485
-
-## internet_access_rate_y
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.5025
+- **Type**: int64
+- **Nulls**: 0 / 1143
+- **Sample**: 0
 
 ## labor_force_participation_rate
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.5949
-
-## pct_female
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.4926
-
-## rooms_per_household
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 3.4226
-
-## persons_per_household
-
-- **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 3.24
+- **Nulls**: 1 / 1143
+- **Sample**: 0.4805448782790478
 
 ## pct_age_18_29
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.2815
+- **Nulls**: 1 / 1143
+- **Sample**: 0.1860988348734431
 
 ## pct_age_30_54
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.3146
+- **Nulls**: 1 / 1143
+- **Sample**: 0.4574527922860587
 
 ## pct_age_55_plus
 
 - **Type**: float64
-- **Nulls**: 22 / 1143
-- **Sample**: 0.4039
+- **Nulls**: 1 / 1143
+- **Sample**: 0.3564483728404982
+
+## pct_female
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.4807091312006364
+
+## pct_school_attendance
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.2503933196175723
+
+## persons_per_household
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 2.915228931652289
+
+## rooms_per_household
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 1.88296812749004
+
+## years_schooling_promedio
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 3.17134509624198
 
 ## pop_2018
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 20368.0
 
 ## pop_2019
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 20612.0
 
 ## pop_2020
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 20878.0
 
 ## pop_2021
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 20962.0
 
 ## pop_2022
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 21000.0
 
 ## pop_2023
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 21030.0
 
 ## pop_2024
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 21121.0
 
 ## pop_2025
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 21147.0
 
 ## pop_2026
 
 - **Type**: float64
-- **Nulls**: 1 / 1143
+- **Nulls**: 0 / 1143
 - **Sample**: 21126.0
-
-## comuna_nombre_y
-
-- **Type**: str
-- **Nulls**: 1122 / 1143
-- **Sample**: Usaquén
 
 ## pct_ingresos_propios
 
 - **Type**: float64
-- **Nulls**: 42 / 1143
+- **Nulls**: 21 / 1143
 - **Sample**: 0.643769648861143
 
 ## gastos_totales_per_capita
 
 - **Type**: float64
-- **Nulls**: 42 / 1143
+- **Nulls**: 21 / 1143
 - **Sample**: 979132.3885714284
 
 ## transferencias_per_capita
 
 - **Type**: float64
-- **Nulls**: 42 / 1143
+- **Nulls**: 21 / 1143
 - **Sample**: 65856.11142857143
 
 ## ingresos_tributarios_per_capita
 
 - **Type**: float64
-- **Nulls**: 42 / 1143
+- **Nulls**: 21 / 1143
 - **Sample**: 108344.26142857142
+
+## pct_indigenous
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.0001136428206148
+
+## pct_afro_colombian
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.003522927439059
+
+## poblacion_afrocolombiana
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 62.0
+
+## poblacion_indigena
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 2.0
+
+## nbi_rate
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.1395891424344164
+
+## poblacion_total
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 17599.0
+
+## pct_rural_disperso
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.5798624921870561
+
+## internet_access_rate
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.1334429695759426
+
+## comuna_nombre
+
+- **Type**: str
+- **Nulls**: 1122 / 1143
+- **Sample**: Usaquén
+
+## poblacion_rural_dispersa
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 10205.0

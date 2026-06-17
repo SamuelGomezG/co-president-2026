@@ -324,11 +324,11 @@ def rolling_forecast(
             idata = sample_round1(model, config)
             forecast = forecast_round1(idata, candidate_keys)
             snapshots.append((cutoff_date, forecast))
-        except Exception:  # noqa: BLE001
-            logger.warning(
+        except (ValueError, RuntimeError, TypeError, AttributeError):
+            logger.exception(
                 "rolling_forecast: MCMC failed for snapshot %s, skipping",
                 cutoff_date,
-                exc_info=True,
+                extra={"cutoff_date": str(cutoff_date)},
             )
 
     return snapshots

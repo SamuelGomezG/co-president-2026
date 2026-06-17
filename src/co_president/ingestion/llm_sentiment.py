@@ -82,8 +82,8 @@ def _call_openai(
             raw_label = parsed.get("label", "NEUTRO").upper()
             label = _LABEL_MAP.get(raw_label, "neutral")
             explanation = parsed.get("explanation", "")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("OpenAI API call failed for tweet: %s", exc)
+        except (json.JSONDecodeError, KeyError, ValueError):
+            logger.exception("OpenAI API call failed for tweet", extra={"model": model})
             label = "neutral"
             explanation = ""
 
@@ -145,8 +145,10 @@ def classify_with_gpt(
         except ImportError:
             logger.info("openai package not installed, using mock classifier")
             results = _mock_classifier(input_list)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("OpenAI initialisation failed (%s), using mock classifier", exc)
+        except Exception:
+            logger.exception(
+                "OpenAI initialisation failed, using mock classifier", extra={"model": model}
+            )
             results = _mock_classifier(input_list)
     else:
         logger.info("OPENAI_API_KEY not set, using mock classifier")

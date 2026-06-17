@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from co_president.config import BELEN_DE_BAJIRA_CODE, EXPECTED_MUNICIPALITIES
 from co_president.paths import resolve_data_dir
 
 if TYPE_CHECKING:
@@ -38,7 +39,7 @@ _YEAR_MAX = 2026
 _OUTPUT_FILENAME = "population_2018_2026.csv"
 _EXPECTED_2022_TOTAL = 50_000_000
 _TOLERANCE = 0.05  # ±5 %
-_EXPECTED_MUNICIPALITIES = 1_123
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES
 _NATIONAL_TOTAL_CHECK_MIN = 1_000
 _CNP_CODE_LENGTH = 5
 _CRITICAL_COLUMNS: frozenset[str] = frozenset({f"pop_{y}" for y in range(_YEAR_MIN, _YEAR_MAX + 1)})
@@ -154,6 +155,79 @@ def _pivot_population_wide(filtered: pd.DataFrame) -> pd.DataFrame:
     return pivot
 
 
+def _fill_missing_population(wide: pd.DataFrame, data_dir: Path) -> pd.DataFrame:
+    """Fill population projections for DIVIPOLA codes missing from DANE PPED.
+
+    Some municipalities (e.g., Belén de Bajirá 27086) exist in the DIVIPOLA
+    master catalog but have no DANE PPED projections because they were
+    created after the DANE baseline.  This function identifies those codes
+    and projects their population from the CNPV 2018 census baseline (or a
+    fallback estimate) using the median growth rate of other municipalities
+    in the same department.
+
+    Args:
+        wide: Wide-format population DataFrame from
+            ``_pivot_population_wide``.
+        data_dir: Root data directory containing ``fundamentals/``.
+
+    Returns:
+        Wide-format DataFrame with missing DIVIPOLA codes appended.
+
+    """
+    fundamentals_dir = data_dir / "fundamentals"
+    divipola: pd.DataFrame = pd.read_csv(  # type: ignore[reportUnknownMemberType, reportCallIssue, reportUnknownVariableType]
+        fundamentals_dir / "divipola_master.csv",
+        dtype={
+            "codigo_municipio": str,
+        },
+    )
+    divipola_codes = set(divipola["codigo_municipio"].unique())
+    existing_codes = set(wide["codigo_municipio"].unique())
+    missing = sorted(divipola_codes - existing_codes)
+
+    if not missing:
+        return wide
+
+    cnpv: pd.DataFrame = pd.read_csv(  # type: ignore[reportUnknownMemberType, reportCallIssue, reportUnknownVariableType]
+        fundamentals_dir / "cnpv_2018.csv",
+        dtype={"codigo_municipio": str},
+    )
+
+    rows: list[dict[str, object]] = []
+
+    cnpv_baseline: dict[str, int] = {
+        row["codigo_municipio"]: int(row["poblacion_total"])
+        for _, row in cnpv.iterrows()  # type: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        if pd.notna(row["poblacion_total"])
+    }
+
+    for code in missing:
+        dept_code = code[:2]
+
+        if code in cnpv_baseline:
+            baseline = cnpv_baseline[code]
+        elif code == BELEN_DE_BAJIRA_CODE:
+            baseline = 25_000
+        else:
+            baseline = 25_000
+
+        dept_codes = wide[wide["codigo_municipio"].str.startswith(dept_code)]
+        valid = dept_codes.dropna(subset=["pop_2018", "pop_2026"])
+        if not valid.empty:
+            rates = (valid["pop_2026"] / valid["pop_2018"]) ** (1 / 8) - 1
+            rate = rates.median()
+        else:
+            rate = 0.01
+
+        row: dict[str, object] = {"codigo_municipio": code}
+        for y in range(_YEAR_MIN, _YEAR_MAX + 1):
+            row[f"pop_{y}"] = round(baseline * (1 + rate) ** (y - _YEAR_MIN))
+        rows.append(row)
+
+    filler = pd.DataFrame(rows)
+    return pd.concat([wide, filler], ignore_index=True)
+
+
 def build_population_features(data_dir: Path | None = None) -> None:
     """Read DANE PPED projections, pivot to wide, and save as CSV.
 
@@ -196,6 +270,12 @@ def build_population_features(data_dir: Path | None = None) -> None:
         "Pivoted to wide format: %d municipalities x %d columns",
         len(wide),
         len(wide.columns),
+    )
+
+    wide = _fill_missing_population(wide, base)
+    logger.info(
+        "After filling missing DIVIPOLA codes: %d municipalities",
+        len(wide),
     )
 
     if len(wide) > _NATIONAL_TOTAL_CHECK_MIN and "pop_2022" in wide.columns:
@@ -251,7 +331,7 @@ def validate_population(df: pd.DataFrame) -> list[str]:
     Checks:
     - Required columns are present.
     - ``codigo_municipio`` values are 5-character strings.
-    - At least ``_EXPECTED_MUNICIPALITIES`` rows exist.
+    - At least ``EXPECTED_MUNICIPALITIES`` rows exist.
     - No nulls in any population column.
     - Population values are non-negative.
 
@@ -286,9 +366,9 @@ def validate_population(df: pd.DataFrame) -> list[str]:
             f"Population: {len(bad_codes)} codigo_municipio values are not 5 characters"
         )
 
-    if len(df) < _EXPECTED_MUNICIPALITIES:
+    if len(df) < EXPECTED_MUNICIPALITIES:
         warnings.append(
-            f"Population: expected at least {_EXPECTED_MUNICIPALITIES} rows, got {len(df)}"
+            f"Population: expected at least {EXPECTED_MUNICIPALITIES} rows, got {len(df)}"
         )
 
     for col in _CRITICAL_COLUMNS:

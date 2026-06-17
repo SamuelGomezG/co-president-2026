@@ -297,9 +297,6 @@ def _read_participation(path: Path) -> pd.DataFrame:
     Some rows have extra fields due to commas in school names; those rows are
     skipped with a warning since they are edge cases (~1 per 12,500 rows).
     """
-    with path.open(encoding="utf-8-sig") as handle:
-        total_lines = sum(1 for _ in handle)
-
     df: pd.DataFrame
     try:
         df = pd.read_csv(
@@ -316,9 +313,6 @@ def _read_participation(path: Path) -> pd.DataFrame:
             sep=",",
             on_bad_lines="skip",
         )
-        parsed_lines = len(df) + 1
-        skipped = max(total_lines - parsed_lines, 0)
-        logger.warning("Participation file %s skipped %d malformed row(s)", path, skipped)
     required_cols = {"Total censo", "Código Puesto"}
     missing = required_cols - set(df.columns)
     if missing:
@@ -345,17 +339,19 @@ def _aggregate_and_map(
     """
     names = df[name_col].astype(str).str.strip()
     grouped = df.groupby(names)[votes_col].sum()
+    unmapped: set[str] = set()
     result: dict[str, int] = {}
     for raw_name, votes in grouped.items():
         normalized = _normalize_coalition_name(str(raw_name))
         key = COALITION_TO_CANDIDATE.get(normalized)
         if key is None:
-            logger.warning(
-                "Unmapped coalition name: %r -> %r — accumulating into 'rest'", raw_name, normalized
-            )
-            result["rest"] = result.get("rest", 0) + int(votes)
+            unmapped.add(f"{raw_name!r} -> {normalized!r}")
             continue
         result[key] = result.get(key, 0) + int(votes)
+    if unmapped:
+        names_list = ", ".join(sorted(unmapped))
+        msg = f"Unmapped coalition names (must be in COALITION_TO_CANDIDATE): {names_list}"
+        raise ValueError(msg)
     result_df = pd.DataFrame(list(result.items()), columns=["candidate_key", "votes"])
     return result_df.set_index("candidate_key")
 
@@ -800,7 +796,8 @@ def _try_extract_pdfplumber(
                     ]
                     tables.append(cleaned)
             return tables or None
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError):
+        logger.exception("pdfplumber extraction failed for %s", pdf_path)
         return None
 
 
@@ -831,7 +828,8 @@ def _try_extract_pymupdf(
         return None
     try:
         doc = pymupdf.open(pdf_path)
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError):
+        logger.exception("pymupdf open failed for %s", pdf_path)
         return None
     tables: list[list[list[str]]] = []
     try:
@@ -850,7 +848,8 @@ def _try_extract_pymupdf(
                     for row in data  # type: ignore[reportUnknownVariableType]
                 ]
                 tables.append(cleaned)
-    except Exception:  # noqa: BLE001
+    except (IndexError, ValueError, OSError, RuntimeError):
+        logger.exception("pymupdf page extraction failed for %s", pdf_path)
         return None
     finally:
         doc.close()

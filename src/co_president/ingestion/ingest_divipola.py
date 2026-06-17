@@ -11,12 +11,14 @@ import logging
 from typing import TYPE_CHECKING
 
 import pandas as pd
+import requests
 
 if TYPE_CHECKING:
     from pathlib import Path
 from sodapy import Socrata  # type: ignore[reportMissingTypeStubs]
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from co_president.config import EXPECTED_MUNICIPALITIES
 from co_president.paths import resolve_data_dir
 
 __all__ = [
@@ -28,7 +30,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1122
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES
 _SOCRATA_DATASET = "mv2e-prx5"
 _GITHUB_GIST_ID = "b5848316671422b19e19bfca7f8aadcb"
 
@@ -134,7 +136,7 @@ def _fetch_with_fallback() -> pd.DataFrame:
         if "codigo_municipio" not in df.columns:
             logger.warning("Socrata response missing codigo_municipio; trying Gist fallback")
             return fetch_divipola_github()
-    except Exception as exc:  # noqa: BLE001
+    except (requests.RequestException, ConnectionError) as exc:
         logger.warning("Socrata fetch failed (%s); trying GitHub Gist fallback", exc)
         return fetch_divipola_github()
     else:
@@ -143,8 +145,8 @@ def _fetch_with_fallback() -> pd.DataFrame:
 
 def _raise_if_below_minimum(df: pd.DataFrame) -> None:
     """Raise if the DataFrame has fewer than the expected municipalities."""
-    if len(df) < _EXPECTED_MUNICIPALITIES:
-        msg = f"Expected >= {_EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}"
+    if len(df) < EXPECTED_MUNICIPALITIES:
+        msg = f"Expected >= {EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}"
         raise ValueError(msg)
 
 

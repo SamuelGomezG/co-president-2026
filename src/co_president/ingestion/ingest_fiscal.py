@@ -14,6 +14,7 @@ import zipfile
 
 import pandas as pd
 
+from co_president.config import EXPECTED_MUNICIPALITIES
 from co_president.paths import resolve_data_dir
 
 __all__ = [
@@ -23,8 +24,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-_EXPECTED_MUNICIPALITIES = 1_122
 
 # Target indicator names in Hoja01.
 _IND_INGRESOS_TRIBUTARIOS = "Ingresos tributarios"
@@ -361,7 +360,7 @@ def validate_fiscal(df: pd.DataFrame) -> list[str]:
     if bad_length > 0:
         warnings.append(f"{bad_length} codigo_municipio value(s) with length != 5")
 
-    if len(df) < _EXPECTED_MUNICIPALITIES - 20:
-        warnings.append(f"Expected ~{_EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
+    if len(df) < EXPECTED_MUNICIPALITIES - 20:
+        warnings.append(f"Expected ~{EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
 
     return warnings

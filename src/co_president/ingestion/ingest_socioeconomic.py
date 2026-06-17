@@ -16,6 +16,7 @@ import pandas as pd
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from co_president.config import EXPECTED_MUNICIPALITIES
 from co_president.paths import resolve_data_dir
 
 __all__ = [
@@ -28,7 +29,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_EXPECTED_MUNICIPALITIES = 1122
+# Imported from co_president.config: EXPECTED_MUNICIPALITIES
 
 _DANE_CENSUS_URL = "https://microdatos.dane.gov.co/index.php/catalog/643"
 _DANE_IPM_URL = (
@@ -77,7 +78,7 @@ def fetch_dane_csv(dane_url: str) -> pd.DataFrame | None:
         content_type = response.headers.get("Content-Type", "")
         if "text/html" not in content_type:
             return _parse_data_file(response)
-    except Exception as exc:  # noqa: BLE001
+    except (requests.RequestException, pd.errors.ParserError) as exc:
         logger.warning("Direct DANE CSV fetch failed for %s: %s", dane_url, exc)
     return None
 
@@ -113,12 +114,12 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
 
                     if csv_path.stat().st_size > 0:
                         return pd.read_csv(str(csv_path), encoding="latin-1")
-            except Exception as exc:  # noqa: BLE001
+            except (TimeoutError, AttributeError) as exc:
                 logger.warning("Playwright census download failed: %s", exc)
                 browser.close()
     except ImportError:
         logger.warning("Playwright not installed; skipping browser automation fallback")
-    except Exception:  # noqa: BLE001 — browser launch failure (missing binaries, etc.)
+    except RuntimeError:
         logger.warning("Playwright browser launch failed; skipping browser automation")
     return None
 
@@ -274,8 +275,8 @@ def validate_socioeconomic(df: pd.DataFrame) -> list[str]:
     if not (pop > 0).all():
         warnings.append("population_2022: found zero or negative values")
 
-    if len(df) < _EXPECTED_MUNICIPALITIES:
-        warnings.append(f"Expected {_EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
+    if len(df) < EXPECTED_MUNICIPALITIES:
+        warnings.append(f"Expected {EXPECTED_MUNICIPALITIES} municipalities, got {len(df)}")
 
     return warnings
 
@@ -343,7 +344,7 @@ def _fetch_population_projections() -> pd.DataFrame:
             df = pd.DataFrame.from_records(results)
             if "codigo_municipio" in df.columns and "proyeccion_2022" in df.columns:
                 return df
-    except Exception as exc:  # noqa: BLE001
+    except requests.RequestException as exc:
         logger.warning("Socrata population projections fetch failed: %s", exc)
     return _projections_hardcoded_fallback()
 
@@ -373,7 +374,7 @@ def _parse_data_file(response: requests.Response) -> pd.DataFrame | None:
             if isinstance(data, list):
                 return pd.DataFrame.from_records(data)  # type: ignore[reportUnknownArgumentType]
             return pd.DataFrame([data])
-    except Exception as exc:  # noqa: BLE001
+    except (pd.errors.ParserError, ValueError) as exc:
         logger.warning("Failed to parse response as data file: %s", exc)
     return None
 
