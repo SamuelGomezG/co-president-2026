@@ -33,7 +33,7 @@ class TestCedaeCandidateKey:
             "primer_apellido": "",
             "segundo_apellido": "",
         }
-        assert _cedae_candidate_key(row) == "UNKNOWN"
+        assert _cedae_candidate_key(row) == "UNKNOWN_SOMEONE"
 
     def test_unknown_all_empty(self) -> None:
         row = {
