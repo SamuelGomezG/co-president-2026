@@ -324,7 +324,7 @@ def rolling_forecast(
             idata = sample_round1(model, config)
             forecast = forecast_round1(idata, candidate_keys)
             snapshots.append((cutoff_date, forecast))
-        except (ValueError, RuntimeError, TypeError, AttributeError):
+        except (ValueError, RuntimeError, TypeError, AttributeError, KeyError):
             logger.exception(
                 "rolling_forecast: MCMC failed for snapshot %s, skipping",
                 cutoff_date,

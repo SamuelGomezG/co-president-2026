@@ -395,7 +395,7 @@ def _log_ml_baseline_comparison(
                 bayesian_r2,
                 best_str,
             )
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, KeyError, ImportError, OSError):
         logger.exception("ML baseline comparison skipped (non-fatal)")
 
 

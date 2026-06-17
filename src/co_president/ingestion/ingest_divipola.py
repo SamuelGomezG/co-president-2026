@@ -136,7 +136,7 @@ def _fetch_with_fallback() -> pd.DataFrame:
         if "codigo_municipio" not in df.columns:
             logger.warning("Socrata response missing codigo_municipio; trying Gist fallback")
             return fetch_divipola_github()
-    except (requests.RequestException, ConnectionError) as exc:
+    except (requests.RequestException, ConnectionError, ValueError) as exc:
         logger.warning("Socrata fetch failed (%s); trying GitHub Gist fallback", exc)
         return fetch_divipola_github()
     else:

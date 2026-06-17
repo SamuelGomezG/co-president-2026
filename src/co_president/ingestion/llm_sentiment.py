@@ -16,6 +16,15 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+try:
+    from openai import (  # type: ignore[reportMissingModuleSource]
+        APIConnectionError,  # type: ignore[reportUnknownVariableType]
+        APIError,  # type: ignore[reportUnknownVariableType]
+        RateLimitError,  # type: ignore[reportUnknownVariableType]
+    )
+except ImportError:
+    APIError = APIConnectionError = RateLimitError = Exception  # type: ignore[assignment,misc]
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -82,7 +91,14 @@ def _call_openai(
             raw_label = parsed.get("label", "NEUTRO").upper()
             label = _LABEL_MAP.get(raw_label, "neutral")
             explanation = parsed.get("explanation", "")
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except (
+            json.JSONDecodeError,
+            KeyError,
+            ValueError,
+            APIError,
+            APIConnectionError,
+            RateLimitError,
+        ):
             logger.exception("OpenAI API call failed for tweet", extra={"model": model})
             label = "neutral"
             explanation = ""

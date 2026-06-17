@@ -96,6 +96,7 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
 
     """
     try:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError  # noqa: PLC0415
         from playwright.sync_api import sync_playwright  # noqa: PLC0415
 
         with sync_playwright() as p:
@@ -114,7 +115,7 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
 
                     if csv_path.stat().st_size > 0:
                         return pd.read_csv(str(csv_path), encoding="latin-1")
-            except (TimeoutError, AttributeError) as exc:
+            except (PlaywrightTimeoutError, AttributeError) as exc:
                 logger.warning("Playwright census download failed: %s", exc)
                 browser.close()
     except ImportError:
@@ -344,7 +345,7 @@ def _fetch_population_projections() -> pd.DataFrame:
             df = pd.DataFrame.from_records(results)
             if "codigo_municipio" in df.columns and "proyeccion_2022" in df.columns:
                 return df
-    except requests.RequestException as exc:
+    except (requests.RequestException, ImportError, ValueError) as exc:
         logger.warning("Socrata population projections fetch failed: %s", exc)
     return _projections_hardcoded_fallback()
 
