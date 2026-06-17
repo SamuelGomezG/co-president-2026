@@ -97,10 +97,10 @@ def _extract_election_day_shares(
     idata: xr.DataTree,
     candidate_keys: list[str],
 ) -> dict[str, np.ndarray]:
-    """Extract election-day (t=0) posterior shares from InferenceData.
+    """Extract election-day (t=0) posterior shares from DataTree.
 
     Args:
-        idata: Posterior ``InferenceData`` from a round model.
+        idata: Posterior ``DataTree`` from a round model.
         candidate_keys: Candidate column keys in order.
 
     Returns:
@@ -121,7 +121,7 @@ def _compute_r1_accuracy(
     """Compute round 1 accuracy metrics.
 
     Args:
-        idata_r1: Round 1 posterior ``InferenceData``.
+        idata_r1: Round 1 posterior ``DataTree``.
         results_r1: Canonical round 1 ``RoundResult``.
 
     Returns:
@@ -189,7 +189,7 @@ def _compute_r2_accuracy(
     """Compute runoff (round 2) accuracy metrics.
 
     Args:
-        idata_runoff: Runoff posterior ``InferenceData``.
+        idata_runoff: Runoff posterior ``DataTree``.
         results_r1: Round 1 ``RoundResult`` (used to identify top-two).
         results_r2: Round 2 ``RoundResult``.
 
@@ -284,7 +284,7 @@ def _check_convergence(idata: xr.DataTree, label: str) -> tuple[float, bool]:
     """Check R-hat convergence.
 
     Args:
-        idata: Posterior ``InferenceData``.
+        idata: Posterior ``DataTree``.
         label: Human-readable label for logging.
 
     Returns:
@@ -519,7 +519,7 @@ def _run_round2_survey(
         clean_polls: Cleaned poll data.
         results_r1: Canonical round 1 results.
         results_r2: Canonical round 2 results.
-        idata_r1: Round 1 posterior ``InferenceData``.
+        idata_r1: Round 1 posterior ``DataTree``.
 
     Returns:
         Tuple of ``(idata, metrics, rhat, converged, elapsed_s)``.

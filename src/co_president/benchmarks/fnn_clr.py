@@ -13,6 +13,7 @@ import warnings
 
 import numpy as np
 from numpy.typing import NDArray
+from sklearn.exceptions import ConvergenceWarning  # type: ignore[reportMissingTypeStubs]
 from sklearn.metrics import (  # type: ignore[reportMissingTypeStubs]
     r2_score,  # type: ignore[reportUnknownVariableType]
     root_mean_squared_error,  # type: ignore[reportUnknownVariableType]
@@ -71,7 +72,7 @@ def fit_model(
 
     """
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+        warnings.filterwarnings("ignore", category=ConvergenceWarning, module="sklearn")
         model.fit(x, y)  # type: ignore[reportUnknownMemberType]
     return model
 

@@ -191,7 +191,7 @@ def _load_bogota_reg_participacion(data_dir: Path, round_num: int) -> pd.DataFra
     if not path.is_file():
         msg = f"Reg_participacion file not found: {path}"
         raise FileNotFoundError(msg)
-    df = pd.read_csv(path, encoding="utf-8-sig", low_memory=False, on_bad_lines="skip")  # type: ignore[reportUnknownMemberType]
+    df = pd.read_csv(path, encoding="utf-8-sig", low_memory=False, on_bad_lines="warn")  # type: ignore[reportUnknownMemberType]
     bog = df[df["Código Municipio"] == _BOGOTA_CODIGO_MUNICIPIO].copy()
     bog["round"] = round_num
     return bog

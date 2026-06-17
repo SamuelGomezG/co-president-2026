@@ -364,11 +364,12 @@ EXPECTED_MUNICIPALITIES: int = 1_122
 
 # Post-Bogotá-disaggregation count used by features.py after
 # build_feature_matrix replaces Bogotá (11001) with 21 localidad
-# codes (01-20 + 99 catch-all).  1,122 - 1 + 21 = 1,142.
+# codes (01-20 + 99 catch-all).  1,122 - 1 + 21 + 1 (Belén de Bajirá) = 1,143.
 EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES: int = 1_143
 
 # Population vintage including Archipiélago de San Andrés, Providencia y
-# Santa Catalina (ANM, codigo_municipio 88xxx).  1,122 + 1 ANM = 1,123.
+# Santa Catalina (ANM, codigo_municipio 88xxx).
+#   1,122 + 1 ANM + 1 (Belén de Bajirá) = 1,124.
 EXPECTED_MUNICIPALITIES_POPULATION_INCL_ANM: int = 1_124
 
 BELEN_DE_BAJIRA_CODE: str = "27086"

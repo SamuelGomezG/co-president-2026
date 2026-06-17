@@ -336,6 +336,10 @@ def _aggregate_and_map(
     Returns:
         DataFrame with ``candidate_key`` as index and a ``votes`` column.
 
+    Raises:
+        ValueError: If any coalition name cannot be mapped via
+            ``COALITION_TO_CANDIDATE``.
+
     """
     names = df[name_col].astype(str).str.strip()
     grouped = df.groupby(names)[votes_col].sum()

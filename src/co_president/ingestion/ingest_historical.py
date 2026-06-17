@@ -237,7 +237,11 @@ def map_historical_candidate(name: str) -> str:
     raise ValueError(msg)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True,
+)
 def fetch_cedae_results(year: int, round_num: int) -> pd.DataFrame:
     """Fetch election results for a specific year and round from CEDAE.
 
@@ -885,11 +889,12 @@ def _build_turnout_from_moe(
         "registered_voters"
     ].first()
 
-    # Total votes per (municipio, year), averaged across rounds
+    # Total votes per (municipio, year) — one row per muni (votes are
+    # identical across candidates, so ``.first()`` is safe).
     hist = historical_df.copy()
     hist["codigo_municipio"] = hist["codigo_municipio"].astype(str).str.zfill(_DANE_CODE_WIDTH)
     hist["year"] = hist["year"].astype(int)
-    votes_per_yr = hist.groupby(["codigo_municipio", "year"], as_index=False)["total_votes"].mean()
+    votes_per_yr = hist.groupby(["codigo_municipio", "year"], as_index=False)["total_votes"].first()
 
     # Merge and compute turnout
     merged: pd.DataFrame = moe_agg.merge(votes_per_yr, on=["codigo_municipio", "year"], how="inner")
@@ -1067,7 +1072,7 @@ def _fill_registered_voters_from_moe(combined: pd.DataFrame, data_dir: Path) -> 
 
     """
     if "registered_voters" not in combined.columns:
-        return combined
+        combined["registered_voters"] = pd.NA
     moe = _load_moe_registered_voters(moe_dir=data_dir / _MOE_DIR_NAME)
     if moe.empty:
         return combined

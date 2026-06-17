@@ -220,7 +220,7 @@ def _cedae_candidate_key(row: dict[str, object]) -> str:
     if full_name:
         logger.debug("Unmapped CEDAE candidate: %s", full_name)
 
-    return "UNKNOWN"
+    return f"UNKNOWN_{full_name}" if full_name else "UNKNOWN"
 
 
 def _log_unknown_candidates(records: pd.DataFrame, filename: str) -> None:

@@ -130,7 +130,7 @@ def _try_extract_pdf_pymupdf(pdf_path: str) -> pd.DataFrame | None:
     return None
 
 
-def load_historical_moe_risk() -> pd.DataFrame:
+def load_historical_moe_risk(data_dir: Path | None = None) -> pd.DataFrame:
     """Load historical MOE electoral risk data from CSV files (2007-2023).
 
     Reads all CSV files from ``data/conflict/moe_mapas_riesgo_consolidado/``,
@@ -139,9 +139,17 @@ def load_historical_moe_risk() -> pd.DataFrame:
     ``moe_high_risk_{year}`` columns.  Municipalities not listed in any year
     are assigned ``low`` risk.
 
+    Args:
+        data_dir: Root data directory. If ``None``, resolved from the
+            package's default data location.
+
     Returns:
         DataFrame with ``codigo_municipio`` and one ``moe_risk_*`` /
         ``moe_high_risk_*`` column per election year.
+
+    Raises:
+        FileNotFoundError: If the MOE risk directory or any required CSV
+            is missing.
 
     """
     riesgo_map: dict[str, str] = {
@@ -150,7 +158,7 @@ def load_historical_moe_risk() -> pd.DataFrame:
         "Medio (por alto nivel de la variable)": "medium",
     }
 
-    data_dir = resolve_data_dir(None)
+    data_dir = resolve_data_dir(data_dir)
     moe_dir = data_dir / _CONFLICT_DIR_NAME / _MOE_CSV_DIR
 
     yearly_frames: list[pd.DataFrame] = []
@@ -159,6 +167,9 @@ def load_historical_moe_risk() -> pd.DataFrame:
         raw["codigo_municipio"] = raw["codmpio"].str.zfill(5)
         raw["riesgo_std"] = raw["riesgo"].map(riesgo_map)
         year = int(raw["annoh"].iloc[0])
+        if (raw["annoh"] != year).any():
+            msg = f"Multiple years in {csv_path.name}"
+            raise ValueError(msg)
 
         year_df = raw[["codigo_municipio", "riesgo_std"]].copy()
         year_df = year_df.rename(columns={"riesgo_std": f"moe_risk_{year}"})
@@ -413,7 +424,7 @@ def _try_local_indepaz_pdf() -> pd.DataFrame | None:
         pdf_path = str(data_dir / _CONFLICT_DIR_NAME / _LOCAL_INDEPAZ_PDF)
         if Path(pdf_path).is_file():
             return _parse_single_indepaz_pdf(pdf_path)
-    except (OSError, FileNotFoundError) as exc:
+    except (OSError, FileNotFoundError, ValueError) as exc:
         logger.warning("Failed to read local INDEPAZ PDF: %s", exc)
     return None
 
@@ -482,7 +493,7 @@ def _try_download_indepaz_pdf() -> pd.DataFrame | None:
             pdf_path = Path(tmp_dir) / "indepaz_2022.pdf"
             pdf_path.write_bytes(response.content)
             return _parse_single_indepaz_pdf(str(pdf_path))
-    except requests.RequestException as exc:
+    except (requests.RequestException, ValueError) as exc:
         logger.warning("INDEPAZ PDF download failed: %s", exc)
     return None
 

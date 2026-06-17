@@ -331,9 +331,9 @@ def _replace_bogota_with_localidades(  # noqa: C901, PLR0912
     - Historical: Bogotá rows replaced by per-localidad election results
     - Population: Bogotá row replaced by proportionally split rows
 
-    All other components (NBI, IPM, risk, CNPV, socioeconomic) keep
-    Bogotá's row — localidades inherit Bogotá-wide rates via subsequent
-    merge.
+    All other components (NBI, IPM, risk, CNPV, socioeconomic, and fiscal)
+    are duplicated — Bogotá's single-row values are repeated for each of
+    the 21 localidades so every row has a complete feature vector.
 
     If the Bogotá MMV/reg-participacion data files are not available
     (e.g. in test environments), the replacement is skipped entirely and
