@@ -25,6 +25,8 @@ _MUNI_CODE_LEN: int = 5
 _YEAR_SPLIT_PARTS: int = 2
 _TXT_FIELD_COUNT: int = 14
 
+_EARLY_YEAR_THRESHOLD: int = 2006
+
 _TXT_DIMENSIONS: tuple[str, ...] = (
     "Economía",
     "Pobreza",
@@ -32,6 +34,7 @@ _TXT_DIMENSIONS: tuple[str, ...] = (
     "Educación",
     "Salud",
     "Mercado laboral",
+    "Finanzas públicas",
 )
 
 _FISCAL_INDICATORS: tuple[str, ...] = (
@@ -220,6 +223,10 @@ def _build_txt_cache() -> pd.DataFrame:  # noqa: C901
     result.columns = [
         f"txt_{_normalise_indicator(str(col))}_{int(year)}" for col, year in result.columns
     ]
+    dupes = result.columns[result.columns.duplicated(keep="first")]
+    if len(dupes):
+        logger.warning("Dropping %d duplicate txt columns: %s", len(dupes), list(dupes))
+        result = result.loc[:, ~result.columns.duplicated(keep="first")]
     return result.reset_index()
 
 
@@ -246,13 +253,26 @@ def load_fiscal_features() -> pd.DataFrame:
         df_txt = _build_txt_cache()
 
         if not df_txt.empty:
-            df_cache = pd.concat(
-                [
-                    df_fiscal.set_index("codigo_municipio"),
-                    df_txt.set_index("codigo_municipio"),
-                ],
-                axis=1,
-            ).reset_index()
+            # Fill fiscal gaps from TXT data (TXT supplements Excel)
+            txt_fiscal_filled: list[str] = []
+            for col in df_txt.columns:
+                if col.startswith("txt_"):
+                    fiscal_col = f"fiscal_{col[4:]}"
+                    if fiscal_col in df_fiscal.columns:
+                        df_fiscal[fiscal_col] = df_fiscal[fiscal_col].fillna(df_txt[col])
+                        txt_fiscal_filled.append(col)
+            df_txt = df_txt.drop(columns=txt_fiscal_filled, errors="ignore")
+
+            if not df_txt.empty:
+                df_cache = pd.concat(
+                    [
+                        df_fiscal.set_index("codigo_municipio"),
+                        df_txt.set_index("codigo_municipio"),
+                    ],
+                    axis=1,
+                ).reset_index()
+            else:
+                df_cache = df_fiscal
         else:
             df_cache = df_fiscal
 
@@ -269,10 +289,21 @@ def load_fiscal_features() -> pd.DataFrame:
 
     n_rows = len(df_cache)
     min_valid = max(n_rows // 2, 500)
-    valid = df_cache.notna().sum() >= min_valid
+    early_min_valid = max(n_rows // 5, 200)
+
+    def _column_threshold(col_name: str) -> int:
+        year_part = col_name.rsplit("_", 1)[-1]
+        if year_part.isdigit() and int(year_part) <= _EARLY_YEAR_THRESHOLD:
+            return early_min_valid
+        return min_valid
+
+    thresholds = pd.Series(
+        {col: _column_threshold(col) for col in df_cache.columns},
+    )
+    valid = df_cache.notna().sum() >= thresholds
     dropped = (~valid).sum()
     if dropped:
-        logger.info("Dropping %d sparse columns (< %d non-null)", dropped, min_valid)
+        logger.info("Dropping %d sparse columns (threshold varies by year)", dropped)
         df_cache = df_cache.loc[:, valid]
 
     logger.info("Final fiscal features: %d rows x %d cols", *df_cache.shape)

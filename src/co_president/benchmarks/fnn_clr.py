@@ -9,6 +9,7 @@ helpers for use by ``runner.py``.
 from __future__ import annotations
 
 import logging
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -69,7 +70,9 @@ def fit_model(
         Fitted model.
 
     """
-    model.fit(x, y)  # type: ignore[reportUnknownMemberType]
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+        model.fit(x, y)  # type: ignore[reportUnknownMemberType]
     return model
 
 
