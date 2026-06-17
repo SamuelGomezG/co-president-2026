@@ -418,7 +418,7 @@ requires-dist = [
     { name = "arviz", specifier = ">=0.18" },
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "beautifulsoup4", specifier = ">=4.12" },
-    { name = "cryptography", specifier = "==48.0.1" },
+    { name = "cryptography", specifier = ">=48.0.1" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.30" },

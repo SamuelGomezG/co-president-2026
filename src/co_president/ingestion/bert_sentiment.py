@@ -123,7 +123,7 @@ def classify_emotions(
     except ImportError:
         logger.info("pysentimiento not installed, falling back to transformers")
         result = _classify_with_transformers(input_list)
-    except (RuntimeError, ValueError) as exc:
+    except (RuntimeError, ValueError, OSError, KeyError) as exc:
         logger.warning("pysentimiento failed (%s), falling back to transformers", exc)
         result = _classify_with_transformers(input_list)
 

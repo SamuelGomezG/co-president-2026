@@ -693,13 +693,15 @@ def _compute_turnout(
     if result["historical_turnout_m"].isna().any():
         missing_count = int(result["historical_turnout_m"].isna().sum())
         known_mean = result["historical_turnout_m"].mean()
-        fill_val = known_mean if pd.notna(known_mean) else float("nan")
+        if pd.isna(known_mean):
+            msg = "historical_turnout_m is entirely NaN after fallback fill"
+            raise ValueError(msg)
         logger.warning(
             "%d municipalities missing from fallback turnout -- filling with %.2f",
             missing_count,
-            fill_val,
+            known_mean,
         )
-        result["historical_turnout_m"] = result["historical_turnout_m"].fillna(fill_val)
+        result["historical_turnout_m"] = result["historical_turnout_m"].fillna(known_mean)
     if result["historical_turnout_m"].isna().all():
         msg = "historical_turnout_m is entirely NaN after fallback fill"
         raise ValueError(msg)

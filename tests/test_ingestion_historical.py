@@ -774,8 +774,6 @@ class TestCrosswalkMmvMunicipalities:
                     "13600",
                     "15109",
                     "15407",
-                    "20443",
-                    "27025",
                 ],
             }
         )

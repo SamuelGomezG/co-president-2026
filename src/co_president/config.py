@@ -28,6 +28,7 @@ import statistics
 from typing import Literal
 
 __all__ = [
+    "BELEN_DE_BAJIRA_CODE",
     "BOGOTA_LOCALIDADES",
     "COALITION_TO_CANDIDATE",
     "CONSULTATION_DATE",

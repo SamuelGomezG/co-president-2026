@@ -101,22 +101,23 @@ def scrape_dane_portal_playwright() -> pd.DataFrame | None:
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(_DANE_CENSUS_URL, wait_until="networkidle")
             try:
-                page.click("text=Descargar", timeout=10000)
-                with page.expect_download(timeout=30000) as download_info:
-                    page.click("text=CSV", timeout=10000)
-                download = download_info.value
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    csv_path = Path(tmp_dir) / "cnpv_2018_download.csv"
-                    download.save_as(str(csv_path))
-                    browser.close()
+                page = browser.new_page()
+                page.goto(_DANE_CENSUS_URL, wait_until="networkidle")
+                try:
+                    page.click("text=Descargar", timeout=10000)
+                    with page.expect_download(timeout=30000) as download_info:
+                        page.click("text=CSV", timeout=10000)
+                    download = download_info.value
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        csv_path = Path(tmp_dir) / "cnpv_2018_download.csv"
+                        download.save_as(str(csv_path))
 
-                    if csv_path.stat().st_size > 0:
-                        return pd.read_csv(str(csv_path), encoding="latin-1")
-            except (PlaywrightTimeoutError, AttributeError) as exc:
-                logger.warning("Playwright census download failed: %s", exc)
+                        if csv_path.stat().st_size > 0:
+                            return pd.read_csv(str(csv_path), encoding="latin-1")
+                except (PlaywrightTimeoutError, AttributeError) as exc:
+                    logger.warning("Playwright census download failed: %s", exc)
+            finally:
                 browser.close()
     except ImportError:
         logger.warning("Playwright not installed; skipping browser automation fallback")

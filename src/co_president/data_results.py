@@ -800,7 +800,7 @@ def _try_extract_pdfplumber(
                     ]
                     tables.append(cleaned)
             return tables or None
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         logger.exception("pdfplumber extraction failed for %s", pdf_path)
         return None
 
