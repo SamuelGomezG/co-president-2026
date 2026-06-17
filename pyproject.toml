@@ -65,12 +65,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "PLR2004", "N806", "PT019", "RUF002", "RUF003"]
+"tests/**/*.py" = ["S101", "PLR2004", "N806", "PT019", "RUF002", "RUF003", "SLF001"]
 "src/co_president/benchmarks/transforms.py" = ["N803", "N806", "PLR2004"]
 "src/co_president/benchmarks/fnn_clr.py" = ["N803", "N806", "TC002"]
 "src/co_president/benchmarks/runner.py" = [
     "N803", "N806", "D401", "PLR0913", "PLR2004", "T201", "RUF002",
 ]
+"src/co_president/ingestion/llm_sentiment.py" = ["BLE001"]
+"src/co_president/ingestion/bert_sentiment.py" = ["BLE001"]
+"src/co_president/validation/__init__.py" = ["BLE001"]
+"src/co_president/validation/municipal_oos.py" = ["BLE001"]
 "src/co_president/model_municipal.py" = ["PGH003", "PD013"]
 "src/co_president/model_round1.py" = ["PGH003", "PD013"]
 "src/co_president/model_runoff_simple.py" = ["PGH003", "PD013"]
