@@ -10,6 +10,7 @@ from itertools import cycle
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -186,6 +187,66 @@ def plot_error_over_time(
         ax.set_ylabel("Error (percentage points)")  # type: ignore
         ax.set_title("Forecast Error Over Time")  # type: ignore
         ax.legend(loc="best")  # type: ignore
+        ax.grid(visible=True, alpha=0.3)  # type: ignore
+        fig.tight_layout()  # type: ignore
+    return fig
+
+
+def plot_municipal_calibration(
+    predicted: np.ndarray,
+    actual: np.ndarray,
+    candidate_labels: list[str],
+    year: int,
+) -> Figure:
+    """Plot predicted vs actual vote share per candidate as a calibration scatter.
+
+    Produces one scatter point per candidate with a 45-degree reference
+    line.  R² is annotated on the plot.
+
+    Args:
+        predicted: Array of predicted vote shares (one per candidate).
+        actual: Array of actual vote shares.
+        candidate_labels: Candidate names for point annotations.
+        year: Election year (used in the title).
+
+    Returns:
+        Matplotlib Figure.
+
+    """
+    with plt.style.context(_PLOT_STYLE):  # type: ignore
+        fig, ax = plt.subplots(figsize=(8, 8))  # type: ignore
+
+        ax.scatter(predicted * 100, actual * 100, s=50)  # type: ignore
+
+        lims = [
+            min(predicted.min(), actual.min()) * 100 - 1,
+            max(predicted.max(), actual.max()) * 100 + 1,
+        ]
+        ax.plot(lims, lims, "k--", alpha=0.5, label="Perfect calibration")  # type: ignore
+
+        ss_res = np.sum((actual - predicted) ** 2)
+        ss_tot = np.sum((actual - np.mean(actual)) ** 2)
+        r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+        ax.text(  # type: ignore
+            0.05,
+            0.95,
+            f"R² = {r2:.4f}",
+            transform=ax.transAxes,
+            fontsize=10,
+            va="top",
+        )
+
+        for i, label in enumerate(candidate_labels):
+            ax.annotate(  # type: ignore
+                label.replace("_", " ").title(),
+                (predicted[i] * 100, actual[i] * 100),
+                fontsize=8,
+            )
+
+        ax.set_xlabel("Predicted Vote Share (%)")  # type: ignore
+        ax.set_ylabel("Actual Vote Share (%)")  # type: ignore
+        ax.set_title(f"Municipal Calibration — {year} Holdout")  # type: ignore
+        ax.legend(loc="lower right")  # type: ignore
         ax.grid(visible=True, alpha=0.3)  # type: ignore
         fig.tight_layout()  # type: ignore
     return fig
