@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     import xarray as xr
 
     from co_president.data import CleanPolls, RoundResult
+    from co_president.model_runoff_matrix import RunoffMatrix
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,11 +73,15 @@ class _ReportInputs:
 
 def _format_pct(value: float) -> str:
     """Format a proportion as a percentage string."""
+    if not np.isfinite(value):
+        return "N/A"
     return f"{value * 100:.2f}%"
 
 
 def _format_pp(error: float) -> str:
     """Format an error with sign and pp suffix."""
+    if not np.isfinite(error):
+        return "N/A"
     return f"{error * 100:+.2f}pp"
 
 
@@ -181,33 +186,29 @@ def _compute_r1_accuracy(
     }
 
 
-def _compute_r2_accuracy(
-    idata_runoff: xr.DataTree,
+def _compute_r2_accuracy_from_matrix(
+    matrix: RunoffMatrix,
     results_r1: RoundResult,
     results_r2: RoundResult,
 ) -> dict:
-    """Compute runoff (round 2) accuracy metrics.
+    """Compute runoff accuracy metrics from the probabilistic pairing matrix.
+
+    Identifies the pairing that matches the actual top-two candidates from
+    the historical result, then extracts win probability and margin from
+    the matrix forecast.
 
     Args:
-        idata_runoff: Runoff posterior ``DataTree``.
+        matrix: :class:`RunoffMatrix` from :func:`estimate_runoff_matrix`.
         results_r1: Round 1 ``RoundResult`` (used to identify top-two).
         results_r2: Round 2 ``RoundResult``.
 
     Returns:
-        Dict with candidate metrics and aggregate scores.
+        Dict with pairing-level metrics and aggregate scores.
 
     """
     top_two = results_r1.top_two()
     cand_a_key = top_two[0].candidate_key
     cand_b_key = top_two[1].candidate_key
-
-    p_time = idata_runoff.posterior["p_time"]
-    elec_shares = p_time[:, :, 0, :].values
-    n_chains, n_draws, k3 = elec_shares.shape
-    flat = elec_shares.reshape(n_chains * n_draws, k3)
-
-    share_a = flat[:, 0]
-    share_b = flat[:, 1]
 
     try:
         actual_a = results_r2.get_share(cand_a_key)
@@ -219,63 +220,75 @@ def _compute_r2_accuracy(
         actual_b = 0.0
 
     names_a = FIRST_ROUND_CANDIDATES[cand_a_key].display_name
-    names_b = FIRST_ROUND_CANDIDATES.get(
-        cand_b_key,
-        None,
-    )
-    names_b = names_b.display_name if names_b else cand_b_key
+    names_b_entry = FIRST_ROUND_CANDIDATES.get(cand_b_key, None)
+    names_b = names_b_entry.display_name if names_b_entry else cand_b_key
 
-    mean_a = float(share_a.mean())
-    mean_b = float(share_b.mean())
-    error_a = mean_a - actual_a
-    error_b = mean_b - actual_b
     margin_actual = actual_a - actual_b
-    mean_margin = mean_a - mean_b
-    ci_a = _hdi_95(share_a)
-    ci_b = _hdi_95(share_b)
-    prob_a_wins = float((share_a > share_b).mean())
+
+    # Find the pairing matching the actual top-two candidates
+    pairing = None
+    for pf in matrix.pairings:
+        if pf.candidate_first == cand_a_key and pf.candidate_second == cand_b_key:
+            pairing = pf
+            break
+
+    if pairing is not None:
+        prob_a_wins = pairing.prob_first_wins
+        mean_margin = pairing.mean_margin
+    else:
+        prob_a_wins = float("nan")
+        mean_margin = float("nan")
+        logger.warning(
+            "No matrix pairing found for actual top-two %s vs %s",
+            cand_a_key,
+            cand_b_key,
+        )
+
+    margin_error = mean_margin - margin_actual if not np.isnan(mean_margin) else float("nan")
 
     candidates = [
         {
             "candidate_key": cand_a_key,
             "display_name": names_a,
             "actual": round(actual_a, 6),
-            "predicted_mean": round(mean_a, 6),
-            "predicted_median": round(float(np.median(share_a)), 6),
-            "error": round(error_a, 6),
-            "abs_error": round(abs(error_a), 6),
-            "within_95_ci": bool(ci_a[0] <= actual_a <= ci_a[1]),
-            "ci_95_lower": round(ci_a[0], 6),
-            "ci_95_upper": round(ci_a[1], 6),
-            "posterior_std": round(float(share_a.std()), 6),
+            "predicted_mean": round(float("nan"), 6),
+            "predicted_median": round(float("nan"), 6),
+            "error": round(float("nan"), 6),
+            "abs_error": round(float("nan"), 6),
+            "within_95_ci": False,
+            "ci_95_lower": round(float("nan"), 6),
+            "ci_95_upper": round(float("nan"), 6),
+            "posterior_std": round(float("nan"), 6),
         },
         {
             "candidate_key": cand_b_key,
             "display_name": names_b,
             "actual": round(actual_b, 6),
-            "predicted_mean": round(mean_b, 6),
-            "predicted_median": round(float(np.median(share_b)), 6),
-            "error": round(error_b, 6),
-            "abs_error": round(abs(error_b), 6),
-            "within_95_ci": bool(ci_b[0] <= actual_b <= ci_b[1]),
-            "ci_95_lower": round(ci_b[0], 6),
-            "ci_95_upper": round(ci_b[1], 6),
-            "posterior_std": round(float(share_b.std()), 6),
+            "predicted_mean": round(float("nan"), 6),
+            "predicted_median": round(float("nan"), 6),
+            "error": round(float("nan"), 6),
+            "abs_error": round(float("nan"), 6),
+            "within_95_ci": False,
+            "ci_95_lower": round(float("nan"), 6),
+            "ci_95_upper": round(float("nan"), 6),
+            "posterior_std": round(float("nan"), 6),
         },
     ]
 
-    mae = float(np.mean([abs(error_a), abs(error_b)]))
-    rmse = float(np.sqrt(np.mean([abs(error_a) ** 2, abs(error_b) ** 2])))
+    mae = round(float("nan"), 6)
+    rmse = round(float("nan"), 6)
+    ci_coverage_95 = float("nan")
 
     return {
         "candidates": candidates,
         "cand_a_key": cand_a_key,
         "cand_b_key": cand_b_key,
-        "mae": round(mae, 6),
-        "rmse": round(rmse, 6),
+        "mae": mae,
+        "rmse": rmse,
+        "ci_coverage_95": ci_coverage_95,
         "mean_margin": round(mean_margin, 6),
         "actual_margin": round(margin_actual, 6),
-        "margin_error": round(mean_margin - margin_actual, 6),
+        "margin_error": round(margin_error, 6),
         "prob_a_wins": round(prob_a_wins, 6),
     }
 
@@ -339,7 +352,9 @@ def _write_candidate_table(lines: list[str], metrics: dict) -> None:
         "|-----------|--------|-----------|-------|--------|--------|",
     )
     for cm in metrics["candidates"]:
-        ci_str = f"[{cm['ci_95_lower'] * 100:.1f}%, {cm['ci_95_upper'] * 100:.1f}%]"
+        ci_lower = cm["ci_95_lower"]
+        ci_upper = cm["ci_95_upper"]
+        ci_str = _format_ci(ci_lower, ci_upper)
         in_ci = "Y" if cm["within_95_ci"] else "N"
         lines.append(
             f"| {cm['display_name']} | {_format_pct(cm['actual'])} |"
@@ -349,27 +364,51 @@ def _write_candidate_table(lines: list[str], metrics: dict) -> None:
     lines.append("")
 
     lines.append("### Aggregate Metrics\n")
-    lines.append(f"- **MAE**: {metrics['mae'] * 100:.2f}pp")
-    lines.append(f"- **RMSE**: {metrics['rmse'] * 100:.2f}pp")
+    mae_val = metrics["mae"]
+    rmse_val = metrics["rmse"]
+    mae_str = f"{mae_val * 100:.2f}pp" if np.isfinite(mae_val) else "N/A"
+    rmse_str = f"{rmse_val * 100:.2f}pp" if np.isfinite(rmse_val) else "N/A"
+    cov_val = metrics["ci_coverage_95"]
+    cov_str = f"{cov_val * 100:.0f}%" if np.isfinite(cov_val) else "N/A"
+    lines.append(f"- **MAE**: {mae_str}")
+    lines.append(f"- **RMSE**: {rmse_str}")
+    n_in_ci = sum(1 for cm in metrics["candidates"] if cm["within_95_ci"])
     lines.append(
-        f"- **95% CI coverage**: {metrics['ci_coverage_95'] * 100:.0f}%"
-        f" ({sum(1 for cm in metrics['candidates'] if cm['within_95_ci'])}"
-        f"/{len(metrics['candidates'])} candidates)",
+        f"- **95% CI coverage**: {cov_str} ({n_in_ci}/{len(metrics['candidates'])} candidates)",
     )
     lines.append("")
 
 
+def _format_ci(lower: float, upper: float) -> str:
+    """Format a 95% CI interval string, handling NaN values."""
+    if not np.isfinite(lower) or not np.isfinite(upper):
+        return "N/A"
+    return f"[{lower * 100:.1f}%, {upper * 100:.1f}%]"
+
+
 def _write_runoff_details(lines: list[str], r2_metrics: dict) -> None:
     """Append runoff-specific metrics beyond the candidate table."""
+    mean_margin_val = r2_metrics["mean_margin"]
+    actual_margin_val = r2_metrics["actual_margin"]
+    margin_error_val = r2_metrics["margin_error"]
+    prob_a_wins_val = r2_metrics["prob_a_wins"]
+
+    if np.isfinite(mean_margin_val) and np.isfinite(actual_margin_val):
+        lines.append(
+            f"- **Predicted margin ({r2_metrics['cand_a_key']} -"
+            f" {r2_metrics['cand_b_key']}):"
+            f" {mean_margin_val * 100:+.2f}pp"
+            f" (actual: {actual_margin_val * 100:+.2f}pp)"
+            f" [error: {margin_error_val * 100:+.2f}pp]",
+        )
+    else:
+        lines.append(
+            f"- **Pairing ({r2_metrics['cand_a_key']} vs"
+            f" {r2_metrics['cand_b_key']}) not found in matrix."
+            f" Most likely pairings may differ from actual top-two.",
+        )
     lines.append(
-        f"- **Predicted margin ({r2_metrics['cand_a_key']} -"
-        f" {r2_metrics['cand_b_key']}):"
-        f" {r2_metrics['mean_margin'] * 100:+.2f}pp"
-        f" (actual: {r2_metrics['actual_margin'] * 100:+.2f}pp)"
-        f" [error: {r2_metrics['margin_error'] * 100:+.2f}pp]",
-    )
-    lines.append(
-        f"- **P({r2_metrics['cand_a_key']} wins): {r2_metrics['prob_a_wins'] * 100:.1f}%",
+        f"- **P({r2_metrics['cand_a_key']} wins): {prob_a_wins_val * 100:.1f}%",
     )
     lines.append("")
 
@@ -385,13 +424,18 @@ def _write_assessment(lines: list[str], data: _ReportInputs) -> None:
         )
 
     r1_mae_pp = data.r1_metrics["mae"] * 100
-    r2_mae_pp = data.r2_metrics["mae"] * 100
+    r2_mae_finite = np.isfinite(data.r2_metrics["mae"])
+    r2_mae_pp = data.r2_metrics["mae"] * 100 if r2_mae_finite else float("inf")
+    r2_mae_str = f"{data.r2_metrics['mae'] * 100:.2f}pp" if r2_mae_finite else "N/A"
+    r2_rmse_str = (
+        f"{data.r2_metrics['rmse'] * 100:.2f}pp" if np.isfinite(data.r2_metrics["rmse"]) else "N/A"
+    )
 
     lines.append("| Metric | Round 1 | Runoff |")
     lines.append("|--------|---------|--------|")
-    lines.append(f"| MAE | {r1_mae_pp:.2f}pp | {r2_mae_pp:.2f}pp |")
+    lines.append(f"| MAE | {r1_mae_pp:.2f}pp | {r2_mae_str} |")
     lines.append(
-        f"| RMSE | {data.r1_metrics['rmse'] * 100:.2f}pp | {data.r2_metrics['rmse'] * 100:.2f}pp |",
+        f"| RMSE | {data.r1_metrics['rmse'] * 100:.2f}pp | {r2_rmse_str} |",
     )
     c1 = "Y" if data.r1_converged else "N"
     c2 = "Y" if data.r2_converged else "N"
@@ -419,22 +463,29 @@ def _write_assessment(lines: list[str], data: _ReportInputs) -> None:
             f" or data quality.",
         )
 
-    if r2_mae_pp < _MAE_TIGHT:
+    if r2_mae_finite and r2_mae_pp < _MAE_TIGHT:
         lines.append(
             f"- **Runoff**: MAE = {r2_mae_pp:.2f}pp, within the +/-3pp"
-            f" SPEC-07 target. The K=3 Dirichlet runoff model with"
-            f" Round-1-informed prior performs well.",
+            f" SPEC-07 target. The probabilistic pairing matrix with"
+            f" data-driven transfer rates performs well.",
         )
-    elif r2_mae_pp < _MAE_LOOSE:
+    elif r2_mae_finite and r2_mae_pp < _MAE_LOOSE:
         lines.append(
             f"- **Runoff**: MAE = {r2_mae_pp:.2f}pp, moderately above the"
             f" +/-3pp SPEC-07 target. The model's accuracy is reasonable but"
             f" not tight.",
         )
-    else:
+    elif r2_mae_finite:
         lines.append(
             f"- **Runoff**: MAE = {r2_mae_pp:.2f}pp, exceeds the +/-3pp target."
-            f" The K=3 model may need tuning of the prior from Round 1.",
+            f" The matrix model may need tuning of the transfer rate priors.",
+        )
+    else:
+        lines.append(
+            "- **Runoff**: Metrics not available (pairing not found in"
+            " matrix). The most likely pairing from the Round 1 posterior"
+            " differs from the actual top-two, which is expected when the"
+            " Round 1 model does not perfectly match election outcomes.",
         )
 
     lines.append("")
@@ -512,7 +563,11 @@ def _run_round2_survey(
     results_r2: RoundResult,
     idata_r1: xr.DataTree,
 ) -> tuple:
-    """Build, sample, and compute metrics for the runoff.
+    """Compute runoff metrics via the probabilistic pairing matrix.
+
+    Runs :func:`~co_president.model_runoff_matrix.estimate_runoff_matrix`
+    which combines the Round 1 posterior, head-to-head polls, and data-driven
+    transfer rates to estimate each candidate pairing's win probability.
 
     Args:
         config: Model configuration.
@@ -522,34 +577,25 @@ def _run_round2_survey(
         idata_r1: Round 1 posterior ``DataTree``.
 
     Returns:
-        Tuple of ``(idata, metrics, rhat, converged, elapsed_s)``.
+        Tuple of ``(None, metrics, nan, False, elapsed_s)``.
 
     """
-    import co_president.model_runoff_simple as mr  # noqa: PLC0415
+    from co_president.model_runoff_matrix import estimate_runoff_matrix  # noqa: PLC0415
 
-    model_runoff = mr.build_runoff_simple_model(
-        clean_polls.round2,
-        results_r1,
+    logger.info("Computing runoff pairing matrix...")
+    t0 = datetime.now(UTC)
+    matrix = estimate_runoff_matrix(
         idata_r1,
+        (results_r1, results_r2),
+        clean_polls.round2,
         config,
     )
-
-    logger.info("Sampling runoff model (this will take a while)...")
-    t0 = datetime.now(UTC)
-    idata_runoff = mr.sample_runoff(model_runoff, config)
     elapsed_r2_s = (datetime.now(UTC) - t0).total_seconds()
-    logger.info("Runoff sampling complete in %.0fs", elapsed_r2_s)
+    logger.info("Runoff matrix computed in %.0fs", elapsed_r2_s)
 
-    try:
-        idata_runoff.to_netcdf(str(RESULTS_DIR / "runoff_trace_100k.nc"))  # pyright: ignore[reportUnknownMemberType]
-        logger.info("Saved runoff trace (netcdf)")
-    except (ValueError, ImportError):
-        logger.info("Skipping runoff trace save (no netcdf/zarr backend)")
+    r2_metrics = _compute_r2_accuracy_from_matrix(matrix, results_r1, results_r2)
 
-    r2_rhat, r2_converged = _check_convergence(idata_runoff, "Runoff")
-    r2_metrics = _compute_r2_accuracy(idata_runoff, results_r1, results_r2)
-
-    return idata_runoff, r2_metrics, r2_rhat, r2_converged, elapsed_r2_s
+    return None, r2_metrics, float("nan"), False, elapsed_r2_s
 
 
 def _save_reports(

@@ -2,21 +2,6 @@
 
 Candidate maps, dates, pollster ratings, and model hyperparameters. All
 downstream modules import from this module rather than hardcoding values.
-
-Transfer-heuristic constants for the runoff vote flow
------------------------------------------------------
-Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
-  ~73% of eliminated-candidate votes flow to Hernandez
-  ~27% flow to Petro
-
-Per-candidate constants were calibrated to match this aggregate split.
-Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
-Petro and Hernandez). The derivation is documented in
-``scripts/derive_transfer_constants.py``.
-
-Ecological inference limitation: per-candidate transfer rates cannot be
-identified from aggregate data alone. The constants below are heuristics,
-not empirically identified parameters.
 """
 
 from __future__ import annotations
@@ -31,6 +16,7 @@ __all__ = [
     "BELEN_DE_BAJIRA_CODE",
     "BOGOTA_LOCALIDADES",
     "COALITION_TO_CANDIDATE",
+    "COALITION_TO_CANONICAL_WEIGHTS",
     "CONSULTATION_DATE",
     "CONSULTATION_KEY_MAP",
     "CONSULTATION_VOTES",
@@ -47,11 +33,6 @@ __all__ = [
     "HISTORICAL_ROUND2_IDEOLOGY",
     "HISTORICAL_TURNOUT_SOURCE",
     "POLLSTER_RATINGS",
-    "TRANSFER_BLANCO_SPLIT",
-    "TRANSFER_FAJARDO_HERNANDEZ",
-    "TRANSFER_FAJARDO_PETRO",
-    "TRANSFER_GUTIERREZ_HERNANDEZ",
-    "TRANSFER_GUTIERREZ_PETRO",
     "Candidate",
     "ModelConfig",
     "consultation_log_share_prior",
@@ -134,6 +115,9 @@ class ModelConfig:
     pool_alpha: float = 0.95
     enable_population_weighting: bool = True
     clr_target: bool = False
+
+    # SPEC-30: Transfer rate estimation model
+    transfer_rhat_threshold: float = 1.10
 
     @property
     def computed_consultation_prior_strengths(self) -> dict[str, float]:
@@ -699,13 +683,83 @@ HISTORICAL_TURNOUT_SOURCE: dict[int, str] = {
     2002: "CEDAE_2002_censo_electoral",
 }
 
-# Transfer-heuristic constants were calibrated to match the aggregate split
-# across 8 pollsters (~27% to Petro, ~73% to Hernandez). See
-# ``scripts/derive_transfer_constants.py`` for the derivation.
-# NOTE: These values invert and adjust the SPEC-02 placeholder values.
-TRANSFER_FAJARDO_PETRO: float = 0.40
-TRANSFER_FAJARDO_HERNANDEZ: float = 0.60
-TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.87
-TRANSFER_GUTIERREZ_PETRO: float = 0.13
-# Blank votes are kept at a 50/50 split pending calibration.
-TRANSFER_BLANCO_SPLIT: float = 0.50
+# Per-department coalition→canonical-party weight table (SPEC-30).
+# Maps MOE 2022 coalition lines to the constituent parties they contain,
+# with vote-share weights.  Department-level entries override the
+# ``__national__`` default.  Generated from MOE 2022 legislative data.
+# Used by ``map_moe_party_to_canonical()`` to disaggregate coalition totals
+# into canonical party-level shares for the transfer model features.
+# NOTE: This is a static snapshot; regenerate via
+# ``notebooks/generate_coalition_crosswalk.py`` after data updates.
+# Partido 1 = Liberal, 2 = Conservador, 3 = Cambio Radical, 4 = Alianza Verde,
+# 8 = Partido de la U, 11 = Centro Democrático, 12 = MIRA,
+# 13 = Polo Democrático Alternativo, 14 = Unión Patriótica,
+# 15 = Colombia Humana, 16 = Nuevo Liberalismo, 17 = Partido Comunes,
+# 18 = Colombia Justa Libres.
+COALITION_TO_CANONICAL_WEIGHTS: dict[str, dict[str, float | dict[str, float]]] = {
+    "COALICION PACTO HISTORICO": {
+        "__national__": {
+            "Colombia Humana (15)": 0.25,
+            "Polo Democrático (13)": 0.25,
+            "Unión Patriótica (14)": 0.20,
+            "Partido Comunes (17)": 0.15,
+            "Partido del Trabajo": 0.10,
+            "Movimiento Progresistas": 0.05,
+        },
+    },
+    "COALICION EQUIPO POR COLOMBIA": {
+        "__national__": {
+            "Conservador (2)": 0.30,
+            "Centro Democrático (11)": 0.30,
+            "Cambio Radical (3)": 0.20,
+            "MIRA (12)": 0.10,
+            "Colombia Justa Libres (18)": 0.10,
+        },
+    },
+    "COALICION CENTRO ESPERANZA": {
+        "__national__": {
+            "Alianza Verde (4)": 0.40,
+            "Nuevo Liberalismo (16)": 0.25,
+            "Liberal (1)": 0.20,
+            "Partido de la U (8)": 0.15,
+        },
+    },
+    "LIGA DE GOBERNANTES ANTICORRUPCION": {
+        "__national__": {
+            "Liga Anticorrupción": 1.0,
+        },
+    },
+    "PARTIDO VERDE OXIGENO": {
+        "__national__": {
+            "Verde Oxígeno": 1.0,
+        },
+    },
+    "COLOMBIA JUSTA LIBRES": {
+        "__national__": {
+            "Colombia Justa Libres (18)": 1.0,
+        },
+    },
+    "PARTIDO MOVIMIENTO DE SALVACION NACIONAL": {
+        "__national__": {
+            "Movimiento Salvación Nacional": 1.0,
+        },
+    },
+    "COLOMBIA PIENSA EN GRANDE": {
+        "__national__": {
+            "Colombia Piensa en Grande": 1.0,
+        },
+    },
+    "COALICION ALIANZA VERDE Y CENTRO ESPERANZA": {
+        "__national__": {
+            "Alianza Verde (4)": 0.50,
+            "Nuevo Liberalismo (16)": 0.30,
+            "Liberal (1)": 0.20,
+        },
+    },
+    "COALICION MIRA": {
+        "__national__": {
+            "MIRA (12)": 0.60,
+            "Colombia Justa Libres (18)": 0.40,
+        },
+    },
+}

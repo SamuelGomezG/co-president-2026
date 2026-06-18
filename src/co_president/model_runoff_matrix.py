@@ -19,18 +19,12 @@ Public dataclasses
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from co_president.config import (
-    FIRST_ROUND_CANDIDATES,
-    TRANSFER_BLANCO_SPLIT,
-    TRANSFER_FAJARDO_HERNANDEZ,
-    TRANSFER_FAJARDO_PETRO,
-    TRANSFER_GUTIERREZ_HERNANDEZ,
-    TRANSFER_GUTIERREZ_PETRO,
-)
+from co_president.config import FIRST_ROUND_CANDIDATES
 from co_president.data import CandidateResult, RoundResult
 from co_president.model_runoff_simple import (
     build_runoff_simple_model,
@@ -43,6 +37,8 @@ if TYPE_CHECKING:
     from xarray import DataTree
 
     from co_president.config import ModelConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -119,9 +115,16 @@ def compute_top_two_probabilities(
 
     """
     p_time = round1_idata.posterior["p_time"]  # (chain, draw, time, candidate)
+
     election_day = p_time[:, :, 0, :].to_numpy()  # (chain, draw, candidate)
 
-    candidate_order = _get_candidate_order()
+    # The posterior dimension may be smaller than FIRST_ROUND_CANDIDATES
+    # (e.g., rest excluded when missing from poll columns).  Use only the
+    # number of columns present in the posterior array.
+    n_posterior = election_day.shape[-1]
+    full_order = _get_candidate_order()
+    candidate_order = full_order[:n_posterior] if len(full_order) >= n_posterior else full_order
+
     candidate_idx: dict[str, int] = {k: i for i, k in enumerate(candidate_order)}
 
     active_indices = [candidate_idx[c] for c in candidates]
@@ -146,55 +149,49 @@ def compute_top_two_probabilities(
     }
 
 
-_TRANSFER_MAP: dict[str, dict[str, float]] = {
-    "sergio_fajardo": {
-        "gustavo_petro": TRANSFER_FAJARDO_PETRO,
-        "rodolfo_hernandez": TRANSFER_FAJARDO_HERNANDEZ,
-    },
-    "federico_gutierrez": {
-        "rodolfo_hernandez": TRANSFER_GUTIERREZ_HERNANDEZ,
-        "gustavo_petro": TRANSFER_GUTIERREZ_PETRO,
-    },
-}
+_DEFAULT_TRANSFER: float = 0.5
 
 
-def _get_transfer_fraction(
-    eliminated: str,
-    target: str,
-    share_target: float,
-    share_other: float,
+def _transfer_rate_for_pairing(
+    transfer_rates: dict[tuple[str, str], np.ndarray] | None,
+    elim: str,
+    first: str,
+    second: str,
+    draw_idx: int,
 ) -> float:
-    """Return the fraction of an eliminated candidate's votes for *target*.
+    """Return fraction of ``elim`` voters transferring to ``first``.
 
-    Uses the transfer-heuristic constants from ``config``. For candidates
-    without specific constants (e.g. ``ingrid_betancourt``, ``rest``), votes
-    are split proportionally to the target's and other's base shares.
+    Tries the direct key ``(elim, first)`` first.  Falls back to
+    ``1 - transfer_rates[(elim, second)]`` when only the inverse key is
+    available.  Returns :data:`_DEFAULT_TRANSFER` when neither key exists.
+
+    The transfer rate arrays may be shorter than the number of posterior
+    draws; uses modular indexing to cycle through them.
 
     Args:
-        eliminated: Key of the eliminated candidate.
-        target: Key of the candidate receiving votes.
-        share_target: Base vote share of the target candidate in this draw.
-        share_other: Base vote share of the other runoff candidate.
+        transfer_rates: Dict mapping ``(eliminated, target)`` to per-draw
+            transfer rate arrays, or ``None`` to use default.
+        elim: Eliminated candidate key.
+        first: First-placed runoff candidate key.
+        second: Second-placed runoff candidate key.
+        draw_idx: Index into the per-draw arrays.
 
     Returns:
-        Fraction in ``[0, 1]``.
+        Transfer fraction in ``[0, 1]``.
 
     """
-    if eliminated == "blanco":
-        return TRANSFER_BLANCO_SPLIT
+    if transfer_rates is None:
+        return _DEFAULT_TRANSFER
 
-    elim_map = _TRANSFER_MAP.get(eliminated)
-    if elim_map is not None:
-        fraction = elim_map.get(target)
-        if fraction is not None:
-            return fraction
+    direct = transfer_rates.get((elim, first))
+    if direct is not None:
+        return float(direct[draw_idx % len(direct)])
 
-    # For ingrid_betancourt, rest, or pairings not covered by the
-    # constants above: proportional split based on base shares.
-    denom = share_target + share_other
-    if denom > 0:
-        return share_target / denom
-    return 0.5
+    inverse = transfer_rates.get((elim, second))
+    if inverse is not None:
+        return 1.0 - float(inverse[draw_idx % len(inverse)])
+
+    return _DEFAULT_TRANSFER
 
 
 def _compute_transfer_shares(
@@ -202,6 +199,7 @@ def _compute_transfer_shares(
     all_candidate_keys: list[str],
     first: str,
     second: str,
+    transfer_rates: dict[tuple[str, str], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute normalized runoff shares for each posterior draw.
 
@@ -211,6 +209,8 @@ def _compute_transfer_shares(
         all_candidate_keys: Full candidate ordering matching the last axis.
         first: Key of the first-placed runoff candidate.
         second: Key of the second-placed runoff candidate.
+        transfer_rates: Optional dict of per-draw transfer rate arrays
+            from :func:`~co_president.model_transfer.sample_transfer_rates`.
 
     Returns:
         Tuple of arrays ``(shares_first, shares_second)`` with shape
@@ -237,11 +237,12 @@ def _compute_transfer_shares(
             if elim_share <= 0:
                 continue
 
-            transfer_to_first = _get_transfer_fraction(
+            transfer_to_first = _transfer_rate_for_pairing(
+                transfer_rates,
                 elim,
                 first,
-                share_first,
-                share_second,
+                second,
+                draw_idx,
             )
             share_first += elim_share * transfer_to_first
             share_second += elim_share * (1.0 - transfer_to_first)
@@ -263,6 +264,7 @@ def _compute_transfer_outcome(
     all_candidate_keys: list[str],
     first: str,
     second: str,
+    transfer_rates: dict[tuple[str, str], np.ndarray] | None = None,
 ) -> tuple[float, float]:
     """Compute runoff outcome for a pairing using the transfer heuristic.
 
@@ -276,6 +278,7 @@ def _compute_transfer_outcome(
         all_candidate_keys: Full candidate ordering matching the last axis.
         first: Key of the first-placed runoff candidate.
         second: Key of the second-placed runoff candidate.
+        transfer_rates: Optional dict of per-draw transfer rate arrays.
 
     Returns:
         Tuple of ``(prob_first_wins, mean_margin)``.
@@ -286,6 +289,7 @@ def _compute_transfer_outcome(
         all_candidate_keys,
         first,
         second,
+        transfer_rates,
     )
     prob_first_wins = float((shares_first > shares_second).mean())
     mean_margin = float((shares_first - shares_second).mean())
@@ -393,7 +397,8 @@ def estimate_runoff_matrix(
        :func:`~co_president.model_runoff_simple.build_runoff_simple_model`
        and extracts win probabilities from the posterior.
     2. **Heuristic path**: Otherwise, uses the transfer heuristic that
-       redistributes eliminated candidates' votes based on coalition alignment.
+       redistributes eliminated candidates' votes using data-driven transfer
+       rates from :func:`~co_president.model_transfer.sample_transfer_rates`.
 
     Args:
         round1_idata: Posterior from :func:`~co_president.model_round1.sample_round1`.
@@ -411,16 +416,27 @@ def estimate_runoff_matrix(
         ('gustavo_petro', 'rodolfo_hernandez')
 
     """
-    candidates = [k for k in _get_candidate_order() if k not in ("rest", "blanco")]
+    from co_president.model_transfer import sample_transfer_rates  # noqa: PLC0415
+
+    # Derive candidate order matching the posterior's actual dimension.
+    # The posterior may have fewer candidates than FIRST_ROUND_CANDIDATES
+    # (e.g., rest excluded when absent from poll columns).
+    p_time_var = round1_idata.posterior["p_time"]
+    n_posterior = p_time_var.shape[-1]
+    all_candidate_keys = _get_candidate_order()[:n_posterior]
+
+    candidates = [k for k in all_candidate_keys if k not in ("rest", "blanco")]
 
     top_two_probs = compute_top_two_probabilities(round1_idata, candidates)
 
-    p_time = round1_idata.posterior["p_time"].to_numpy()
+    p_time = p_time_var.to_numpy()
     election_day = p_time[:, :, 0, :]
 
-    all_candidate_keys = _get_candidate_order()
-
     round1_result, _round2_result = results
+
+    # Load data-driven transfer rates (falls back to historical Dirichlet
+    # prior when no cached PyMC posterior is available).
+    transfer_rates = sample_transfer_rates(config=config)
 
     pairings: list[PairingForecast] = []
     for (first, second), prob in sorted(top_two_probs.items(), key=lambda x: x[1], reverse=True):
@@ -448,6 +464,7 @@ def estimate_runoff_matrix(
                 all_candidate_keys,
                 first,
                 second,
+                transfer_rates,
             )
 
         pairings.append(

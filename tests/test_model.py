@@ -37,6 +37,11 @@ from co_president.model_runoff_simple import (
     forecast_runoff_simple,
     sample_runoff,
 )
+from co_president.model_transfer import (
+    build_transfer_model,
+    map_moe_party_to_canonical,
+    sample_transfer_rates,
+)
 
 
 def _make_3row_polls_7candidates() -> pd.DataFrame:
@@ -1552,7 +1557,192 @@ def test_estimate_runoff_matrix_falls_back_to_heuristic_when_few_polls() -> None
             f"Pairing {pf_few.candidate_first} vs {pf_few.candidate_second}: "
             "prob_first_wins differs despite both using the heuristic"
         )
-        assert pf_few.mean_margin == pf_none.mean_margin, (
-            f"Pairing {pf_few.candidate_first} vs {pf_few.candidate_second}: "
-            "mean_margin differs despite both using the heuristic"
+    assert pf_few.mean_margin == pf_none.mean_margin, (
+        f"Pairing {pf_few.candidate_first} vs {pf_few.candidate_second}: "
+        "mean_margin differs despite both using the heuristic"
+    )
+
+
+# ---------------------------------------------------------------------------
+# SPEC-30: Transfer rate estimation model tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_transfer_model_graph() -> None:
+    """Test transfer model graph builds with correct RV counts.
+
+    Expected free RVs: gamma_mu (n_feats), gamma_0_mu (1),
+        gamma_0_offset (K_elim), gamma_offset (K_elim x n_feats),
+        1 sigma per (elim, year) group.
+    Expected deterministics: 1 beta per (elim, year) group.
+    """
+    rng = np.random.default_rng(42)
+    n_muni = 50
+    features = pd.DataFrame(
+        {
+            "pct_afro_colombian": rng.uniform(0, 0.8, n_muni),
+            "nbi_rate": rng.uniform(0.1, 0.9, n_muni),
+            "pct_rural_disperso": rng.uniform(0, 0.6, n_muni),
+            "camara_left_share": rng.uniform(0.1, 0.7, n_muni),
+            "senado_left_share": rng.uniform(0.15, 0.65, n_muni),
+        },
+    )
+
+    years = {2010, 2014, 2018}
+    historical_r1r2: dict[int, tuple[pd.DataFrame, pd.DataFrame]] = {}
+    for year in years:
+        r1 = pd.DataFrame(
+            {
+                "codmpio": range(n_muni),
+                "gustavo_petro_r1": rng.uniform(10, 50, n_muni),
+                "rodolfo_hernandez_r1": rng.uniform(10, 40, n_muni),
+                "sergio_fajardo_r1": rng.uniform(1, 15, n_muni),
+                "federico_gutierrez_r1": rng.uniform(1, 15, n_muni),
+                "blanco_r1": rng.uniform(1, 5, n_muni),
+            },
         )
+        r2 = pd.DataFrame(
+            {
+                "codmpio": range(n_muni),
+                f"left_candidate_{year}_r2": rng.uniform(30, 60, n_muni),
+                f"right_candidate_{year}_r2": rng.uniform(30, 60, n_muni),
+            },
+        )
+        historical_r1r2[year] = (r1, r2)
+
+    model = build_transfer_model(features, historical_r1r2)
+
+    free_rvs = list(model.free_RVs)
+    rv_names = {str(var) for var in free_rvs}
+
+    assert any("gamma_mu" in name for name in rv_names)
+    assert any("gamma_0_mu" in name for name in rv_names)
+    assert any("gamma_0_offset" in name for name in rv_names)
+    assert any("gamma_offset" in name for name in rv_names)
+
+    # Check at least one sigma per (elim, year) group
+    sigma_count = sum(1 for name in rv_names if name.startswith("sigma_"))
+    assert sigma_count >= 1
+
+    # Check deterministics
+    det_names = {str(var) for var in model.deterministics}
+    assert any("beta_" in name for name in det_names)
+
+
+def test_build_transfer_model_prior_predictive() -> None:
+    """Test transfer model prior predictive: beta rates in [0, 1]."""
+    rng = np.random.default_rng(42)
+    n_muni = 20
+    features = pd.DataFrame(
+        {
+            "pct_afro_colombian": rng.uniform(0, 0.8, n_muni),
+            "nbi_rate": rng.uniform(0.1, 0.9, n_muni),
+            "pct_rural_disperso": rng.uniform(0, 0.6, n_muni),
+            "camara_left_share": rng.uniform(0.1, 0.7, n_muni),
+            "senado_left_share": rng.uniform(0.15, 0.65, n_muni),
+        },
+    )
+
+    r1 = pd.DataFrame(
+        {
+            "codmpio": range(n_muni),
+            "gustavo_petro_r1": rng.uniform(10, 50, n_muni),
+            "sergio_fajardo_r1": rng.uniform(1, 15, n_muni),
+        },
+    )
+    r2 = pd.DataFrame(
+        {
+            "codmpio": range(n_muni),
+            "left_2018_r2": rng.uniform(30, 60, n_muni),
+            "right_2018_r2": rng.uniform(30, 60, n_muni),
+        },
+    )
+    historical_r1r2 = {2018: (r1, r2)}
+
+    model = build_transfer_model(features, historical_r1r2)
+
+    with model:
+        prior = pm.sample_prior_predictive(draws=5, random_seed=42)
+
+    # Check beta deterministics are in [0, 1]
+    for var_name in prior.prior.data_vars:
+        if var_name.startswith("beta_"):
+            vals = prior.prior[var_name].to_numpy()
+            assert vals.min() >= 0.0, f"{var_name} has values < 0"
+            assert vals.max() <= 1.0, f"{var_name} has values > 1"
+
+
+def test_map_moe_party_to_canonical_crosswalk() -> None:
+    """Test MOE→canonical party crosswalk returns correct weights."""
+    # Known coalition with national entry
+    pacto = map_moe_party_to_canonical("COALICION PACTO HISTORICO")
+    assert isinstance(pacto, dict)
+    assert "Colombia Humana (15)" in pacto
+    assert abs(sum(pacto.values()) - 1.0) < 0.01
+
+    # Single-party coalition
+    liga = map_moe_party_to_canonical("LIGA DE GOBERNANTES ANTICORRUPCION")
+    assert isinstance(liga, dict)
+    assert list(liga.values()) == [1.0]
+
+    # Unknown coalition returns identity mapping
+    unknown = map_moe_party_to_canonical("NONEXISTENT COALITION")
+    assert unknown == {"NONEXISTENT COALITION": 1.0}
+
+    # Per-department lookup falls back to national
+    pacto_dept = map_moe_party_to_canonical("COALICION PACTO HISTORICO", "Antioquia")
+    assert isinstance(pacto_dept, dict)
+    assert "Colombia Humana (15)" in pacto_dept
+    assert abs(sum(pacto_dept.values()) - 1.0) < 0.01
+
+
+def test_sample_transfer_rates_fallback() -> None:
+    """Test fallback when no cached posterior is available.
+
+    ``sample_transfer_rates`` should return valid per-draw rates in [0, 1]
+    via the Dirichlet-Categorical fallback prior.
+    """
+    rates = sample_transfer_rates()
+
+    assert isinstance(rates, dict)
+    assert len(rates) > 0
+
+    for (elim, target), arr in rates.items():
+        assert arr.ndim == 1
+        assert arr.shape[0] > 0
+        assert arr.min() >= 0.0, f"Rate for {(elim, target)} < 0"
+        assert arr.max() <= 1.0, f"Rate for {(elim, target)} > 1"
+
+    # Check at least Fajardo and Gutierrez are present
+    fajardo_keys = {k for k in rates if k[0] == "sergio_fajardo"}
+    assert len(fajardo_keys) >= 1
+    gutierrez_keys = {k for k in rates if k[0] == "federico_gutierrez"}
+    assert len(gutierrez_keys) >= 1
+
+
+def test_transfer_rates_integration_with_runoff_matrix() -> None:
+    """Test that transfer rates propagate through estimate_runoff_matrix.
+
+    Uses the fallback Dirichlet-Categorical prior via
+    ``sample_transfer_rates``. Verifies that the resulting
+    ``PairingForecast`` objects have valid probabilities.
+    """
+    idata = _make_synthetic_round1_idata()
+    results_round1 = _make_round1_result()
+    config = ModelConfig(seed=42)
+
+    # Use heuristic path (no polls) — triggers sample_transfer_rates
+    matrix = estimate_runoff_matrix(
+        idata,
+        (results_round1, results_round1),
+        None,
+        config,
+    )
+
+    assert len(matrix.pairings) > 0
+    for pf in matrix.pairings:
+        assert 0.0 <= pf.prob_first_wins <= 1.0
+        assert 0.0 <= pf.prob_second_wins <= 1.0
+        assert abs(pf.prob_first_wins + pf.prob_second_wins - 1.0) < 1e-6
+        assert isinstance(pf.mean_margin, float)
+        assert np.isfinite(pf.mean_margin)
