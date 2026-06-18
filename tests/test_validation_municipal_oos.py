@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from matplotlib.figure import Figure as MplFigure
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
@@ -14,12 +17,17 @@ from co_president.config import (
 from co_president.data import CandidateResult, RoundResult
 from co_president.fundamentals.features import HistoricalRecord
 from co_president.model_municipal import build_municipal_model
+from co_president.plotting import plot_municipal_calibration
 from co_president.validation.municipal_oos import (
     _build_missing_data_report,
     _categorize_pollster,
     _compute_r2,
+    _log_generalization_report,
     compare_modes,
+    compute_effective_df_per_group,
     leave_2022_out,
+    produce_generalization_report,
+    run_feature_group_ablation,
     run_sensitivity_ablation,
     sample_all_low_polls,
     sample_bootstrap_polls,
@@ -673,3 +681,271 @@ def test_run_sensitivity_ablation_smoke() -> None:
     assert configs_found == expected, f"Expected configs {expected}, got {configs_found}"
     assert "posterior_mean" in result.columns
     assert "effective_num_municipalities" in result.columns
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SPEC-29: Effective degrees of freedom
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestComputeEffectiveDfPerGroup:
+    """Tests for compute_effective_df_per_group."""
+
+    def test_returns_dict_with_all_beta_keys(self) -> None:
+        """Result dict has all six beta group names and no extra keys."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            house_effect_sigma_prior=1.0,
+        )
+        model = build_municipal_model(features, polls, None, config, target_year=2014)
+        with model:
+            prior_pred = pm.sample_prior_predictive(draws=100, random_seed=config.seed)
+
+        eff_df = compute_effective_df_per_group(prior_pred, config)
+        expected = {
+            "beta_historical",
+            "beta_ethnicity",
+            "beta_poverty",
+            "beta_rural",
+            "beta_education",
+            "beta_risk",
+        }
+        assert set(eff_df) == expected
+
+    def test_prior_predictive_values_below_max(self) -> None:
+        """Prior predictive draws produce eff_df < 3.0 (n_candidates=3)."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            house_effect_sigma_prior=1.0,
+        )
+        model = build_municipal_model(features, polls, None, config, target_year=2014)
+        with model:
+            prior_pred = pm.sample_prior_predictive(draws=100, random_seed=config.seed)
+
+        eff_df = compute_effective_df_per_group(prior_pred, config)
+        for group, eff in eff_df.items():
+            assert eff < 3.0, f"Expected eff df < 3.0 for prior, got {eff:.2f} for {group}"
+
+    def test_values_are_non_negative(self) -> None:
+        """All effective df values are >= 0."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            house_effect_sigma_prior=1.0,
+        )
+        model = build_municipal_model(features, polls, None, config, target_year=2014)
+        with model:
+            prior_pred = pm.sample_prior_predictive(draws=100, random_seed=config.seed)
+
+        eff_df = compute_effective_df_per_group(prior_pred, config)
+        for eff in eff_df.values():
+            assert eff >= 0.0
+
+    def test_zero_prior_variance_handled(self) -> None:
+        """beta_coefficient_prior_sigma=0 is handled (falls back to epsilon)."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.0,
+            sigma_m_prior=0.3,
+            house_effect_sigma_prior=1.0,
+        )
+        model = build_municipal_model(features, polls, None, config, target_year=2014)
+        with model:
+            prior_pred = pm.sample_prior_predictive(draws=50, random_seed=config.seed)
+
+        eff_df = compute_effective_df_per_group(prior_pred, config)
+        for eff in eff_df.values():
+            assert np.isfinite(eff)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SPEC-29: Feature group ablation
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+class TestFeatureGroupAblation:
+    """Tests for run_feature_group_ablation."""
+
+    def test_returns_dataframe_with_correct_columns(self) -> None:
+        """Result has all expected columns."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            mcmc_draws=200,
+            mcmc_tune=100,
+            mcmc_chains=1,
+            mcmc_cores=1,
+        )
+        result = run_feature_group_ablation(features, polls, None, config)
+        assert isinstance(result, pd.DataFrame)
+        expected_columns = {
+            "group",
+            "mae_full",
+            "mae_ablated",
+            "delta_mae",
+            "r2_full",
+            "r2_ablated",
+        }
+        assert set(result.columns) == expected_columns
+
+    def test_all_groups_present(self) -> None:
+        """All six feature groups are represented in the output."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            mcmc_draws=200,
+            mcmc_tune=100,
+            mcmc_chains=1,
+            mcmc_cores=1,
+        )
+        result = run_feature_group_ablation(features, polls, None, config)
+        expected_groups = {"historical", "ethnicity", "poverty", "rural", "education", "risk"}
+        assert set(result["group"]) == expected_groups
+
+    def test_raises_with_no_candidate_overlap(self) -> None:
+        """Raises ValueError when polls have no columns matching FIRST_ROUND_CANDIDATES."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls_no_candidates = pd.DataFrame({"fecha": ["2022-01-01"], "muestra": [1000]})
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            mcmc_draws=200,
+            mcmc_tune=100,
+            mcmc_chains=1,
+            mcmc_cores=1,
+        )
+        with pytest.raises(ValueError, match="no candidate columns"):
+            run_feature_group_ablation(features, polls_no_candidates, None, config)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SPEC-29: produce_generalization_report
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestProduceGeneralizationReport:
+    """Tests for produce_generalization_report (orchestrator smoke tests)."""
+
+    @pytest.mark.slow
+    def test_produces_report_and_plot(self, tmp_path: Path) -> None:
+        """With minimal synthetic data, produces report and calibration plot."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls = _make_3row_polls()
+        results = _make_2022_result()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            mcmc_draws=200,
+            mcmc_tune=100,
+            mcmc_chains=1,
+            mcmc_cores=1,
+        )
+        output_path = tmp_path / "generalization.md"
+
+        result_path = produce_generalization_report(
+            features,
+            polls,
+            results,
+            config,
+            str(output_path),
+        )
+        assert Path(result_path).exists()
+        plot_path = output_path.with_suffix(".png")
+        assert plot_path.exists()
+        content = Path(result_path).read_text()
+        assert "Generalization Audit Report" in content
+
+    def test_raises_without_candidate_overlap(self, tmp_path: Path) -> None:
+        """Raises ValueError when polls have no candidate columns."""
+        features = _make_synthetic_features(n_municipalities=3)
+        polls_no_candidates = pd.DataFrame({"fecha": ["2014-01-01"], "muestra": [1000]})
+        results = _make_2022_result()
+        config = ModelConfig(
+            beta_coefficient_prior_sigma=0.5,
+            sigma_m_prior=0.3,
+            mcmc_draws=200,
+            mcmc_tune=100,
+            mcmc_chains=1,
+            mcmc_cores=1,
+        )
+        output_path = tmp_path / "generalization.md"
+
+        with pytest.raises(ValueError, match="no candidate columns"):
+            produce_generalization_report(
+                features,
+                polls_no_candidates,
+                results,
+                config,
+                str(output_path),
+            )
+
+    def test_deprecated_log_report_still_writes(self) -> None:
+        """_log_generalization_report still writes to results/generalization_report.md."""
+        errors = [
+            {"candidate": "petro", "predicted_mean": 0.35, "actual_share": 0.40, "abs_error": 0.05},
+        ]
+        with pytest.warns(
+            DeprecationWarning,
+            match="use produce_generalization_report",
+        ):
+            _log_generalization_report(2018, 0.5, errors)
+
+        report_path = Path("results") / "generalization_report.md"
+        assert report_path.exists()
+        content = report_path.read_text()
+        assert "2018" in content
+        assert "0.50" in content
+        assert "petro" in content
+
+        report_path.unlink(missing_ok=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# SPEC-29: Municipal calibration plot
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestMunicipalCalibrationPlot:
+    """Tests for plot_municipal_calibration."""
+
+    def test_returns_figure(self) -> None:
+        """Function returns a matplotlib Figure."""
+        predicted = np.array([0.5, 0.3, 0.2])
+        actual = np.array([0.45, 0.32, 0.23])
+        labels = ["a", "b", "c"]
+        fig = plot_municipal_calibration(predicted, actual, labels, 2022)
+        assert isinstance(fig, MplFigure)
+
+    def test_has_45_degree_line(self) -> None:
+        """The 45-degree reference line is present."""
+        predicted = np.array([0.5, 0.3, 0.2])
+        actual = np.array([0.45, 0.32, 0.23])
+        labels = ["a", "b", "c"]
+        fig = plot_municipal_calibration(predicted, actual, labels, 2022)
+        ax = fig.axes[0]
+        assert len(ax.get_lines()) >= 1
+
+    def test_r2_annotation_present(self) -> None:
+        """R² annotation is displayed on the plot."""
+        predicted = np.array([0.4, 0.3, 0.2])
+        actual = np.array([0.4, 0.3, 0.2])
+        labels = ["a", "b", "c"]
+        fig = plot_municipal_calibration(predicted, actual, labels, 2022)
+        ax = fig.axes[0]
+        texts = [t.get_text() for t in ax.texts if hasattr(t, "get_text")]
+        r2_texts = [t for t in texts if "R²" in t]
+        assert len(r2_texts) >= 1
