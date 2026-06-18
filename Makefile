@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help check fmt fmt-check lint lint-fix typecheck test test-fast test-model test-model-slow \
         dev sync install setup clean sec ci download-cnpv fundamentals cnpv nbi ipm population \
-        benchmark-fnn-clr
+        benchmark-fnn-clr generalization
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -110,3 +110,8 @@ population: $(POPULATION_OUT)  ## Ingest population projections data
 
 $(POPULATION_OUT): $(POPULATION_SRC) src/co_president/ingestion/ingest_population.py
 	@uv run python -m co_president ingest --component population
+
+generalization:  ## Run SPEC-29 generalization audit tests (eff df + ablation + calibration + produce)
+	@uv run pytest tests/test_validation_municipal_oos.py -v \
+		-k "effective_df or ablation or calibration or produce_generalization" \
+		-m "not slow"
