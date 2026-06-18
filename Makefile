@@ -113,5 +113,5 @@ $(POPULATION_OUT): $(POPULATION_SRC) src/co_president/ingestion/ingest_populatio
 
 generalization:  ## Run SPEC-29 generalization audit tests (eff df + ablation + calibration + produce)
 	@uv run pytest tests/test_validation_municipal_oos.py -v \
-		-k "effective_df or ablation or calibration or produce_generalization" \
+		-k "effectivedf or ablation or calibration or produce_generalization" \
 		-m "not slow"
