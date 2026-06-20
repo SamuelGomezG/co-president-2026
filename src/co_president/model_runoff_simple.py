@@ -20,6 +20,7 @@ import arviz as az  # type: ignore[reportMissingTypeStubs]
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
+import pytensor.tensor as pt  # type: ignore[reportMissingTypeStubs]
 
 from co_president.config import (
     ELECTION_DATE_ROUND2,
@@ -37,12 +38,17 @@ logger = logging.getLogger(__name__)
 
 # Threshold above which concentration_election_prior_mean triggers a fixed
 # DirichletMultinomial election likelihood (matching model_round1.py).
-_PHI_ELEC_FIXED_THRESHOLD = 100000
+_PHI_ELEC_FIXED_THRESHOLD = 0
 
 # Digital signal Beta decay peaks at T-1 (day before election) per SciELO 2023.
 # Formula: exp(-abs(days_from_elec - 1.0) / 3.0).  T-1=1.0 (peak), T-0=0.72,
 # T-7=0.135.  SciELO: T-1 has 1.86pp error, election day 6.56pp (bots distort).
 _DIGITAL_SIGNAL_DECAY_DAYS = 3.0
+_HISTORICAL_BLANCO_RATE = 0.025
+_N_T1_CANDIDATES = 2
+# Historical runoff blank+null residual rate (2022: ~2.28%). Used to anchor
+# the rest_blanco category and prevent absolute-share inflation.
+_HISTORICAL_RUNOFF_REST_RATE = 0.023
 
 if TYPE_CHECKING:
     from xarray import DataTree
@@ -199,11 +205,11 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     observed_counts: np.ndarray = np.round(
         raw_probs * sample_sizes[:, np.newaxis],
     ).astype(int)
-    effective_n = observed_counts.sum(axis=1)
-
     # Zero floor — replace 0 with 1, redistributing from largest columns
     # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
     _apply_zero_floor(observed_counts)
+
+    effective_n = observed_counts[:, :2].sum(axis=1)
 
     # Sample-size-dependent concentration multiplier
     eps = 1e-8
@@ -232,15 +238,21 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
 
         p_a = max(float(mean_shares[a_idx]), eps)
         p_b = max(float(mean_shares[b_idx]), eps)
-        p_rest_runoff = max(1.0 - p_a - p_b, eps)
     else:
         p_a = max(results.get_share(cand_a_key), eps)
         p_b = max(results.get_share(cand_b_key), eps)
-        p_rest_runoff = max(1.0 - p_a - p_b, eps)
 
-    prior_mean_a = float(np.log(p_a / p_rest_runoff))
-    prior_mean_b = float(np.log(p_b / p_rest_runoff))
-    prior_mean_free = np.array([prior_mean_a, prior_mean_b], dtype=float)
+    prior_mean_b = float(np.log(p_b / p_a))
+
+    # Override rest_blanco prior: anchor at historical runoff rest rate
+    # (blank+null residual ~2.3%) instead of the R1-implied rest share,
+    # which is systematically inflated in runoff (non-candidates drop out).
+    # Preserves the p_b/p_a ratio while fixing rest at historical rate.
+    _sum_ab = 1.0 / (1.0 + np.exp(prior_mean_b))
+    _p_a_adj = _sum_ab * (1.0 - _HISTORICAL_RUNOFF_REST_RATE)
+    prior_mean_rest = float(np.log(_HISTORICAL_RUNOFF_REST_RATE / _p_a_adj))
+    prior_mean_free = np.array([prior_mean_b, prior_mean_rest], dtype=float)
+    _theta_rest_sigma = 0.3
 
     with pm.Model() as model:  # type: ignore
         sigma_rw = pm.HalfNormal(  # type: ignore
@@ -261,29 +273,37 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             phi_poll * effective_n_multiplier,
         )
 
-        # Reverse-time random walk with reference parameterization
-        # theta has shape (T, K) where K=3: [theta_A, theta_B, 0 (rest reference)]
-        theta_rev = []  # type: ignore[reportMissingTypeArgument]
-        for t_idx in range(n_time_points - 1, -1, -1):
-            if t_idx == n_time_points - 1:
-                theta_free = pm.Normal(  # type: ignore
-                    f"theta_r_{t_idx}",
-                    mu=prior_mean_free,
-                    sigma=0.5,
-                    shape=2,
-                )
-            else:
-                theta_free = pm.Normal(  # type: ignore
-                    f"theta_r_{t_idx}",
-                    mu=theta_rev[-1],  # type: ignore
-                    sigma=sigma_rw,
-                    shape=2,
-                )
-            theta_rev.append(theta_free)  # type: ignore
-
-        theta_free_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # type: ignore
-        zero_rest = pm.math.zeros((n_time_points, 1))  # type: ignore
-        theta = pm.math.concatenate([theta_free_stacked, zero_rest], axis=-1)  # type: ignore
+        # Non-centered reverse-time random walk with A as reference
+        # theta has shape (T, K) where K=3: [0, theta_B, theta_rest]
+        # Prior anchored at farthest time point (oldest poll), walks toward
+        # closest-to-election. Non-centered breaks sigma_rw ↔ theta correlation.
+        theta_0 = pm.Normal(  # type: ignore
+            "theta_0",
+            mu=prior_mean_free,
+            sigma=np.array([0.5, _theta_rest_sigma]),
+            shape=2,
+        )
+        rw_raw = pm.Normal(  # type: ignore
+            "rw_raw",
+            mu=0,
+            sigma=1,
+            shape=(n_time_points - 1, 2),
+        )
+        # RW drift: extrapolates poll-level trends (e.g., Petro rising in 2022).
+        # mu=0 (no prior assumption on direction), sigma=0.02 in logit space
+        # ≈ 0.5pp/day in probability space.
+        drift = pm.Normal("drift", mu=0, sigma=0.02, shape=2)  # type: ignore[reportUnknownMemberType]
+        theta_increments = sigma_rw * rw_raw + drift  # type: ignore[reportUnknownVariableType]
+        theta_cumulative = pt.cumsum(theta_increments, axis=0)  # type: ignore[reportUnknownMemberType]
+        # Build forward from farthest to closest (T, 2)
+        theta_forward = pt.concatenate(  # type: ignore[reportUnknownMemberType]
+            [theta_0[None, :], theta_0[None, :] + theta_cumulative],
+            axis=0,
+        )
+        # Reverse so index 0 = closest to election (matching p_time[0] = election)
+        theta_free_stacked = theta_forward[::-1]  # type: ignore[reportUnknownVariableType]
+        zero_a = pm.math.zeros((n_time_points, 1))  # type: ignore
+        theta = pm.math.concatenate([zero_a, theta_free_stacked], axis=-1)  # type: ignore
 
         # Latent vote share probabilities per time point (K=3)
         pm.Deterministic("p_time", pm.math.softmax(theta, axis=-1))  # type: ignore
@@ -291,27 +311,35 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
         raw_house = pm.Normal(  # type: ignore
             "raw_house",
             mu=0,
-            sigma=sigma_house,
+            sigma=1,
             shape=(n_pollsters, n_candidates),
         )
         house_effects = pm.Deterministic(  # type: ignore
             "house_effects",
-            raw_house - raw_house.mean(axis=0, keepdims=True),  # type: ignore
+            sigma_house * (raw_house - raw_house.mean(axis=0, keepdims=True)),  # type: ignore[reportUnknownVariableType]
         )
 
-        # Poll observation model
+        # Poll observation model — K=2 (only cand_a, cand_b)
+        # rest_blanco is NOT in runoff polls (2-candidate format).
+        # Rest is informed by prior + election likelihood only.
         theta_selected = theta[time_indices]  # type: ignore
         house_selected = house_effects[pollster_indices]  # type: ignore
         theta_adj = theta_selected + house_selected  # type: ignore
 
-        p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))  # type: ignore
+        p_adj = pm.Deterministic(  # type: ignore[reportUnknownMemberType]
+            "p_adj",
+            pm.math.softmax(  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                theta_adj[:, :2],  # type: ignore[reportUnknownArgumentType]
+                axis=-1,
+            ),
+        )
         alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
 
         pm.DirichletMultinomial(  # type: ignore
             "poll_likelihood",
             n=effective_n,
             a=alpha_poll,
-            observed=observed_counts,
+            observed=observed_counts[:, :2],
         )
 
         # Digital signal Beta observation layer
@@ -324,6 +352,12 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     digital_signals,
                     _runoff_candidate_keys,
                 )
+                if ds_merged.empty:
+                    msg = (
+                        "merge_digital_signals returned empty DataFrame for runoff model "
+                        f"despite digital_signals having {len(digital_signals)} rows."
+                    )
+                    raise ValueError(msg)
                 _ds_cols = [c for c in _ds_cols if c in ds_merged.columns]
                 ds_values = np.clip(  # type: ignore[assignment]
                     ds_merged[_ds_cols].to_numpy(dtype=float),
@@ -363,6 +397,30 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
                         observed=ds_values[:, _j],
                     )
 
+                # ── T-1 (day-before-election) digital signal likelihood ──
+                # SciELO 2023: T-1 achieves 1.86pp error vs 6.56pp on election
+                # day. Add a strong Beta observation on the closest-to-election
+                # vote shares using the T-1 digital signal values.
+                _t1_date = pd.Timestamp(ELECTION_DATE_ROUND2) - pd.Timedelta(days=1)
+                _t1_row = digital_signals[digital_signals["fecha"] == _t1_date]
+                if not _t1_row.empty:
+                    _t1_cols = [c for c in (cand_a_key, cand_b_key) if c in _t1_row.columns]
+                    if len(_t1_cols) == _N_T1_CANDIDATES:
+                        _t1_vals = _t1_row[_t1_cols].iloc[0].to_numpy(dtype=float)
+                        _t1_vals = np.clip(_t1_vals, 1e-10, 1 - 1e-10)
+                        _p_elec_safe = pm.math.clip(  # type: ignore[reportUnknownMemberType]
+                            model["p_time"][0, :2],  # type: ignore[reportUnknownIndexIssue]
+                            1e-10,
+                            1 - 1e-10,
+                        )
+                        _phi_t1 = phi_digital_base * _internet_rate * config.concentration_t1_boost  # type: ignore[reportUnknownVariableType]
+                        pm.Beta(  # type: ignore[reportUnknownMemberType]
+                            "ds_t1",
+                            alpha=pm.math.maximum(_p_elec_safe * _phi_t1, 1e-10),  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                            beta=pm.math.maximum((1.0 - _p_elec_safe) * _phi_t1, 1e-10),  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                            observed=_t1_vals,
+                        )
+
         # ── Runoff election likelihood (optional, goodness-of-fit) ────
         if round2_result is not None:
             p_elec = pm.Deterministic(  # type: ignore
@@ -384,7 +442,7 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 pm.DirichletMultinomial(  # type: ignore
                     "election_likelihood",
                     n=_elec_counts.sum(),
-                    a=pm.math.maximum(alpha_elec, eps),  # type: ignore[reportUnknownMemberType]
+                    a=alpha_elec,  # type: ignore[reportUnknownArgumentType]
                     observed=_elec_counts,
                 )
             else:
@@ -407,7 +465,7 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 pm.DirichletMultinomial(  # type: ignore
                     "election_likelihood",
                     n=n_scaled,
-                    a=pm.math.maximum(alpha_elec, eps),  # type: ignore[reportUnknownMemberType]
+                    a=alpha_elec,  # type: ignore[reportUnknownArgumentType]
                     observed=_observed_scaled,
                 )
 

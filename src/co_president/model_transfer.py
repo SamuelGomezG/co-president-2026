@@ -41,8 +41,15 @@ __all__ = [
     "sample_transfer_rates",
 ]
 
-_TRANSFER_POSTERIOR_PATH: str = "results/transfer_posterior.nc"
+_TRANSFER_POSTERIOR_DIR: str = "results"
 _HISTORICAL_RESULTS_PATH: str = "data/fundamentals/historical_results.csv"
+
+
+def _transfer_posterior_path(year: int) -> Path:
+    """Return year-keyed transfer posterior cache path."""
+    return Path(_TRANSFER_POSTERIOR_DIR) / f"transfer_posterior_{year}.nc"
+
+
 _EPSILON: float = 1e-12
 _MIN_VALID_OBS: int = 5
 
@@ -450,20 +457,26 @@ def _build_historical_transfer_prior(
     return results
 
 
-def _load_transfer_posterior() -> xr.DataTree | None:
-    """Load cached transfer posterior from NetCDF, or None if unavailable."""
-    path = Path(_TRANSFER_POSTERIOR_PATH)
+def _load_transfer_posterior(path: Path | None = None) -> xr.DataTree | None:
+    """Load cached transfer posterior from NetCDF, or None if unavailable.
+
+    Args:
+        path: Path to the cached posterior file. If None, defaults to
+            ``results/transfer_posterior.nc`` (legacy path).
+
+    """
+    path = path or Path("results/transfer_posterior.nc")
     if not path.exists():
-        logger.info("No cached transfer posterior at %s", _TRANSFER_POSTERIOR_PATH)
+        logger.info("No cached transfer posterior at %s", path)
         return None
     # TRY300 note: return in else block per ruff convention
     try:
         idata = az.from_netcdf(str(path))  # type: ignore[reportUnknownVariableType]
     except (ValueError, FileNotFoundError, ImportError):
-        logger.warning("Failed to load transfer posterior from %s", _TRANSFER_POSTERIOR_PATH)
+        logger.warning("Failed to load transfer posterior from %s", path)
         return None
     else:
-        logger.info("Loaded transfer posterior from %s", _TRANSFER_POSTERIOR_PATH)
+        logger.info("Loaded transfer posterior from %s", path)
         return idata  # pyright: ignore[reportUnknownVariableType]
 
 
@@ -494,8 +507,10 @@ def sample_transfer_rates(
         a 1-D numpy array of ``n_draws`` transfer rate samples in ``[0, 1]``.
 
     """
+    transfer_path = _transfer_posterior_path(config.target_year) if config is not None else None
+
     # Step 1: try cached posterior
-    idata = _load_transfer_posterior()
+    idata = _load_transfer_posterior(path=transfer_path)
     if idata is not None:
         try:
             return _extract_transfer_rates_from_idata(idata)
@@ -516,9 +531,9 @@ def sample_transfer_rates(
             model = build_transfer_model(features, historical_r1r2, config=config)
             with model:
                 idata_train = pm.sample(  # type: ignore[reportUnknownMemberType]
-                    draws=min(n_draws // 2, 1000),
+                    draws=min(n_draws // 4, 1000),
                     tune=500,
-                    chains=2,
+                    chains=4,
                     cores=1,
                     random_seed=332211,
                     progressbar=False,
@@ -526,9 +541,9 @@ def sample_transfer_rates(
             # Cache the posterior for future runs
             try:
                 idata_train.to_netcdf(  # type: ignore[reportUnknownMemberType]
-                    str(Path(_TRANSFER_POSTERIOR_PATH)),
+                    str(transfer_path),
                 )
-                logger.info("Saved transfer posterior to %s", _TRANSFER_POSTERIOR_PATH)
+                logger.info("Saved transfer posterior to %s", transfer_path)
             except (OSError, ImportError):
                 logger.warning("Could not save transfer posterior to disk")
 

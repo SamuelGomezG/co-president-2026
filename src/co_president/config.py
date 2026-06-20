@@ -99,9 +99,11 @@ class ModelConfig:
 
     random_walk_sigma_prior: float = 0.5
     concentration_poll_prior_mean: float = 5.0
-    concentration_election_prior_mean: float = 50000.0
+    concentration_election_prior_mean: float = 5000.0
     concentration_election_votes_scale: int = 1000000
-    concentration_election_prior_shape: float = 10.0
+    concentration_election_prior_shape: float = 0.75
+    concentration_t1_boost: float = 0.0
+    use_digital_signals_runoff: bool = False
     house_effect_sigma_prior: float = 1.0
     mcmc_draws: int = 4000
     mcmc_tune: int = 1000

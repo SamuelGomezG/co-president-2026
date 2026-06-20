@@ -23,6 +23,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 from co_president.config import FIRST_ROUND_CANDIDATES
 from co_president.data import CandidateResult, RoundResult
@@ -34,7 +35,6 @@ from co_president.model_runoff_simple import (
 from co_president.model_utils import get_election_day_array
 
 if TYPE_CHECKING:
-    import pandas as pd
     from xarray import DataTree
 
     from co_president.config import ModelConfig
@@ -344,6 +344,9 @@ def _filter_polls_for_pairing(
     return filtered
 
 
+_HISTORICAL_RUNOFF_REST_RATE = 0.023
+
+
 def _run_runoff_model_for_pairing(  # noqa: PLR0913
     polls: pd.DataFrame,
     round1_result: RoundResult,
@@ -353,6 +356,8 @@ def _run_runoff_model_for_pairing(  # noqa: PLR0913
     digital_signals: pd.DataFrame,
     round2_result: RoundResult | None = None,
     features: pd.DataFrame | None = None,
+    transfer_rates: dict[tuple[str, str], np.ndarray] | None = None,
+    all_candidate_keys: list[str] | None = None,
 ) -> tuple[float, float, float, float, float, DataTree | None]:
     """Build, sample, and forecast a K=3 runoff model for a given pairing.
 
@@ -372,6 +377,12 @@ def _run_runoff_model_for_pairing(  # noqa: PLR0913
         features: Municipal feature matrix for internet rate weighting.
         digital_signals: Google Trends data for the runoff model's
             poll likelihood.
+        transfer_rates: Optional per-draw transfer rate dict from
+            :func:`~co_president.model_transfer.sample_transfer_rates`.
+            When provided, the prior mean uses transfer-implied runoff
+            shares instead of the Round 1 vote shares.
+        all_candidate_keys: Full candidate ordering matching the
+            Round 1 posterior.  Required when ``transfer_rates`` is provided.
 
     Returns:
         Tuple of ``(prob_first_wins, mean_margin, share_first, share_second,
@@ -381,8 +392,20 @@ def _run_runoff_model_for_pairing(  # noqa: PLR0913
     """
     first, second = pairing
 
-    first_share = round1_result.get_share(first)
-    second_share = round1_result.get_share(second)
+    if transfer_rates is not None and all_candidate_keys is not None:
+        election_day = get_election_day_array(round1_idata)
+        shares_first, shares_second = _compute_transfer_shares(
+            election_day,
+            all_candidate_keys,
+            first,
+            second,
+            transfer_rates,
+        )
+        first_share = float(shares_first.mean())
+        second_share = float(shares_second.mean())
+    else:
+        first_share = round1_result.get_share(first)
+        second_share = round1_result.get_share(second)
 
     synthetic_candidates = (
         CandidateResult(first, int(first_share * 100_000), first_share),
@@ -486,7 +509,6 @@ def estimate_runoff_matrix(  # noqa: PLR0913
     top_two_probs = compute_top_two_probabilities(round1_idata, candidates, candidate_keys)
 
     round1_result, _round2_result = results
-    _use_actual_r2 = round1_result.date.year == config.target_year
 
     # Load data-driven transfer rates (falls back to historical Dirichlet
     # prior when no cached PyMC posterior is available).  Pass features
@@ -507,6 +529,10 @@ def estimate_runoff_matrix(  # noqa: PLR0913
 
         idata_runoff: DataTree | None = None
         if pairing_polls is not None:
+            # Use digital signals in the runoff model only when explicitly
+            # enabled via config (off by default — digital signals were
+            # systematically biased toward Rodolfo in 2022).
+            _ds_runoff = digital_signals if config.use_digital_signals_runoff else pd.DataFrame()
             prob_first_wins, mean_margin, share_first, share_second, share_rest, idata_runoff = (
                 _run_runoff_model_for_pairing(
                     pairing_polls,
@@ -514,9 +540,11 @@ def estimate_runoff_matrix(  # noqa: PLR0913
                     round1_idata,
                     config,
                     (first, second),
-                    round2_result=_round2_result if _use_actual_r2 else None,
+                    round2_result=None,
                     features=features,
-                    digital_signals=digital_signals,
+                    digital_signals=_ds_runoff,
+                    transfer_rates=transfer_rates,
+                    all_candidate_keys=all_candidate_keys,
                 )
             )
         else:
