@@ -13,9 +13,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - docs/README.md — documentation directory index
 - CONTRIBUTING.md — human-readable contribution guide
 - `docs/archive/` — superseded planning documents
+- SPEC-23 → SPEC-29: Extension feature shipments (MOE PDF X-validation, ECP signal, AS/COA polls, OOS validation, horseshoe regularization, 2026 forecast mode, generalization audit)
+- SPEC-30: Transfer-rate estimation model (`model_transfer.py`) with probabilistic pairing matrix
+- SPEC-37: Compositional ALR/ILR transforms for target-side application (`benchmarks/transforms.py`)
+- SPEC-38: Google Trends ingestion pipeline (`ingest_trends.py`, `trends_keywords.py`)
+- SPEC-39: Twitter sentiment pipeline (RoBERTuito, GPT-4o-mini, spam filter, sentiment series)
+- SPEC-40: Multi-election hierarchical model refactor for 2002-2026 training
+- SPEC-41: FNN+CLR ML benchmark with SVR/RF/GB/KNN baselines (R² 0.94)
+- `SPEC-41-FNN-CLR-BENCHMARK-REPORT.md` — FNN+CLR benchmark report documentation
 
 ### Changed
 - `AGENTS.md` — fixed PyMC version reference (≥6.0 → ≥5.15), removed stale pytest-fast hook claim, removed unavailable python-executor skill
+- `docs/specs/STATUS.md` — full SPEC status reconciliation (23→29 shipped, 30 in progress)
+- `ENHANCEMENT_ROADMAP.md` — updated scope header and last-updated date
+- `README.md` — updated project structure and specs roadmap
 - `.pre-commit-config.yaml` — removed stale pytest-fast hook
 - `.github/workflows/slow-tests.yml` — reconciled setup-uv to v6
 - `.gitignore` — added 2026 data dirs and parallel coverage artifacts

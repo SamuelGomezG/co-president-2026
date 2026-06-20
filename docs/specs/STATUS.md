@@ -39,39 +39,50 @@
 | SPEC-21b | Bogotá disaggregation | `ingest_bogota.py` | #238 | ✅ Shipped |
 | SPEC-21c | CLR/logit transforms | `fundamentals/features.py` | #240 | ✅ Shipped |
 | SPEC-22 | Municipal hierarchical model | `model_municipal.py` | #241 | ✅ Shipped |
-| SPEC-38 | Google Trends ingestion | `ingest_trends.py`, `trends_keywords.py`, `aggregation.py`, `__main__.py` | — | ✅ Shipped |
 
-## Digital Signals — Twitter Sentiment (Shipped)
+## Extension Shipments (Shipped)
+
+| SPEC | Title | Plan doc | Status |
+|------|-------|----------|--------|
+| SPEC-23 | MOE PDF cross-validation | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-24 | ECP cultural attitudinal signal | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-25 | AS/COA third poll source | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-26 | OOS validation framework | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-27 | Regularization (horseshoe) | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-28 | 2026 forecast mode | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-29 | Generalization audit | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+
+## Digital Signals (Shipped)
 
 | SPEC | Title | Modules | PRs | Status |
 |------|-------|---------|-----|--------|
+| SPEC-38 | Google Trends ingestion | `ingest_trends.py`, `trends_keywords.py`, `aggregation.py`, `__main__.py` | #254 | ✅ Shipped |
 | SPEC-39 | Twitter sentiment pipeline | `twitter_preprocess.py`, `twitter_denoise.py`, `bert_sentiment.py`, `llm_sentiment.py`, `sentiment_series.py` | #260 | ✅ Shipped |
+
+## Compositional & ML Benchmarks (Shipped)
+
+| SPEC | Title | Modules | PRs | Status |
+|------|-------|---------|-----|--------|
+| SPEC-37 | Compositional data transforms (ALR/ILR) | `benchmarks/transforms.py` | #253 | ✅ Shipped |
+| SPEC-40 | Multi-election model refactor | `model_round1.py`, `model_municipal.py` | #256 | ✅ Shipped |
+| SPEC-41 | FNN+CLR ML benchmark | `benchmarks/fnn_clr.py`, `benchmarks/runner.py` | #257 | ✅ Shipped |
+| SPEC-41a | SVR baseline | `benchmarks/runner.py` | #257 | ✅ Shipped |
+| SPEC-41b | Random Forest baseline | `benchmarks/runner.py` | #257 | ✅ Shipped |
+| SPEC-41c | Gradient Boosting + KNN baselines | `benchmarks/runner.py` | #257 | ✅ Shipped |
+
+## Current Work
+
+| SPEC | Title | Plan doc | Status |
+|------|-------|----------|--------|
+| SPEC-30 | Transfer rate estimation | `docs/PLAN_demographic_ingestion.md` | 🚧 In Progress |
 
 ## Planned (not yet implemented)
 
 | SPEC | Title | Plan doc | Status |
 |------|-------|----------|--------|
-| SPEC-23 | MOE PDF cross-validation | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-24 | ECP cultural attitudinal signal | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-25 | AS/COA third poll source | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-26 | OOS validation framework | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-27 | Regularization (horseshoe) | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-28 | 2026 forecast mode | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-29 | Generalization audit | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
-| SPEC-30 | Transfer rate estimation | `docs/PLAN_demographic_ingestion.md` | 📋 Planned |
 | SPEC-31 | CNE ingest & normalization | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-32 | CNE cross-validation & calibration | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-33 | Backfill pipeline | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-34 | Empirical runoff matrix | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-35 | 2026 validation & forecasting | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
 | SPEC-36 | Stretch: demographics | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-
-## Compositional & ML Benchmarks
-
-| SPEC | Title | Modules | Status |
-|------|-------|---------|--------|
-| SPEC-37 | Compositional data transforms (ALR/ILR) | `benchmarks/transforms.py` | 🟡 Built (shared with SPEC-41) |
-| SPEC-41a | SVR baseline | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
-| SPEC-41b | Random Forest baseline | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
-| SPEC-41c | Gradient Boosting + KNN baselines | `benchmarks/runner.py` | 🟡 Built (SPEC-41) |
-| SPEC-41 | FNN+CLR ML benchmark | `benchmarks/fnn_clr.py`, `benchmarks/runner.py` | ✅ Shipped |

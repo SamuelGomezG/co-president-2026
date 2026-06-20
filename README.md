@@ -253,7 +253,7 @@ co-president-2026/
 ├── CONTRIBUTING.md                 # Contribution guide
 ├── AGENTS.md                       # AI agent operating manual
 ├── MVP_SPECS_GUIDE.md              # MVP technical specification (SPEC-01→11)
-├── ENHANCEMENT_ROADMAP.md          # Post-MVP enhancement plan (SPEC-12→29)
+├── ENHANCEMENT_ROADMAP.md          # Post-MVP enhancement plan (SPEC-12→41)
 ├── src/
 │   └── co_president/
 │       ├── __init__.py             # Package version
@@ -267,13 +267,25 @@ co-president-2026/
 │       ├── model_runoff_simple.py  # K=3 Dirichlet runoff model (SPEC-07)
 │       ├── model_runoff_matrix.py  # Probabilistic pairing matrix (SPEC-08)
 │       ├── model_municipal.py      # 3-layer hierarchical municipal model (SPEC-22)
+│       ├── model_transfer.py       # Transfer-rate estimation model (SPEC-30)
+│       ├── model_utils.py          # Shared model utilities
 │       ├── validation.py           # Backtesting, calibration, rolling forecasts (SPEC-09)
+│       ├── validation/             # Extended validation modules
+│       │   ├── __init__.py
+│       │   ├── compositional.py    # Compositional data validation (SPEC-37)
+│       │   └── municipal_oos.py    # OOS validation framework (SPEC-26)
 │       ├── plotting.py             # Visualization (SPEC-09)
 │       ├── _data_quality.py        # Data quality diagnostics (SPEC-11)
 │       ├── paths.py                # Data directory resolution (SPEC-01)
 │       ├── fundamentals/           # Municipal features API (SPEC-21)
 │       │   ├── __init__.py
 │       │   └── features.py         # MunicipalFeatures dataclass, loaders, CLR/logit
+│       ├── benchmarks/             # ML benchmark suite (SPEC-41)
+│       │   ├── __init__.py
+│       │   ├── transforms.py       # Compositional transforms (SPEC-37)
+│       │   ├── fnn_clr.py          # FNN+CLR model (SPEC-41)
+│       │   ├── runner.py           # Benchmark runner (SPEC-41a-c)
+│       │   └── terridata.py        # TerriData feature loader
 │       └── ingestion/              # Post-MVP data ingestion pipeline
 │           ├── __init__.py         # Re-exports all ingestion symbols
 │           ├── ingest_divipola.py  # DIVIPOLA master registry (SPEC-12.1)
@@ -287,6 +299,14 @@ co-president-2026/
 │           ├── ingest_fiscal.py    # Fiscal autonomy (SPEC-21a)
 │           ├── ingest_bogota.py    # Bogotá localidad disaggregation (SPEC-21b)
 │           ├── ingest_sabaneta.py  # Sabaneta fixture loader (SPEC-16)
+│           ├── ingest_ecp.py       # ECP cultural attitudinal signal (SPEC-24)
+│           ├── ingest_trends.py    # Google Trends ingestion (SPEC-38)
+│           ├── trends_keywords.py  # Google Trends keyword definitions
+│           ├── twitter_preprocess.py # Twitter data preprocessing (SPEC-39)
+│           ├── twitter_denoise.py  # Twitter spam/noise filtering (SPEC-39)
+│           ├── bert_sentiment.py   # BERT sentiment classification (SPEC-39)
+│           ├── llm_sentiment.py    # LLM sentiment classification (SPEC-39)
+│           ├── sentiment_series.py # Sentiment time-series builder (SPEC-39)
 │           ├── build_feature_matrix.py # Feature matrix builder (SPEC-14)
 │           ├── report.py           # Coverage report generator (SPEC-15)
 │           └── _download_cedae.py  # CEDAE bulk downloader
@@ -306,10 +326,20 @@ co-president-2026/
 │   ├── test_model.py               # SPEC-06/07/08 — all 3 Bayesian models
 │   ├── test_model_municipal.py     # SPEC-22
 │   ├── test_validation.py          # SPEC-09
-│   └── test_ingestion_*.py         # 13 files, one per ingestion module
+│   ├── test_validation_municipal_oos.py   # SPEC-26 — OOS validation framework
+│   ├── test_compositional.py       # SPEC-37 — compositional data transforms
+│   ├── test_validation_compositional.py   # SPEC-37 — compositional validation
+│   ├── test_fundamentals_features.py      # SPEC-21 — municipal features
+│   ├── test_cli.py / test___main___forecast.py  # SPEC-10 / SPEC-28 — CLI
+│   ├── test_bert_sentiment.py / test_llm_sentiment.py  # SPEC-39 — sentiment
+│   ├── test_twitter_preprocess.py / test_twitter_denoise.py  # SPEC-39 — twitter
+│   ├── test_sentiment_series.py   # SPEC-39 — sentiment time series
+│   ├── test_benchmarks_fnn_clr.py / test_benchmarks_runner.py  # SPEC-41 — benchmarks
+│   ├── test_benchmarks_transforms.py / test_benchmark_compositional.py  # SPEC-37/41
+│   └── test_ingestion_*.py         # 16 files, one per ingestion module
 ├── docs/
 │   ├── README.md                   # Documentation index
-│   ├── specs/STATUS.md             # Full SPEC status tracker (01→36)
+│   ├── specs/STATUS.md             # Full SPEC status tracker (01→41)
 │   ├── PLAN_demographic_ingestion.md # 12-day demographic plan (SPEC-15→30)
 │   ├── PLAN_cne_2026_ingestion.md   # CNE 2026 ingestion plan (SPEC-31→36)
 │   └── archive/                    # Superseded planning documents
@@ -416,8 +446,8 @@ uv run pytest tests/ -v --capture=no
 - [x] **SPEC-10** — CLI entry point and integration
 - [x] **SPEC-11** — Data quality diagnostics
 
-### Post-MVP: Municipal model (SPEC-12→22 shipped, 23→36 planned)
-See [`docs/specs/STATUS.md`](docs/specs/STATUS.md) for the complete status of every SPEC (01–36).
+### Post-MVP: Full feature suite (SPEC-12→41 shipped, 30 in progress, 31→36 planned)
+See [`docs/specs/STATUS.md`](docs/specs/STATUS.md) for the complete status of every SPEC (01–41).
 
 **MVP success criterion:** achieved — the model predicts 2022 results within ±5 percentage points of actual vote shares using only national poll data.
 
