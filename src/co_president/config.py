@@ -61,6 +61,7 @@ class Candidate:
     coalition: str | None
     first_round: bool = True
     runoff: bool = False
+    withdrawal_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,9 @@ class ModelConfig:
         mcmc_chains: Number of chains.
         mcmc_cores: Number of CPU cores for parallel chains.
         target_accept: NUTS target acceptance rate.
+        nuts_sampler: External NUTS sampler. Options: ``"numpyro"`` (JAX),
+            ``"blackjax"`` (JAX alternative), ``"nutpie"`` (Rust NUTS),
+            ``"pymc"`` (PyMC default), or ``None`` (auto-select PyMC default).
         seed: RNG seed for reproducibility.
         time_decay_half_life_days: Days for poll weight to halve.
         consultation_prior_strength: Sigma for Normal prior on theta[T-1].
@@ -95,13 +99,16 @@ class ModelConfig:
 
     random_walk_sigma_prior: float = 0.5
     concentration_poll_prior_mean: float = 5.0
-    concentration_election_prior_mean: float = 50.0
+    concentration_election_prior_mean: float = 50000.0
+    concentration_election_votes_scale: int = 1000000
+    concentration_election_prior_shape: float = 10.0
     house_effect_sigma_prior: float = 1.0
     mcmc_draws: int = 4000
     mcmc_tune: int = 1000
     mcmc_chains: int = 4
     mcmc_cores: int = 4
     target_accept: float = 0.95
+    nuts_sampler: Literal["pymc", "nutpie", "numpyro", "blackjax"] | None = None
     seed: int = 332211
     time_decay_half_life_days: float = 30.0
     consultation_prior_strength: float = 0.5
@@ -118,6 +125,9 @@ class ModelConfig:
 
     # SPEC-30: Transfer rate estimation model
     transfer_rhat_threshold: float = 1.10
+
+    # Phase 4: Target election year for backtesting
+    target_year: int = 2022
 
     @property
     def computed_consultation_prior_strengths(self) -> dict[str, float]:
@@ -181,6 +191,7 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
         coalition=None,  # Independent; initially in Centro Esperanza, withdrew after consultation
         first_round=True,
         runoff=False,
+        withdrawal_date=date(2022, 5, 20),
     ),
     "rest": Candidate(
         key="rest",
@@ -415,6 +426,7 @@ def get_default_pollster_weight() -> float:
 def get_active_candidates(
     round_number: Literal[1, 2],
     year: int = 2022,
+    as_of: date | None = None,
 ) -> list[Candidate]:
     """Return candidates active in a given election round.
 
@@ -423,6 +435,9 @@ def get_active_candidates(
         year: Election year (default 2022).  When 2026, uses
             ``FIRST_ROUND_CANDIDATES_2026`` if populated, otherwise
             falls back to ``FIRST_ROUND_CANDIDATES``.
+        as_of: Optional date filter.  When provided, excludes candidates
+            whose ``withdrawal_date`` is before this date (i.e., candidates
+            who had already withdrawn by ``as_of``).
 
     Returns:
         List of Candidate objects active in that round.
@@ -447,11 +462,15 @@ def get_active_candidates(
         else FIRST_ROUND_CANDIDATES
     )
     if round_number == _ROUND_FIRST:
-        return [c for c in candidates.values() if c.first_round]
-    if round_number == _ROUND_SECOND:
-        return [c for c in candidates.values() if c.runoff]
-    msg = f"round_number must be 1 or 2, got {round_number!r}"
-    raise ValueError(msg)
+        active = [c for c in candidates.values() if c.first_round]
+    elif round_number == _ROUND_SECOND:
+        active = [c for c in candidates.values() if c.runoff]
+    else:
+        msg = f"round_number must be 1 or 2, got {round_number!r}"
+        raise ValueError(msg)
+    if as_of is not None:
+        active = [c for c in active if c.withdrawal_date is None or as_of < c.withdrawal_date]
+    return active
 
 
 def get_candidate_column_map(year: int = 2022) -> dict[str, str]:

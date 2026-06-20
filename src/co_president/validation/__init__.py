@@ -170,11 +170,11 @@ def validate_runoff(
         RoundValidation with per-candidate metrics.
 
     """
-    candidate_keys = [forecast.candidate_a_key, forecast.candidate_b_key]
-    mean_shares = [forecast.mean_share_a, forecast.mean_share_b]
-    median_shares = [forecast.median_share_a, forecast.median_share_b]
-    ci_95_intervals = [forecast.ci_95_a, forecast.ci_95_b]
-    ci_50_intervals = [forecast.ci_50_a, forecast.ci_50_b]
+    candidate_keys = [forecast.candidate_a_key, forecast.candidate_b_key, "rest"]
+    mean_shares = [forecast.mean_share_a, forecast.mean_share_b, forecast.mean_share_rest]
+    median_shares = [forecast.median_share_a, forecast.median_share_b, forecast.median_share_rest]
+    ci_95_intervals = [forecast.ci_95_a, forecast.ci_95_b, forecast.ci_95_rest]
+    ci_50_intervals = [forecast.ci_50_a, forecast.ci_50_b, forecast.ci_50_rest]
     candidates: list[CandidateValidation] = []
     for key, mean_share, median_share, ci_95, ci_50 in zip(
         candidate_keys, mean_shares, median_shares, ci_95_intervals, ci_50_intervals, strict=True
@@ -314,17 +314,17 @@ def rolling_forecast(
             continue
 
         try:
-            from co_president.model_round1 import (  # noqa: PLC0415
-                build_round1_model,
-                forecast_round1,
-                sample_round1,
-            )
+            from co_president.model_round1 import build_round1_model  # type: ignore  # noqa: PLC0415, I001, PGH003
+            from co_president.model_round1 import forecast_round1  # type: ignore  # noqa: PLC0415, PGH003
+            from co_president.model_round1 import sample_round1  # type: ignore  # noqa: PLC0415, PGH003
 
-            model = build_round1_model(snapshot_df, results=None, config=config)
-            idata = sample_round1(model, config)
-            forecast = forecast_round1(idata, candidate_keys)
-            snapshots.append((cutoff_date, forecast))
-        except (ValueError, RuntimeError, TypeError, AttributeError, KeyError):
+            model = build_round1_model(
+                snapshot_df, results=None, config=config, digital_signals=pd.DataFrame()
+            )
+            idata = sample_round1(model, config)  # type: ignore[reportUnknownVariableType]
+            forecast = forecast_round1(idata, candidate_keys)  # type: ignore[reportUnknownVariableType]
+            snapshots.append((cutoff_date, forecast))  # type: ignore[reportUnknownArgumentType]
+        except (ValueError, RuntimeError, TypeError, AttributeError, KeyError, ImportError):
             logger.exception(
                 "rolling_forecast: MCMC failed for snapshot %s, skipping",
                 cutoff_date,
@@ -488,33 +488,35 @@ def sensitivity_ns_nr(
     candidate_keys = [c.candidate_key for c in baseline_forecast.candidates]
 
     # Build and sample the sensitive model
-    from co_president.model_round1 import (  # noqa: PLC0415
-        build_round1_model,
-        forecast_round1,
-        sample_round1,
-    )
+    from co_president.model_round1 import build_round1_model  # noqa: PLC0415, I001
+    from co_president.model_round1 import forecast_round1  # type: ignore  # noqa: PLC0415, PGH003
+    from co_president.model_round1 import sample_round1  # type: ignore  # noqa: PLC0415, PGH003
 
-    sensitive_model = build_round1_model(sensitive_polls, results, config)
-    sensitive_idata = sample_round1(sensitive_model, config)
-    sensitive_forecast = forecast_round1(sensitive_idata, candidate_keys)
+    sensitive_model = build_round1_model(
+        sensitive_polls, results, config, digital_signals=pd.DataFrame()
+    )
+    sensitive_idata = sample_round1(sensitive_model, config)  # type: ignore  # noqa: PGH003
+    sensitive_forecast: Round1Forecast = forecast_round1(sensitive_idata, candidate_keys)  # type: ignore[reportUnknownVariableType]
 
     # Compare means
     baseline_map = {c.candidate_key: c.mean_share for c in baseline_forecast.candidates}
     flags: list[SensitivityFlag] = []
     for fc in sensitive_forecast.candidates:
-        if fc.candidate_key not in baseline_map:
+        candidate_key: str = fc.candidate_key
+        if candidate_key not in baseline_map:
             logger.warning(
                 "sensitivity_ns_nr: candidate %s not found in baseline forecast, skipping",
-                fc.candidate_key,
+                candidate_key,
             )
             continue
-        baseline_mean = baseline_map[fc.candidate_key]
-        shift = fc.mean_share - baseline_mean
+        baseline_mean = baseline_map[candidate_key]
+        sensitive_mean: float = fc.mean_share
+        shift = sensitive_mean - baseline_mean
         flags.append(
             SensitivityFlag(
-                candidate_key=fc.candidate_key,
+                candidate_key=candidate_key,
                 baseline_mean=baseline_mean,
-                sensitive_mean=fc.mean_share,
+                sensitive_mean=sensitive_mean,
                 shift=shift,
                 exceeds_threshold=abs(shift) > threshold,
             )

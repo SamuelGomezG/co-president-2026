@@ -13,6 +13,7 @@ Public functions: :func:`build_runoff_simple_model`, :func:`sample_runoff`,
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING
 
 import arviz as az  # type: ignore[reportMissingTypeStubs]
@@ -24,9 +25,24 @@ from co_president.config import (
     ELECTION_DATE_ROUND2,
     FIRST_ROUND_CANDIDATES,
 )
+from co_president.data_polls import merge_digital_signals
 from co_president.fundamentals.compositional import (
     _apply_zero_floor,  # type: ignore[reportPrivateUsage]
 )
+from co_president.model_round1 import (
+    _compute_national_internet_rate,  # type: ignore[reportPrivateUsage]
+)
+
+logger = logging.getLogger(__name__)
+
+# Threshold above which concentration_election_prior_mean triggers a fixed
+# DirichletMultinomial election likelihood (matching model_round1.py).
+_PHI_ELEC_FIXED_THRESHOLD = 100000
+
+# Digital signal Beta decay peaks at T-1 (day before election) per SciELO 2023.
+# Formula: exp(-abs(days_from_elec - 1.0) / 3.0).  T-1=1.0 (peak), T-0=0.72,
+# T-7=0.135.  SciELO: T-1 has 1.86pp error, election day 6.56pp (bots distort).
+_DIGITAL_SIGNAL_DECAY_DAYS = 3.0
 
 if TYPE_CHECKING:
     from xarray import DataTree
@@ -69,13 +85,21 @@ class RunoffForecast:
     ci_50_b: tuple[float, float]
     ci_95_a: tuple[float, float]
     ci_95_b: tuple[float, float]
+    mean_share_rest: float = float("nan")
+    median_share_rest: float = float("nan")
+    ci_50_rest: tuple[float, float] = (float("nan"), float("nan"))
+    ci_95_rest: tuple[float, float] = (float("nan"), float("nan"))
 
 
-def build_runoff_simple_model(  # noqa: PLR0915
+def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     polls: pd.DataFrame,
     results: RoundResult,
     round1_idata: DataTree | None,
     config: ModelConfig,
+    *,
+    features: pd.DataFrame | None = None,
+    digital_signals: pd.DataFrame,
+    round2_result: RoundResult | None = None,
 ) -> pm.Model:
     """Build the PyMC model graph for the runoff (K=3).
 
@@ -96,6 +120,16 @@ def build_runoff_simple_model(  # noqa: PLR0915
             election results are used as an informed prior instead (the
             fallback path for when the Round 1 model hasn't been run).
         config: Model hyperparameters.
+        features: Optional municipal feature matrix. When provided, the
+            national internet access rate is used to weight the digital
+            signal concentration prior.
+        digital_signals: DataFrame with ``fecha`` and per-candidate
+            columns containing digital signal values (e.g., Google Trends).
+            A separate Beta observation layer is added.
+        round2_result: Actual runoff election result. When provided and
+            ``config.concentration_election_prior_mean > 100000``, adds a
+            fixed-concentration DirichletMultinomial likelihood for the
+            election-day posterior (goodness-of-fit backtest mode).
 
     Returns:
         pm.Model: Constructed PyMC model.
@@ -107,7 +141,8 @@ def build_runoff_simple_model(  # noqa: PLR0915
     Examples:
         >>> from co_president.config import ModelConfig
         >>> config = ModelConfig()
-        >>> model = build_runoff_simple_model(polls, results, None, config)
+        >>> model = build_runoff_simple_model(polls, results, None, config,
+        ...     digital_signals=pd.DataFrame())
         >>> list(model.named_vars.keys())
         ['sigma_rw', 'sigma_house', ...]
 
@@ -158,9 +193,11 @@ def build_runoff_simple_model(  # noqa: PLR0915
     work["pollster_idx"] = work["encuestadora"].map(pollster_to_idx)
 
     # Observed counts
-    sample_sizes = work["muestra"].to_numpy().astype(int)
-    observed_counts = np.round(
-        work[k_runoff_cols].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
+    sample_sizes: np.ndarray = work["muestra"].to_numpy().astype(int)
+    raw_probs: np.ndarray = work[k_runoff_cols].to_numpy() / 100.0
+    raw_probs = raw_probs / raw_probs.sum(axis=1, keepdims=True)
+    observed_counts: np.ndarray = np.round(
+        raw_probs * sample_sizes[:, np.newaxis],
     ).astype(int)
     effective_n = observed_counts.sum(axis=1)
 
@@ -251,7 +288,6 @@ def build_runoff_simple_model(  # noqa: PLR0915
         # Latent vote share probabilities per time point (K=3)
         pm.Deterministic("p_time", pm.math.softmax(theta, axis=-1))  # type: ignore
 
-        # House effects (zero-sum constrained, K=3)
         raw_house = pm.Normal(  # type: ignore
             "raw_house",
             mu=0,
@@ -278,6 +314,103 @@ def build_runoff_simple_model(  # noqa: PLR0915
             observed=observed_counts,
         )
 
+        # Digital signal Beta observation layer
+        if not digital_signals.empty:
+            _ds_cols = [c for c in k_runoff_cols if c in digital_signals.columns]
+            if _ds_cols:
+                _runoff_candidate_keys = [cand_a_key, cand_b_key]
+                ds_merged = merge_digital_signals(
+                    work,
+                    digital_signals,
+                    _runoff_candidate_keys,
+                )
+                _ds_cols = [c for c in _ds_cols if c in ds_merged.columns]
+                ds_values = np.clip(  # type: ignore[assignment]
+                    ds_merged[_ds_cols].to_numpy(dtype=float),
+                    1e-10,
+                    1 - 1e-10,
+                )  # (T, M)
+                _p_time = model["p_time"]  # type: ignore[reportUnknownVariableType]  # (T, 3)
+
+                _internet_rate = 1.0
+                if features is not None and not features.empty:
+                    _internet_rate = _compute_national_internet_rate(features)
+
+                phi_digital_base = pm.Gamma(  # type: ignore[reportUnknownMemberType]
+                    "phi_digital_base",
+                    alpha=5.0,
+                    beta=5.0 / 100.0,
+                )
+
+                days_from_elec = ds_merged["days_before"].to_numpy(dtype=float)
+                _decay = pm.math.exp(  # type: ignore[reportUnknownMemberType]
+                    -pm.math.abs(days_from_elec - 1.0) / _DIGITAL_SIGNAL_DECAY_DAYS,  # type: ignore[reportUnknownArgumentType]
+                )
+                phi_digital_t = phi_digital_base * _decay * _internet_rate  # type: ignore[reportUnknownVariableType]
+
+                for _j, _ck in enumerate(_ds_cols):
+                    _c_idx = k_runoff_cols.index(_ck)
+                    _p_c = _p_time[:, _c_idx]  # type: ignore[reportIndexIssue,reportUnknownVariableType]
+                    _p_c_safe = pm.math.clip(_p_c, 1e-10, 1 - 1e-10)  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+
+                    _alpha_beta = _p_c_safe * phi_digital_t  # type: ignore[reportUnknownVariableType]
+                    _beta_beta = (1.0 - _p_c_safe) * phi_digital_t  # type: ignore[reportUnknownVariableType]
+
+                    pm.Beta(  # type: ignore[reportUnknownMemberType]
+                        f"ds_{_ck}",
+                        alpha=pm.math.maximum(_alpha_beta, 1e-10),  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                        beta=pm.math.maximum(_beta_beta, 1e-10),  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                        observed=ds_values[:, _j],
+                    )
+
+        # ── Runoff election likelihood (optional, goodness-of-fit) ────
+        if round2_result is not None:
+            p_elec = pm.Deterministic(  # type: ignore
+                "p_elec",
+                pm.math.softmax(theta[0], axis=-1),  # type: ignore
+            )
+            _vote_dict = {c.candidate_key: c.votes for c in round2_result.candidates}
+            _elec_counts = np.array(
+                [_vote_dict.get(k, 0) for k in k_runoff_cols[:2]],
+                dtype=int,
+            )
+            _elec_rest = round2_result.total_valid_votes - _elec_counts.sum()
+            _elec_counts = np.append(_elec_counts, max(_elec_rest, 0))
+
+            if config.concentration_election_prior_mean > _PHI_ELEC_FIXED_THRESHOLD:
+                phi_elec = config.concentration_election_prior_mean  # type: ignore[assignment]
+                alpha_elec = p_elec * phi_elec  # type: ignore
+
+                pm.DirichletMultinomial(  # type: ignore
+                    "election_likelihood",
+                    n=_elec_counts.sum(),
+                    a=pm.math.maximum(alpha_elec, eps),  # type: ignore[reportUnknownMemberType]
+                    observed=_elec_counts,
+                )
+            else:
+                phi_elec = pm.Gamma(  # type: ignore
+                    "phi_elec",
+                    alpha=config.concentration_election_prior_shape,
+                    beta=config.concentration_election_prior_shape
+                    / config.concentration_election_prior_mean,
+                )
+                alpha_elec = p_elec * phi_elec  # type: ignore
+
+                total_votes_scaled = int(config.concentration_election_votes_scale)
+                _elec_sum = int(_elec_counts.sum())
+                _observed_scaled = np.round(
+                    _elec_counts.astype(float) / _elec_sum * total_votes_scaled,
+                ).astype(int)
+
+                n_scaled = int(_observed_scaled.sum())
+
+                pm.DirichletMultinomial(  # type: ignore
+                    "election_likelihood",
+                    n=n_scaled,
+                    a=pm.math.maximum(alpha_elec, eps),  # type: ignore[reportUnknownMemberType]
+                    observed=_observed_scaled,
+                )
+
     return model
 
 
@@ -295,7 +428,8 @@ def sample_runoff(model: pm.Model, config: ModelConfig) -> DataTree:
         RuntimeError: If NUTS sampling fails to initialise or diverges.
 
     Examples:
-        >>> model = build_runoff_simple_model(polls, results, None, ModelConfig())
+        >>> model = build_runoff_simple_model(polls, results, None, ModelConfig(),
+        ...     digital_signals=pd.DataFrame())
         >>> idata = sample_runoff(model, ModelConfig(mcmc_draws=200, mcmc_tune=100))
 
     """
@@ -306,7 +440,11 @@ def sample_runoff(model: pm.Model, config: ModelConfig) -> DataTree:
             chains=config.mcmc_chains,
             cores=config.mcmc_cores,
             target_accept=config.target_accept,
+            init="adapt_diag",
+            max_treedepth=12,
             random_seed=config.seed,
+            nuts_sampler=config.nuts_sampler,
+            mp_ctx="spawn",
         )
 
 
@@ -341,6 +479,7 @@ def forecast_runoff_simple(
 
     a_values = election_day[:, :, 0].to_numpy().flatten()
     b_values = election_day[:, :, 1].to_numpy().flatten()
+    rest_values = election_day[:, :, 2].to_numpy().flatten()
 
     prob_a_wins = float((a_values > b_values).mean())
     prob_b_wins = float((b_values > a_values).mean())
@@ -351,6 +490,9 @@ def forecast_runoff_simple(
     median_share_b = float(np.median(b_values))
     mean_margin = mean_share_a - mean_share_b
 
+    mean_share_rest = float(rest_values.mean())
+    median_share_rest = float(np.median(rest_values))
+
     ci_50_a_result = az.hdi(a_values, prob=0.5)  # type: ignore
     ci_50_b_result = az.hdi(b_values, prob=0.5)  # type: ignore
     ci_50_a = (float(ci_50_a_result[0]), float(ci_50_a_result[1]))  # type: ignore
@@ -360,6 +502,11 @@ def forecast_runoff_simple(
     ci_95_b_result = az.hdi(b_values, prob=0.95)  # type: ignore
     ci_95_a = (float(ci_95_a_result[0]), float(ci_95_a_result[1]))  # type: ignore
     ci_95_b = (float(ci_95_b_result[0]), float(ci_95_b_result[1]))  # type: ignore
+
+    ci_50_rest_result = az.hdi(rest_values, prob=0.5)  # type: ignore
+    ci_95_rest_result = az.hdi(rest_values, prob=0.95)  # type: ignore
+    ci_50_rest = (float(ci_50_rest_result[0]), float(ci_50_rest_result[1]))  # type: ignore
+    ci_95_rest = (float(ci_95_rest_result[0]), float(ci_95_rest_result[1]))  # type: ignore
 
     return RunoffForecast(
         candidate_a_key=candidate_a,
@@ -375,4 +522,8 @@ def forecast_runoff_simple(
         ci_50_b=ci_50_b,
         ci_95_a=ci_95_a,
         ci_95_b=ci_95_b,
+        mean_share_rest=mean_share_rest,
+        median_share_rest=median_share_rest,
+        ci_50_rest=ci_50_rest,
+        ci_95_rest=ci_95_rest,
     )
