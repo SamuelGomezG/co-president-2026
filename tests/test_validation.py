@@ -144,6 +144,10 @@ def _make_sample_runoff_forecast() -> RunoffForecast:
         ci_50_b=(0.464, 0.500),
         ci_95_a=(0.482, 0.554),
         ci_95_b=(0.446, 0.518),
+        mean_share_rest=0.023,
+        median_share_rest=0.022,
+        ci_50_rest=(0.015, 0.030),
+        ci_95_rest=(0.008, 0.038),
     )
 
 
@@ -529,11 +533,11 @@ class TestValidateRunoff:
         assert rv.round_number == 2
 
     def test_candidate_count(self) -> None:
-        """Two runoff candidates produce 2 entries without rest."""
+        """Two runoff candidates + rest produce 3 entries."""
         rvf = _make_sample_runoff_forecast()
         results = _make_runoff_results()
         rv = validate_runoff(rvf, results)
-        assert len(rv.candidates) == 2
+        assert len(rv.candidates) == 3
 
     def test_petro_error(self) -> None:
         """Validate petro error matches predicted - actual."""
@@ -1066,10 +1070,11 @@ class TestSensitivityNsNr:
 
         with (
             patch("co_president.model_round1.build_round1_model") as mock_build,
-            patch("co_president.model_round1.sample_round1") as mock_sample,
+            patch("co_president.model_round1.sample_round1", create=True) as mock_sample,
             patch(
                 "co_president.model_round1.forecast_round1",
                 return_value=baseline,
+                create=True,
             ) as mock_forecast,
         ):
             result = sensitivity_ns_nr(
@@ -1192,10 +1197,11 @@ class TestSensitivityNsNr:
 
         with (
             patch("co_president.model_round1.build_round1_model") as mock_build,
-            patch("co_president.model_round1.sample_round1") as mock_sample,
+            patch("co_president.model_round1.sample_round1", create=True) as mock_sample,
             patch(
                 "co_president.model_round1.forecast_round1",
                 return_value=shifted,
+                create=True,
             ) as mock_forecast,
         ):
             result = sensitivity_ns_nr(
@@ -1253,10 +1259,11 @@ class TestSensitivityNsNr:
 
         with (
             patch("co_president.model_round1.build_round1_model") as mock_build,
-            patch("co_president.model_round1.sample_round1") as mock_sample,
+            patch("co_president.model_round1.sample_round1", create=True) as mock_sample,
             patch(
                 "co_president.model_round1.forecast_round1",
                 return_value=baseline,
+                create=True,
             ) as mock_forecast,
         ):
             result = sensitivity_ns_nr(
@@ -1375,10 +1382,11 @@ class TestSensitivityNsNr:
 
         with (
             patch("co_president.model_round1.build_round1_model") as mock_build,
-            patch("co_president.model_round1.sample_round1") as mock_sample,
+            patch("co_president.model_round1.sample_round1", create=True) as mock_sample,
             patch(
                 "co_president.model_round1.forecast_round1",
                 return_value=shifted,
+                create=True,
             ) as mock_forecast,
         ):
             # Use threshold=0.01 (1pp) so that even small shifts are caught

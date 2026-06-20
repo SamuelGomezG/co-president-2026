@@ -1462,7 +1462,7 @@ class TestLoadAsCoaPolls:
             "rodolfo_hernandez",
             "sergio_fajardo",
             "ingrid_betancourt",
-            "otros",
+            "rest",
             "blanco",
         }
         assert expected_r1.issubset(result.round1.columns)

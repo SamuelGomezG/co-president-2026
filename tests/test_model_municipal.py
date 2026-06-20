@@ -218,6 +218,9 @@ def test_build_municipal_model_graph() -> None:
         "beta_rural",
         "beta_education",
         "beta_risk",
+        "beta_pdet",
+        "beta_indigenous",
+        "beta_internet",
         "sigma_m",
         "mu_m_raw",
         "sigma_house",
@@ -300,8 +303,8 @@ def test_build_municipal_model_graph_horseshoe() -> None:
     )
     model = build_municipal_model(features, polls, None, config)
 
-    # Horseshoe introduces: tau_horseshoe, beta_*_lam (6 groups), beta_*_z (6 groups)
-    # This replaces the 6 plain Normal(0, 0.5) betas with 13 new RVs.
+    # Horseshoe introduces: tau_horseshoe, beta_*_lam (9 groups), beta_*_z (9 groups)
+    # This replaces the 9 plain Normal(0, 0.5) betas with 19 new RVs.
     # Expected free RV names (Normal baseline + Horseshoe additions)
     baseline_names = {
         "alpha",
@@ -325,6 +328,12 @@ def test_build_municipal_model_graph_horseshoe() -> None:
         "beta_education_z",
         "beta_risk_lam",
         "beta_risk_z",
+        "beta_pdet_lam",
+        "beta_pdet_z",
+        "beta_indigenous_lam",
+        "beta_indigenous_z",
+        "beta_internet_lam",
+        "beta_internet_z",
     }
     free_rv_names = {rv.name for rv in model.free_RVs}
     expected_free = baseline_names | horseshoe_names
@@ -332,7 +341,7 @@ def test_build_municipal_model_graph_horseshoe() -> None:
         f"Free RV mismatch.\nExpected: {expected_free}\nGot:      {free_rv_names}"
     )
 
-    # Horseshoe adds 6 Deterministic betas (beta_historical, etc.)
+    # Horseshoe adds 9 Deterministic betas (beta_historical, etc.)
     expected_det_names = {
         "p_municipal",
         "p_natl",
@@ -347,6 +356,9 @@ def test_build_municipal_model_graph_horseshoe() -> None:
         "beta_rural",
         "beta_education",
         "beta_risk",
+        "beta_pdet",
+        "beta_indigenous",
+        "beta_internet",
     }
     det_names = {d.name for d in model.deterministics}
     assert det_names == expected_det_names | horseshoe_det_names, (
@@ -381,6 +393,9 @@ def test_build_municipal_model_graph_clr_target() -> None:
         "beta_rural",
         "beta_education",
         "beta_risk",
+        "beta_pdet",
+        "beta_indigenous",
+        "beta_internet",
         "sigma_m",
         "mu_m_raw",
         "sigma_house",
@@ -396,6 +411,7 @@ def test_build_municipal_model_graph_clr_target() -> None:
         "p_municipal",
         "p_municipal_clr",
         "p_natl",
+        "p_natl_clr",
         "phi_poll_n",
         "house_effects",
         "p_poll",
@@ -407,6 +423,98 @@ def test_build_municipal_model_graph_clr_target() -> None:
 
     assert len(model.observed_RVs) == 1
     assert model.observed_RVs[0].name == "poll_likelihood"
+
+
+def test_build_municipal_model_digital_signals() -> None:
+    """Test that digital_signals adds beta_digital to the model graph."""
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_3row_polls()
+    digital_signals = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-29"],
+            "gustavo_petro": [0.50, 0.52],
+            "rodolfo_hernandez": [0.30, 0.28],
+            "blanco": [0.20, 0.20],
+        },
+    )
+    config = ModelConfig(
+        beta_coefficient_prior_sigma=0.5,
+        sigma_m_prior=0.3,
+        house_effect_sigma_prior=1.0,
+    )
+    model = build_municipal_model(features, polls, None, config, digital_signals=digital_signals)
+
+    free_rv_names = {rv.name for rv in model.free_RVs}
+    assert "beta_digital" in free_rv_names, "beta_digital not found with digital_signals provided"
+
+    det_names = {d.name for d in model.deterministics}
+    assert "p_natl" in det_names
+    assert "p_poll" in det_names
+
+
+def test_build_municipal_model_reverse_time_rw() -> None:
+    """Test that polls spanning multiple dates add reverse-time RW vars.
+
+    When polls have different ``days_before`` values (multi-date input),
+    the model should include ``sigma_rw_muni``, ``delta_muni_0``,
+    ``delta_muni_1``, and ``delta_time``.
+    """
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = pd.DataFrame(
+        {
+            "fecha": ["2022-05-29", "2022-05-01", "2022-04-15"],
+            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
+            "muestra": [1000, 1000, 1000],
+            "gustavo_petro": [50.0, 48.0, 52.0],
+            "rodolfo_hernandez": [30.0, 32.0, 28.0],
+            "blanco": [20.0, 20.0, 20.0],
+            "round_number": [1, 1, 1],
+        }
+    )
+    config = ModelConfig(
+        beta_coefficient_prior_sigma=0.5,
+        sigma_m_prior=0.3,
+        house_effect_sigma_prior=1.0,
+    )
+    model = build_municipal_model(features, polls, None, config)
+
+    free_rv_names = {rv.name for rv in model.free_RVs}
+    assert "sigma_rw_muni" in free_rv_names, "sigma_rw_muni not found with multi-date polls"
+    assert "delta_muni_0" in free_rv_names or any(
+        n.startswith("delta_muni_") for n in free_rv_names
+    ), "No delta_muni_* variables found"
+
+    det_names = {d.name for d in model.deterministics}
+    assert "delta_time" in det_names, "delta_time deterministic not found"
+
+
+def test_build_municipal_model_clr_target_backtest() -> None:
+    """Test that clr_target=True with backtest mode uses CLR election likelihood.
+
+    With results provided and clr_target=True, the model should have:
+    - sigma_clr_elec free RV (for each candidate)
+    - election_clr_* observed RVs (one per candidate)
+    - No election_likelihood DirichletMultinomial
+    """
+    features = _make_synthetic_features(n_municipalities=3)
+    polls = _make_3row_polls()
+    results = _make_round1_result()
+    config = ModelConfig(clr_target=True)
+    model = build_municipal_model(features, polls, results, config)
+
+    free_rv_names = {rv.name for rv in model.free_RVs}
+    assert "sigma_clr_elec" in free_rv_names, (
+        "sigma_clr_elec not found with clr_target=True + backtest"
+    )
+
+    observed_names = {rv.name for rv in model.observed_RVs}
+    assert "poll_likelihood" in observed_names
+    assert any(n.startswith("election_clr_") for n in observed_names), (
+        "No election_clr_* observed variables found"
+    )
+
+    det_names = {d.name for d in model.deterministics}
+    assert "p_natl_clr" in det_names, "p_natl_clr not found with clr_target=True"
 
 
 # ═══════════════════════════════════════════════════════════════════════

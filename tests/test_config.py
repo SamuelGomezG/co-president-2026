@@ -75,7 +75,9 @@ class TestModelConfig:
         cfg = ModelConfig()
         assert cfg.random_walk_sigma_prior == 0.5
         assert cfg.concentration_poll_prior_mean == 5.0
-        assert cfg.concentration_election_prior_mean == 50.0
+        assert cfg.concentration_election_prior_mean == 50000.0
+        assert cfg.concentration_election_votes_scale == 1000000
+        assert cfg.concentration_election_prior_shape == 10.0
         assert cfg.house_effect_sigma_prior == 1.0
         assert cfg.mcmc_draws == 4000
         assert cfg.mcmc_tune == 1000
@@ -90,6 +92,8 @@ class TestModelConfig:
         assert cfg.sigma_m_prior == 0.3
         assert cfg.pool_alpha == 0.95
         assert cfg.enable_population_weighting is True
+        assert cfg.nuts_sampler is None
+        assert cfg.target_year == 2022
 
     def test_custom_values(self) -> None:
         """Verify ModelConfig accepts overrides for specific fields."""

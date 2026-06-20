@@ -772,6 +772,8 @@ def test_compute_runoff_matrix_serializes_json(
         round2_polls=None,  # Use heuristic path
         config=config,
         results_dir=tmp_path,
+        candidate_keys=candidate_order,
+        digital_signals=pd.DataFrame(),
     )
 
     # Result must not be None
