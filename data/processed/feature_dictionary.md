@@ -1,6 +1,6 @@
 # Municipal Feature Matrix — Data Dictionary
 
-Generated: 2026-06-16 23:11:09
+Generated: 2026-06-21 00:18:38
 Rows: 1143, Columns: 169
 
 ## REGION
@@ -799,7 +799,7 @@ Rows: 1143, Columns: 169
 
 - **Type**: int64
 - **Nulls**: 0 / 1143
-- **Sample**: 0
+- **Sample**: 1
 
 ## is_pdet
 
@@ -957,35 +957,17 @@ Rows: 1143, Columns: 169
 - **Nulls**: 21 / 1143
 - **Sample**: 108344.26142857142
 
-## pct_indigenous
+## internet_access_rate
 
 - **Type**: float64
 - **Nulls**: 1 / 1143
-- **Sample**: 0.0001136428206148
-
-## pct_afro_colombian
-
-- **Type**: float64
-- **Nulls**: 1 / 1143
-- **Sample**: 0.003522927439059
+- **Sample**: 0.1334429695759426
 
 ## poblacion_afrocolombiana
 
 - **Type**: float64
 - **Nulls**: 1 / 1143
 - **Sample**: 62.0
-
-## poblacion_indigena
-
-- **Type**: float64
-- **Nulls**: 1 / 1143
-- **Sample**: 2.0
-
-## nbi_rate
-
-- **Type**: float64
-- **Nulls**: 1 / 1143
-- **Sample**: 0.1395891424344164
 
 ## poblacion_total
 
@@ -999,11 +981,11 @@ Rows: 1143, Columns: 169
 - **Nulls**: 1 / 1143
 - **Sample**: 0.5798624921870561
 
-## internet_access_rate
+## nbi_rate
 
 - **Type**: float64
 - **Nulls**: 1 / 1143
-- **Sample**: 0.1334429695759426
+- **Sample**: 0.1395891424344164
 
 ## comuna_nombre
 
@@ -1011,8 +993,26 @@ Rows: 1143, Columns: 169
 - **Nulls**: 1122 / 1143
 - **Sample**: Usaquén
 
+## poblacion_indigena
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 2.0
+
 ## poblacion_rural_dispersa
 
 - **Type**: float64
 - **Nulls**: 1 / 1143
 - **Sample**: 10205.0
+
+## pct_afro_colombian
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.003522927439059
+
+## pct_indigenous
+
+- **Type**: float64
+- **Nulls**: 1 / 1143
+- **Sample**: 0.0001136428206148

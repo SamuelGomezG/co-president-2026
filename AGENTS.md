@@ -8,6 +8,13 @@ This file tells AI agents how to work with this codebase without making avoidabl
 
 **`MVP_SPECS_GUIDE.md`** is the authoritative design document. Every `SPEC-XX` defines what must happen and nothing else. If a behavior is not in a spec, it is out of scope. No speculative features.
 
+**Supplementary sources of truth (in order of precedence):**
+1. `docs/architecture/` — design rationale with academic citations (why the model works this way)
+2. `docs/reference/key-findings.md` — literature synthesis: key findings from every paper adopted
+3. `docs/reference/bibliography.md` — full academic citations for every referenced work
+4. `docs/reference/adopted.md` — decision-level mapping: design decision → supporting paper
+5. `docs/results/` — achieved backtest and forward forecast results
+
 ---
 
 ## 2. Branch Strategy
@@ -72,6 +79,8 @@ Data ingestion:
 
 ```bash
 make fundamentals # Ingest all fundamental datasets (cnpv + nbi + ipm + population)
+make backtest    # Run full 5000x4 backtest (R1 + runoff + report)
+make backtest-forward  # Run true forward backtest (no election results)
 ```
 
 ### Security scanning
@@ -203,6 +212,8 @@ gunzip data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*.csv.gz
 
 The `.gitignore` ignores uncompressed `.csv` copies to prevent accidental re-commits.
 
+**Important**: Raw external data files (poll CSVs, Registraduría results, MOE data, CEDAE historical, CNE microdata) are **not tracked in git**. They are documented in `docs/data/` with download/access instructions. The ingestion scripts (`src/co_president/ingestion/`) read these files from their expected locations — they must be manually placed there.
+
 ---
 
 ## 11. Operational Gotchas
@@ -214,6 +225,8 @@ The `.gitignore` ignores uncompressed `.csv` copies to prevent accidental re-com
 - **Large CSV files** (`MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz`) are ~95 MB each. Unit tests must never load them.
 - **Package verification**: Always check the current API docs for a library before writing code. Do not trust memory. Key reference URLs are in `MVP_SPECS_GUIDE.md` §2.
 - **`pyright tests/` produces ~276 strict-mode errors** — these are *intentional* (e.g., tests import private helpers, use pytest fixtures with dynamic types, and call third-party libs like arviz/pymc with incomplete stubs). The only type gate in `make check` is `pyright src/`, which passes cleanly. `pandas-stubs` is installed and working. Do not suppress rules globally; these are legitimate strict-mode boundary issues, not stub cascades.
+- **Every directory has GUIDE.md + MANIFEST.yaml** — these are directory-level documentation for humans and AI agents. `GUIDE.md` provides a human-readable overview; `MANIFEST.yaml` is a machine-parsable inventory with `role: key | secondary` file classification. Both should be kept up to date as files are added or removed.
+- **`reference/` (root) is fully gitignored** — it contains external PDFs and tech guides. Our derived analytical documents are in `docs/reference/` which IS tracked.
 
 ---
 
