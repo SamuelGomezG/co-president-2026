@@ -378,7 +378,7 @@ class TestCmdForecast:
         _cmd_forecast(args)
         captured = capsys.readouterr()
         assert "year=2026" in captured.out
-        assert "candidate-agnostic" in caplog.text
+        assert "candidate-agnostic" not in caplog.text
 
     def test_validate_oos_calls_gating(
         self,

@@ -5,7 +5,8 @@ Saves report to ``results/forward_backtest_2022_report.{md,json}``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import argparse
+from datetime import UTC, datetime, timedelta
 import logging
 from pathlib import Path
 
@@ -20,14 +21,11 @@ from report_utils import (
     save_reports,
 )
 
-from co_president.config import ModelConfig
+from co_president.config import ModelConfig, get_active_candidates, get_election_date
 from co_president.data import load_and_clean_all, load_canonical_results
 from co_president.fundamentals.features import load_features
 from co_president.ingestion.ingest_trends import compute_prop_fav, fetch_trends
-from co_president.ingestion.trends_keywords import (
-    CANDIDATE_QUERY_MAPS,
-    CANDIDATE_QUERY_MAP_2022_RUNOFF,
-)
+from co_president.ingestion.trends_keywords import CANDIDATE_QUERY_MAPS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,13 +46,22 @@ CONFIG = ModelConfig(
     nuts_sampler="numpyro",
 )
 
-RESULTS_DIR = Path("results")
-REPORT_PATH = RESULTS_DIR / "forward_backtest_2022_report.md"
-JSON_PATH = RESULTS_DIR / "forward_backtest_2022_report.json"
 
-
-def _load_digital_signals() -> pd.DataFrame:
+def _load_digital_signals(
+    year: int,
+    query_map: dict[str, str],
+    start_date: str,
+    end_date: str,
+    results_dir: Path,
+) -> pd.DataFrame:
     """Load or fetch Google Trends digital signals.
+
+    Args:
+        year: Election year.
+        query_map: Candidate→query map.
+        start_date: Trends start date (YYYY-MM-DD).
+        end_date: Trends end date (YYYY-MM-DD).
+        results_dir: Directory for cache files.
 
     Returns:
         DataFrame with ``fecha`` column and per-candidate proportion-favorable
@@ -62,7 +69,7 @@ def _load_digital_signals() -> pd.DataFrame:
 
     """
     digital_signals: pd.DataFrame = pd.DataFrame()
-    trends_cache = RESULTS_DIR / "trends_cache_2022.parquet"
+    trends_cache = results_dir / f"trends_cache_{year}.parquet"
     if trends_cache.exists():
         try:
             digital_signals = pd.read_parquet(trends_cache)
@@ -74,50 +81,62 @@ def _load_digital_signals() -> pd.DataFrame:
         except (OSError, ValueError, KeyError):
             digital_signals = pd.DataFrame()
             logger.warning("Failed to load cached Google Trends; will attempt fetch")
-    if digital_signals.empty:
-        query_map = CANDIDATE_QUERY_MAPS.get("2022")
-        if query_map:
-            try:
-                logger.info("Fetching Google Trends data...")
-                trends_raw = fetch_trends(
-                    list(query_map.values()),
-                    start_date="2022-03-01",
-                    end_date="2022-06-18",
+    if digital_signals.empty and query_map:
+        try:
+            logger.info("Fetching Google Trends data...")
+            trends_raw = fetch_trends(
+                list(query_map.values()),
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if not trends_raw.empty:
+                prop_fav_long = compute_prop_fav(trends_raw, query_map)
+                digital_signals = prop_fav_long.pivot_table(
+                    index="as_of_date",
+                    columns="candidate",
+                    values="prop_fav",
+                ).reset_index()
+                digital_signals = digital_signals.rename(columns={"as_of_date": "fecha"})
+                digital_signals["fecha"] = pd.to_datetime(digital_signals["fecha"])
+                digital_signals.to_parquet(trends_cache)
+                logger.info(
+                    "Fetched and cached Google Trends for %d candidates",
+                    len(query_map),
                 )
-                if not trends_raw.empty:
-                    prop_fav_long = compute_prop_fav(trends_raw, query_map)
-                    digital_signals = prop_fav_long.pivot_table(
-                        index="as_of_date",
-                        columns="candidate",
-                        values="prop_fav",
-                    ).reset_index()
-                    digital_signals = digital_signals.rename(columns={"as_of_date": "fecha"})
-                    digital_signals["fecha"] = pd.to_datetime(digital_signals["fecha"])
-                    digital_signals.to_parquet(trends_cache)
-                    logger.info(
-                        "Fetched and cached Google Trends for %d candidates",
-                        len(query_map),
-                    )
-            except (OSError, ValueError, KeyError, RuntimeError):
-                logger.warning(
-                    "Failed to fetch Google Trends data",
-                    exc_info=True,
-                )
+        except (OSError, ValueError, KeyError, RuntimeError):
+            logger.warning(
+                "Failed to fetch Google Trends data",
+                exc_info=True,
+            )
     return digital_signals
 
 
-def _load_digital_signals_runoff(digital_signals: pd.DataFrame) -> pd.DataFrame:
+def _load_digital_signals_runoff(
+    year: int,
+    digital_signals: pd.DataFrame,
+    query_map: dict[str, str],
+    runoff_query_map: dict[str, str],
+    start_date: str,
+    end_date: str,
+    results_dir: Path,
+) -> pd.DataFrame:
     """Load or compute head-to-head runoff digital signals.
 
     Args:
+        year: Election year.
         digital_signals: Multi-candidate trends DataFrame.
+        query_map: Full candidate→query map (fallback).
+        runoff_query_map: Runoff candidate→query map.
+        start_date: Trends start date (YYYY-MM-DD).
+        end_date: Trends end date (YYYY-MM-DD).
+        results_dir: Directory for cache files.
 
     Returns:
-        DataFrame with Petro/Rodolfo head-to-head proportions.
+        DataFrame with head-to-head runoff proportions.
 
     """
     digital_signals_runoff: pd.DataFrame = pd.DataFrame()
-    runoff_cache = RESULTS_DIR / "trends_cache_2022_runoff.parquet"
+    runoff_cache = results_dir / f"trends_cache_{year}_runoff.parquet"
     if runoff_cache.exists():
         try:
             digital_signals_runoff = pd.read_parquet(runoff_cache)
@@ -126,17 +145,17 @@ def _load_digital_signals_runoff(digital_signals: pd.DataFrame) -> pd.DataFrame:
             return digital_signals_runoff
         except (OSError, ValueError, KeyError):
             digital_signals_runoff = pd.DataFrame()
-    if digital_signals_runoff.empty:
-        runoff_keys = list(CANDIDATE_QUERY_MAP_2022_RUNOFF.values())
+    if digital_signals_runoff.empty and runoff_query_map:
         try:
-            logger.info("Fetching runoff-specific Google Trends (Petro vs Rodolfo)...")
+            runoff_keys = list(runoff_query_map.values())
+            logger.info("Fetching runoff-specific Google Trends...")
             trends_raw = fetch_trends(
                 runoff_keys,
-                start_date="2022-05-01",
-                end_date="2022-06-18",
+                start_date=start_date,
+                end_date=end_date,
             )
             if not trends_raw.empty:
-                prop_fav_long = compute_prop_fav(trends_raw, CANDIDATE_QUERY_MAP_2022_RUNOFF)
+                prop_fav_long = compute_prop_fav(trends_raw, runoff_query_map)
                 digital_signals_runoff = prop_fav_long.pivot_table(
                     index="as_of_date",
                     columns="candidate",
@@ -151,10 +170,11 @@ def _load_digital_signals_runoff(digital_signals: pd.DataFrame) -> pd.DataFrame:
                 return digital_signals_runoff
         except (OSError, ValueError, KeyError, RuntimeError):
             logger.warning("Failed to fetch runoff-specific Trends")
+
+    runoff_candidates = list(runoff_query_map.keys()) if runoff_query_map else []
     if digital_signals_runoff.empty and not digital_signals.empty:
-        runoff_cols = ["gustavo_petro", "rodolfo_hernandez"]
-        if all(c in digital_signals.columns for c in runoff_cols):
-            ds_h2h = digital_signals[runoff_cols].copy()
+        if all(c in digital_signals.columns for c in runoff_candidates):
+            ds_h2h = digital_signals[runoff_candidates].copy()
             total = ds_h2h.sum(axis=1)
             ds_h2h = ds_h2h.div(total.where(total > 0, 1.0), axis=0).fillna(0.0)
             ds_h2h["fecha"] = digital_signals["fecha"]
@@ -214,14 +234,19 @@ def _extract_posterior_summaries(
 
 def main() -> None:
     """Run true forward backtest (R1 without election result)."""
+    parser = argparse.ArgumentParser(description="Run true forward backtest.")
+    parser.add_argument("--year", type=int, default=2022, help="Election year (default 2022)")
+    args = parser.parse_args()
+    year = args.year
+
     started_at = datetime.now(UTC)
-    logger.info("Starting true forward backtest...")
+    logger.info("Starting true forward backtest for %d...", year)
 
     logger.info("Loading canonical election results...")
     results_r1, results_r2 = load_canonical_results()
 
     logger.info("Loading and cleaning poll data...")
-    clean_polls = load_and_clean_all()
+    clean_polls = load_and_clean_all(year=year)
 
     n_polls_r1 = len(clean_polls.round1)
     n_polls_r2 = len(clean_polls.round2)
@@ -236,15 +261,39 @@ def main() -> None:
             "Municipal features not available; falling back to polls-only model",
         )
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    results_dir = Path("results")
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    digital_signals = _load_digital_signals()
+    election_r1 = get_election_date(year, 1)
+    election_r2 = get_election_date(year, 2)
+    trends_start = (election_r1 - timedelta(days=90)).strftime("%Y-%m-%d")
+    trends_end = (election_r2 - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    query_map = CANDIDATE_QUERY_MAPS.get(str(year)) or CANDIDATE_QUERY_MAPS["2022"]
+    runoff_candidates = [c.key for c in get_active_candidates(2, year=year) if c.key != "rest"]
+    runoff_query_map = {k: query_map[k] for k in runoff_candidates if k in query_map}
+
+    digital_signals = _load_digital_signals(
+        year,
+        query_map,
+        trends_start,
+        trends_end,
+        results_dir,
+    )
     if digital_signals.empty:
         logger.warning(
             "Digital signals unavailable; model will proceed without trends data",
         )
 
-    digital_signals_runoff = _load_digital_signals_runoff(digital_signals)
+    digital_signals_runoff = _load_digital_signals_runoff(
+        year,
+        digital_signals,
+        query_map,
+        runoff_query_map,
+        (election_r1 + timedelta(days=1)).strftime("%Y-%m-%d"),
+        trends_end,
+        results_dir,
+    )
 
     # ── R1 model WITHOUT election result (true forward) ──
     import co_president.model_round1 as m1  # noqa: PLC0415
@@ -256,6 +305,7 @@ def main() -> None:
         config=CONFIG,
         features=features,
         digital_signals=digital_signals,
+        year=year,
     )
 
     logger.info(
@@ -287,11 +337,19 @@ def main() -> None:
         idata_r1,
         features=features,
         digital_signals=digital_signals_runoff,
+        year=year,
     )
 
     total_elapsed = (datetime.now(UTC) - started_at).total_seconds()
 
     # ── Report ──
+    if year == 2022:
+        report_path = results_dir / "forward_backtest_2022_report.md"
+        json_path = results_dir / "forward_backtest_2022_report.json"
+    else:
+        report_path = results_dir / f"forward_backtest_{year}_report.md"
+        json_path = results_dir / f"forward_backtest_{year}_report.json"
+
     report_data = ReportInputs(
         r1_metrics=r1_metrics,
         r2_metrics=r2_metrics,
@@ -303,12 +361,12 @@ def main() -> None:
         elapsed_r2_s=elapsed_r2_s,
         n_polls_r1=n_polls_r1,
         n_polls_r2=n_polls_r2,
-        election_year=2022,
+        election_year=year,
     )
 
     report_md = generate_report(report_data, CONFIG)
-    REPORT_PATH.write_text(report_md, encoding="utf-8")
-    logger.info("Saved report to %s", REPORT_PATH)
+    report_path.write_text(report_md, encoding="utf-8")
+    logger.info("Saved report to %s", report_path)
 
     save_reports(
         r1_metrics,
@@ -317,16 +375,16 @@ def main() -> None:
         n_polls_r1,
         n_polls_r2,
         CONFIG,
-        REPORT_PATH,
-        JSON_PATH,
-        year=2022,
+        report_path,
+        json_path,
+        year=year,
     )
     print_summary(
         r1_metrics,
         r2_metrics,
         total_elapsed,
-        REPORT_PATH,
-        JSON_PATH,
+        report_path,
+        json_path,
         r1_converged=r1_converged,
         r2_converged=r2_converged,
     )

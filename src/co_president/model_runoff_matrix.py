@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from co_president.config import FIRST_ROUND_CANDIDATES
+from co_president.config import get_active_candidates
 from co_president.data import CandidateResult, RoundResult
 from co_president.model_runoff_simple import (
     build_runoff_simple_model,
@@ -93,15 +93,16 @@ _MIN_PAIRING_PROB: float = 0.01
 _MIN_PAIRED_POLLS: int = 3
 
 
-def _get_candidate_order() -> list[str]:
+def _get_candidate_order(year: int = 2022) -> list[str]:
     """Return the canonical candidate ordering matching the Round 1 model."""
-    return sorted(FIRST_ROUND_CANDIDATES.keys())
+    return sorted(c.key for c in get_active_candidates(1, year=year))
 
 
 def compute_top_two_probabilities(
     round1_idata: DataTree,
     candidates: list[str],
     candidate_keys: list[str] | None = None,
+    year: int = 2022,
 ) -> dict[tuple[str, str], float]:
     """Compute probability of each ordered top-two pairing from posterior.
 
@@ -116,6 +117,7 @@ def compute_top_two_probabilities(
         candidate_keys: Actual candidate ordering used to build the model.
             When ``None``, inferred from ``_get_candidate_order()``
             truncated to the posterior dimension (legacy fallback).
+        year: Election year (default 2022).
 
     Returns:
         Dictionary mapping ``(first_place, second_place)`` to probability.
@@ -136,7 +138,7 @@ def compute_top_two_probabilities(
     if candidate_keys is not None:
         candidate_order = candidate_keys
     else:
-        full_order = _get_candidate_order()
+        full_order = _get_candidate_order(year)
         candidate_order = full_order[:n_posterior] if len(full_order) >= n_posterior else full_order
 
     candidate_idx: dict[str, int] = {k: i for i, k in enumerate(candidate_order)}
@@ -358,6 +360,7 @@ def _run_runoff_model_for_pairing(  # noqa: PLR0913
     features: pd.DataFrame | None = None,
     transfer_rates: dict[tuple[str, str], np.ndarray] | None = None,
     all_candidate_keys: list[str] | None = None,
+    year: int = 2022,
 ) -> tuple[float, float, float, float, float, DataTree | None]:
     """Build, sample, and forecast a K=3 runoff model for a given pairing.
 
@@ -383,6 +386,7 @@ def _run_runoff_model_for_pairing(  # noqa: PLR0913
             shares instead of the Round 1 vote shares.
         all_candidate_keys: Full candidate ordering matching the
             Round 1 posterior.  Required when ``transfer_rates`` is provided.
+        year: Election year (default 2022).
 
     Returns:
         Tuple of ``(prob_first_wins, mean_margin, share_first, share_second,
@@ -432,6 +436,7 @@ def _run_runoff_model_for_pairing(  # noqa: PLR0913
         features=features,
         digital_signals=digital_signals,
         round2_result=round2_result,
+        year=year,
     )
     idata = sample_runoff(model, config)
     forecast = forecast_runoff_simple(idata, first, second)
@@ -454,6 +459,7 @@ def estimate_runoff_matrix(  # noqa: PLR0913
     digital_signals: pd.DataFrame,
     candidate_keys: list[str] | None = None,
     features: pd.DataFrame | None = None,
+    year: int = 2022,
 ) -> RunoffMatrix:
     """Compute a full probabilistic runoff matrix.
 
@@ -482,6 +488,7 @@ def estimate_runoff_matrix(  # noqa: PLR0913
         digital_signals: Google Trends (or other digital signal) data for
             the runoff K=3 poll likelihood.  Passed through to
             :func:`build_runoff_simple_model`.
+        year: Election year (default 2022).
 
     Returns:
         :class:`RunoffMatrix` containing all plausible pairings.
@@ -502,11 +509,13 @@ def estimate_runoff_matrix(  # noqa: PLR0913
     if candidate_keys is not None:
         all_candidate_keys = candidate_keys
     else:
-        all_candidate_keys = _get_candidate_order()[:n_posterior]
+        all_candidate_keys = _get_candidate_order(year)[:n_posterior]
 
     candidates = [k for k in all_candidate_keys if k not in ("rest", "blanco")]
 
-    top_two_probs = compute_top_two_probabilities(round1_idata, candidates, candidate_keys)
+    top_two_probs = compute_top_two_probabilities(
+        round1_idata, candidates, candidate_keys, year=year
+    )
 
     round1_result, _round2_result = results
 
@@ -545,6 +554,7 @@ def estimate_runoff_matrix(  # noqa: PLR0913
                     digital_signals=_ds_runoff,
                     transfer_rates=transfer_rates,
                     all_candidate_keys=all_candidate_keys,
+                    year=year,
                 )
             )
         else:
