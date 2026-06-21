@@ -654,7 +654,7 @@ def _run_pipeline_mcmc(
     _log_and_save_trace(idata_r1, results_dir / "round1_trace.nc")
 
     r1_candidate_keys = sorted(
-        set(m1.FIRST_ROUND_CANDIDATES) & set(clean_polls.round1.columns),
+        set(FIRST_ROUND_CANDIDATES) & set(clean_polls.round1.columns),
     )
     logger.info("Computing round 1 forecast...")
     round1_forecast = m1.forecast_round1(idata_r1, r1_candidate_keys)
