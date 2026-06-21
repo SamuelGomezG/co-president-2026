@@ -856,6 +856,7 @@ class TestProduceGeneralizationReport:
             mcmc_tune=100,
             mcmc_chains=1,
             mcmc_cores=1,
+            nuts_sampler="numpyro",
         )
         output_path = tmp_path / "generalization.md"
 
