@@ -221,11 +221,21 @@ class TestFirstRoundCandidates:
 
 
 class TestFirstRoundCandidates2026:
-    """Tests for the FIRST_ROUND_CANDIDATES_2026 placeholder."""
+    """Tests for the FIRST_ROUND_CANDIDATES_2026 registry."""
 
-    def test_empty_by_default(self) -> None:
-        """Verify 2026 candidate dict is empty (placeholder)."""
-        assert len(FIRST_ROUND_CANDIDATES_2026) == 0
+    EXPECTED_KEYS_2026: ClassVar[set[str]] = {
+        "cepeda",
+        "de_la_espriella",
+        "valencia",
+        "fajardo",
+        "claudia_lopez",
+        "rest",
+        "blanco",
+    }
+
+    def test_populated(self) -> None:
+        """Verify 2026 candidate dict is populated with canonical keys."""
+        assert set(FIRST_ROUND_CANDIDATES_2026) == self.EXPECTED_KEYS_2026
 
     def test_is_dict(self) -> None:
         """Verify type is dict."""
@@ -358,10 +368,11 @@ class TestGetActiveCandidates:
         }
         assert keys == expected
 
-    def test_year_2026_empty_raises_valueerror(self) -> None:
-        """Verify year=2026 raises ValueError because the registry is empty."""
-        with pytest.raises(ValueError, match="CANDIDATES registry for year 2026 is empty"):
-            get_active_candidates(1, year=2026)
+    def test_year_2026_returns_candidates(self) -> None:
+        """Verify year=2026 returns the populated candidate registry."""
+        active = get_active_candidates(1, year=2026)
+        keys = {c.key for c in active}
+        assert keys == TestFirstRoundCandidates2026.EXPECTED_KEYS_2026
 
 
 class TestGetCandidateColumnMap:
@@ -391,10 +402,11 @@ class TestGetCandidateColumnMap:
         }
         assert set(mapping) == expected
 
-    def test_year_2026_empty_raises_valueerror(self) -> None:
-        """Verify year=2026 raises ValueError because the registry is empty."""
-        with pytest.raises(ValueError, match="CANDIDATES registry for year 2026 is empty"):
-            get_candidate_column_map(year=2026)
+    def test_year_2026_returns_mapping(self) -> None:
+        """Verify year=2026 returns an identity mapping for populated candidates."""
+        mapping = get_candidate_column_map(year=2026)
+        assert set(mapping) == TestFirstRoundCandidates2026.EXPECTED_KEYS_2026
+        assert mapping["cepeda"] == "cepeda"
 
 
 class TestConsultationVotes:
@@ -628,9 +640,9 @@ class TestYearAgnosticHelpers:
         with pytest.raises(ValueError, match="No first-round election date"):
             get_election_date(1990, 1)
         with pytest.raises(ValueError, match="No runoff election date"):
-            get_election_date(2026, 2)
+            get_election_date(1990, 2)
         with pytest.raises(ValueError, match="No consultation date"):
-            get_election_date(2026)
+            get_election_date(1990)
 
     def test_get_pollster_ratings_2022(self) -> None:
         """Verify 2022 pollster ratings are returned."""

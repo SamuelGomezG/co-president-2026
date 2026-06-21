@@ -229,15 +229,64 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
     ),
 }
 
-# Placeholder for 2026 first-round candidates.  Official candidate list is
-# not yet published.  Once known, replace with real Candidate objects.
-# Until populated, forecasts default to FIRST_ROUND_CANDIDATES for
-# candidate-agnostic feature space.
-FIRST_ROUND_CANDIDATES_2026: dict[str, Candidate] = {}
+# SPEC-31: 2026 first-round candidates populated from CNE microdata.
+# Coalition assignments reflect the 2026 pre-campaign alignments; the
+# runoff flag is set for the two most frequently polled finalists plus
+# the ``rest`` sentinel that aggregates blank votes and minor candidates.
+FIRST_ROUND_CANDIDATES_2026: dict[str, Candidate] = {
+    "cepeda": Candidate(
+        key="cepeda",
+        display_name="Iván Cepeda",
+        coalition="Pacto Histórico",
+        first_round=True,
+        runoff=True,
+    ),
+    "de_la_espriella": Candidate(
+        key="de_la_espriella",
+        display_name="Abelardo de la Espriella",
+        coalition="Centro Democrático",
+        first_round=True,
+        runoff=False,
+    ),
+    "valencia": Candidate(
+        key="valencia",
+        display_name="Paloma Valencia",
+        coalition="Centro Democrático",
+        first_round=True,
+        runoff=True,
+    ),
+    "fajardo": Candidate(
+        key="fajardo",
+        display_name="Sergio Fajardo",
+        coalition="Centro Esperanza",
+        first_round=True,
+        runoff=False,
+    ),
+    "claudia_lopez": Candidate(
+        key="claudia_lopez",
+        display_name="Claudia López",
+        coalition="Alianza Verde",
+        first_round=True,
+        runoff=False,
+    ),
+    "rest": Candidate(
+        key="rest",
+        display_name="Otros",
+        coalition=None,
+        first_round=True,
+        runoff=True,
+    ),
+    "blanco": Candidate(
+        key="blanco",
+        display_name="Voto en Blanco",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+}
 
 # Year-indexed candidate registries.  2022 is populated from the existing
-# constants; 2026 placeholders are intentionally empty until Phase 1-2
-# candidate data is added.
+# constants; 2026 entries are populated by SPEC-31.
 CANDIDATES_BY_YEAR: dict[int, dict[str, Candidate]] = {
     2022: FIRST_ROUND_CANDIDATES,
     2026: FIRST_ROUND_CANDIDATES_2026,
@@ -270,6 +319,11 @@ ELECTION_DATE_ROUND1: date = date(2022, 5, 29)
 ELECTION_DATE_ROUND2: date = date(2022, 6, 19)
 CONSULTATION_DATE: date = date(2022, 3, 13)
 
+# SPEC-31: 2026 election cycle dates.
+ELECTION_DATE_ROUND1_2026: date = date(2026, 5, 31)
+ELECTION_DATE_ROUND2_2026: date = date(2026, 6, 21)
+CONSULTATION_DATE_2026: date = date(2026, 3, 8)
+
 # Election dates for the first round of each presidential election since 2002.
 # Used by ``build_multi_election_model`` (SPEC-40) for per-year time indexing.
 ELECTION_DATES: dict[int, date] = {
@@ -279,17 +333,19 @@ ELECTION_DATES: dict[int, date] = {
     2014: date(2014, 5, 25),
     2018: date(2018, 5, 27),
     2022: date(2022, 5, 29),
-    2026: date(2026, 5, 31),
+    2026: ELECTION_DATE_ROUND1_2026,
 }
 
 # Round-2 election dates by year (consultation dates use ``None`` round).
 _ELECTION_DATE_ROUND2_BY_YEAR: dict[int, date] = {
     2022: ELECTION_DATE_ROUND2,
+    2026: ELECTION_DATE_ROUND2_2026,
 }
 
 # Inter-party consultation dates by year.
 _CONSULTATION_DATE_BY_YEAR: dict[int, date] = {
     2022: CONSULTATION_DATE,
+    2026: CONSULTATION_DATE_2026,
 }
 
 _ROUND_FIRST = 1
