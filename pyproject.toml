@@ -35,6 +35,7 @@ dependencies = [
     "numpyro>=0.14",
     "jax>=0.4.20",
     "jaxlib>=0.4.20",
+    "nutpie>=0.9",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +72,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "PLR2004", "N806", "PT019", "RUF002", "RUF003", "SLF001"]
+"scripts/**/*.py" = ["ALL"]
 "src/co_president/benchmarks/transforms.py" = ["N803", "N806", "PLR2004"]
 "src/co_president/benchmarks/fnn_clr.py" = ["N803", "N806", "TC002"]
 "src/co_president/benchmarks/runner.py" = [

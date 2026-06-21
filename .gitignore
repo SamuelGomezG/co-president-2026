@@ -8,6 +8,11 @@ __pycache__/
 .DS_Store
 notebooks/**
 !notebooks/derive_transfer_constants.py
+!notebooks/0*-*.ipynb
+!notebooks/01-*.ipynb
+!notebooks/02-*.ipynb
+!notebooks/03-*.ipynb
+!notebooks/04-*.ipynb
 results/
 *.nc
 reference/
@@ -27,10 +32,26 @@ dist/
 # Large CSV files stored as .gz; decompress before use
 data/2022-presidential-results/MMV_NACIONAL_PRESIDENTE_2022_*v.csv
 
+# Raw external data — not tracked in git (third-party/government sources)
+# See docs/data/ for download instructions
+data/2022-polls/encuestas_2022.csv
+data/2022-polls/consultas.csv
+data/2022-polls/as_coa/round1.csv
+data/2022-polls/as_coa/round1_raw.json
+data/2022-polls/as_coa/runoff.csv
+data/2022-polls/as_coa/runoff_raw.json
+data/2022-polls/as_coa/transfer_matrix.csv
+data/2022-presidential-results/*.csv
+data/2022-presidential-results/*.pdf
+data/2022-presidential-results/*.csv.gz
+data/moe_censo_electoral/*.csv
+data/sabaneta/*.csv
+
 # Raw API downloads — not tracked in git
 data/raw/*
 !data/raw/cedae/
 data/raw/cedae/*.csv
+data/raw/cedae/*.csv.gz
 
 # CNPV 2018 microdata files (re-download via `make download-cnpv`)
 data/cnpv-2018/raw/
@@ -56,3 +77,4 @@ data/conflict/
 data/digital_signals/
 
 graphify-out/
+.opencode/node_modules/
