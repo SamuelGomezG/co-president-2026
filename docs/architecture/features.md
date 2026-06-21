@@ -229,23 +229,25 @@ Used by `aggregation.py` for weighted-average baseline (non-Bayesian).
 
 ## 7. Data Sources Summary
 
-| Source | Files | Ingestion Module | Provides |
-|---|---|---|---|
-| Encuestas 2022 | `encuestas_2022.csv` | `data_polls.py` | 46 national polls, 27 columns |
-| Consultas | `consultas.csv` | `data_polls.py` | 65 coalition internal polls |
-| Google Trends | (live fetch) | `ingest_trends.py` | Per-candidate prop_fav |
-| AS/COA | `as_coa/round1.csv`, `runoff.csv` | `data_polls.py` | 3rd-party aggregate tracker |
-| DIVIPOLA | `divipola_master.csv` | `ingest_divipola.py` | Municipality codes, names, dept, region |
-| CNPV 2018 | `cnpv_2018.csv` | `ingest_cnpv.py` | Demographics (age, ethnicity, education, internet, housing) |
-| NBI 2018 | `nbi_2018.csv` | `ingest_nbi.py` | Poverty rates (total, urban, rural) |
-| IPM | `ipm_2018.csv` | `ingest_ipm.py` | Multidimensional Poverty Index |
-| DANE Population | `population_2018_2026.csv` | `ingest_population.py` | Population projections 2018-2026 |
-| Historical (CEDAE) | `historical_results.csv` | `ingest_historical.py` | Per-municipality election results 2002-2022 |
-| MOE Risk | `risk_factors.csv` | `ingest_risk.py` | Electoral risk, PDET, armed groups, coca |
-| Fiscal (TerriData) | `fiscal.csv` | `ingest_fiscal.py` | Fiscal autonomy indicators |
-| Registraduría MMV | `MMV_NACIONAL_PRESIDENTE_2022_1v.csv`, `_2v.csv` | `data_results.py` | Official R1/R2 vote counts |
-| MOE results | `moe_vuelta1.csv`, `moe_vuelta2.csv` | `data_results.py` | Validation source for election results |
-| Participation | `reg_participacion_vuelta1.csv`, `_2.csv` | `data_results.py` | Registered voters, polling stations |
+| Source | Files | Ingestion Module | Provides | Data Report |
+|--------|-------|-----------------|---------|-------------|
+| Encuestas 2022 | `encuestas_2022.csv` | `data_polls.py` | 46 national polls, 27 columns | `docs/data/polls.md` |
+| Consultas | `consultas.csv` | `data_polls.py` | 65 coalition internal polls | `docs/data/polls.md` |
+| Google Trends | (live fetch) | `ingest_trends.py` | Per-candidate prop_fav | `docs/data/digital-signals.md` |
+| AS/COA | `as_coa/round1.csv`, `runoff.csv` | `data_polls.py` | 3rd-party aggregate tracker | `docs/data/polls.md` |
+| 2026 CNE polls | 23 ZIP bundles | `data_cne_2026.py` (planned) | Respondent-level microdata | `docs/data/polls.md` |
+| La Silla Vacía | `silla_vacia_ponderador/*.csv` | (cross-validation) | Pollster weights, ponderación | `docs/data/polls.md` |
+| DIVIPOLA | `divipola_master.csv` | `ingest_divipola.py` | Municipality codes, names, dept, region | `docs/data/geographic-reference.md` |
+| CNPV 2018 | `cnpv_2018.csv` | `ingest_cnpv.py` | Demographics (age, ethnicity, education, internet, housing) | `docs/data/census-demographics.md` |
+| NBI 2018 | `nbi_2018.csv` | `ingest_nbi.py` | Poverty rates (total, urban, rural) | `docs/data/census-demographics.md` |
+| IPM | `ipm_2018.csv` | `ingest_ipm.py` | Multidimensional Poverty Index | `docs/data/census-demographics.md` |
+| DANE Population | `population_2018_2026.csv` | `ingest_population.py` | Population projections 2018-2026 | `docs/data/census-demographics.md` |
+| Historical (CEDAE) | `historical_results.csv` | `ingest_historical.py` | Per-muni election results 2002-2022 | `docs/data/historical-results.md` |
+| MOE Risk | `risk_factors.csv` | `ingest_risk.py` | Electoral risk, PDET, armed groups, coca | `docs/data/risk-and-conflict.md` |
+| Fiscal (TerriData) | `fiscal.csv` | `ingest_fiscal.py` | Fiscal autonomy indicators | `docs/data/census-demographics.md` |
+| Registraduría MMV | `MMV_NACIONAL_PRESIDENTE_2022_*.csv` | `data_results.py` | Official R1/R2 vote counts | `docs/data/election-results.md` |
+| MOE results | `moe_vuelta1.csv`, `moe_vuelta2.csv` | `data_results.py` | Validation source for results | `docs/data/election-results.md` |
+| Participation | `reg_participacion_vuelta1.csv`, `_2.csv` | `data_results.py` | Registered voters, polling stations | `docs/data/election-results.md` |
 
 ---
 
@@ -265,7 +267,9 @@ Used by `aggregation.py` for weighted-average baseline (non-Bayesian).
 | `house_effects` | (P, K) | Zero-sum constrained house effects |
 | `p_elec` | (K,) | Election-day vote share probabilities |
 | `phi_digital_base` | scalar | Digital signal concentration (Gamma) |
-| `theta_r_*` | (K-1,) | Reverse-time random walk states at each time point |
+| `theta_0` | (K-1,) | Prior at oldest time point (free parameters, A=0 reference) |
+| `rw_raw` | (T-1, K-1) | Non-centered RW innovations (Standard Normal) |
+| `drift` | (K-1,) | RW drift for trend extrapolation (Normal, mu=0, sigma=0.02) |
 
 ### 8.2 Runoff model (`model_runoff_simple.py`)
 
@@ -275,7 +279,9 @@ Used by `aggregation.py` for weighted-average baseline (non-Bayesian).
 | `sigma_house` | scalar | House effect spread |
 | `phi_poll` | scalar | Poll Dirichlet concentration |
 | `phi_poll_n` | (P, 1) | Sample-size-scaled concentration |
-| `theta_r_*` | (2,) | Reverse-time RW states (2 free dimensions, rest as reference) |
+| `theta_0` | (2,) | Prior at oldest time point (2 free dims, cand_A=0 reference) |
+| `rw_raw` | (T-1, 2) | Non-centered RW innovations |
+| `drift` | (2,) | RW drift for trend extrapolation |
 | `p_time` | (T, 3) | K=3 latent shares: cand_A, cand_B, rest_blanco |
 | `p_adj` | (P, 3) | Poll-adjusted probabilities |
 | `raw_house` | (P, 3) | Raw per-pollster-candidate effects |
