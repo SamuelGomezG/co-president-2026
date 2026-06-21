@@ -58,6 +58,17 @@ CANDIDATE_KEY_MAP_2026: dict[str, str] = {
     "Ninguno": "ns_nr",
     "No votaría en segunda vuelta": "ns_nr",
     "NsNr": "ns_nr",
+    # ---- La Silla Vacía 2026 candidate variants (SPEC-32) ----
+    "Luis Gilberto Murillo": "rest",
+    "Carlos Caicedo": "rest",
+    "Roy Barreras": "rest",
+    "Miguel Uribe Londoño": "rest",
+    "Santiago Botero": "rest",
+    "Mauricio Lizcano": "rest",
+    "Clara López": "rest",
+    "Sondra Macollins": "rest",
+    "Voto en Blanco": "blanco",
+    "No Sabe / No Responde": "ns_nr",
 }
 
 _CANONICAL_2026 = frozenset(FIRST_ROUND_CANDIDATES_2026.keys())
