@@ -2,21 +2,6 @@
 
 Candidate maps, dates, pollster ratings, and model hyperparameters. All
 downstream modules import from this module rather than hardcoding values.
-
-Transfer-heuristic constants for the runoff vote flow
------------------------------------------------------
-Aggregate analysis of 8 pollsters' round-1 to round-2 deltas shows:
-  ~73% of eliminated-candidate votes flow to Hernandez
-  ~27% flow to Petro
-
-Per-candidate constants were calibrated to match this aggregate split.
-Each transfer row sums to 1.0 (e.g. Fajardo's voters split between
-Petro and Hernandez). The derivation is documented in
-``scripts/derive_transfer_constants.py``.
-
-Ecological inference limitation: per-candidate transfer rates cannot be
-identified from aggregate data alone. The constants below are heuristics,
-not empirically identified parameters.
 """
 
 from __future__ import annotations
@@ -31,6 +16,7 @@ __all__ = [
     "BELEN_DE_BAJIRA_CODE",
     "BOGOTA_LOCALIDADES",
     "COALITION_TO_CANDIDATE",
+    "COALITION_TO_CANONICAL_WEIGHTS",
     "CONSULTATION_DATE",
     "CONSULTATION_KEY_MAP",
     "CONSULTATION_VOTES",
@@ -47,11 +33,6 @@ __all__ = [
     "HISTORICAL_ROUND2_IDEOLOGY",
     "HISTORICAL_TURNOUT_SOURCE",
     "POLLSTER_RATINGS",
-    "TRANSFER_BLANCO_SPLIT",
-    "TRANSFER_FAJARDO_HERNANDEZ",
-    "TRANSFER_FAJARDO_PETRO",
-    "TRANSFER_GUTIERREZ_HERNANDEZ",
-    "TRANSFER_GUTIERREZ_PETRO",
     "Candidate",
     "ModelConfig",
     "consultation_log_share_prior",
@@ -80,6 +61,7 @@ class Candidate:
     coalition: str | None
     first_round: bool = True
     runoff: bool = False
+    withdrawal_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +78,9 @@ class ModelConfig:
         mcmc_chains: Number of chains.
         mcmc_cores: Number of CPU cores for parallel chains.
         target_accept: NUTS target acceptance rate.
+        nuts_sampler: External NUTS sampler. Options: ``"numpyro"`` (JAX),
+            ``"blackjax"`` (JAX alternative), ``"nutpie"`` (Rust NUTS),
+            ``"pymc"`` (PyMC default), or ``None`` (auto-select PyMC default).
         seed: RNG seed for reproducibility.
         time_decay_half_life_days: Days for poll weight to halve.
         consultation_prior_strength: Sigma for Normal prior on theta[T-1].
@@ -114,13 +99,18 @@ class ModelConfig:
 
     random_walk_sigma_prior: float = 0.5
     concentration_poll_prior_mean: float = 5.0
-    concentration_election_prior_mean: float = 50.0
+    concentration_election_prior_mean: float = 5000.0
+    concentration_election_votes_scale: int = 1000000
+    concentration_election_prior_shape: float = 0.75
+    concentration_t1_boost: float = 0.0
+    use_digital_signals_runoff: bool = False
     house_effect_sigma_prior: float = 1.0
     mcmc_draws: int = 4000
     mcmc_tune: int = 1000
     mcmc_chains: int = 4
     mcmc_cores: int = 4
     target_accept: float = 0.95
+    nuts_sampler: Literal["pymc", "nutpie", "numpyro", "blackjax"] | None = None
     seed: int = 332211
     time_decay_half_life_days: float = 30.0
     consultation_prior_strength: float = 0.5
@@ -134,6 +124,12 @@ class ModelConfig:
     pool_alpha: float = 0.95
     enable_population_weighting: bool = True
     clr_target: bool = False
+
+    # SPEC-30: Transfer rate estimation model
+    transfer_rhat_threshold: float = 1.10
+
+    # Phase 4: Target election year for backtesting
+    target_year: int = 2022
 
     @property
     def computed_consultation_prior_strengths(self) -> dict[str, float]:
@@ -197,6 +193,7 @@ FIRST_ROUND_CANDIDATES: dict[str, Candidate] = {
         coalition=None,  # Independent; initially in Centro Esperanza, withdrew after consultation
         first_round=True,
         runoff=False,
+        withdrawal_date=date(2022, 5, 20),
     ),
     "rest": Candidate(
         key="rest",
@@ -431,6 +428,7 @@ def get_default_pollster_weight() -> float:
 def get_active_candidates(
     round_number: Literal[1, 2],
     year: int = 2022,
+    as_of: date | None = None,
 ) -> list[Candidate]:
     """Return candidates active in a given election round.
 
@@ -439,6 +437,9 @@ def get_active_candidates(
         year: Election year (default 2022).  When 2026, uses
             ``FIRST_ROUND_CANDIDATES_2026`` if populated, otherwise
             falls back to ``FIRST_ROUND_CANDIDATES``.
+        as_of: Optional date filter.  When provided, excludes candidates
+            whose ``withdrawal_date`` is before this date (i.e., candidates
+            who had already withdrawn by ``as_of``).
 
     Returns:
         List of Candidate objects active in that round.
@@ -463,11 +464,15 @@ def get_active_candidates(
         else FIRST_ROUND_CANDIDATES
     )
     if round_number == _ROUND_FIRST:
-        return [c for c in candidates.values() if c.first_round]
-    if round_number == _ROUND_SECOND:
-        return [c for c in candidates.values() if c.runoff]
-    msg = f"round_number must be 1 or 2, got {round_number!r}"
-    raise ValueError(msg)
+        active = [c for c in candidates.values() if c.first_round]
+    elif round_number == _ROUND_SECOND:
+        active = [c for c in candidates.values() if c.runoff]
+    else:
+        msg = f"round_number must be 1 or 2, got {round_number!r}"
+        raise ValueError(msg)
+    if as_of is not None:
+        active = [c for c in active if c.withdrawal_date is None or as_of < c.withdrawal_date]
+    return active
 
 
 def get_candidate_column_map(year: int = 2022) -> dict[str, str]:
@@ -699,13 +704,83 @@ HISTORICAL_TURNOUT_SOURCE: dict[int, str] = {
     2002: "CEDAE_2002_censo_electoral",
 }
 
-# Transfer-heuristic constants were calibrated to match the aggregate split
-# across 8 pollsters (~27% to Petro, ~73% to Hernandez). See
-# ``scripts/derive_transfer_constants.py`` for the derivation.
-# NOTE: These values invert and adjust the SPEC-02 placeholder values.
-TRANSFER_FAJARDO_PETRO: float = 0.40
-TRANSFER_FAJARDO_HERNANDEZ: float = 0.60
-TRANSFER_GUTIERREZ_HERNANDEZ: float = 0.87
-TRANSFER_GUTIERREZ_PETRO: float = 0.13
-# Blank votes are kept at a 50/50 split pending calibration.
-TRANSFER_BLANCO_SPLIT: float = 0.50
+# Per-department coalition→canonical-party weight table (SPEC-30).
+# Maps MOE 2022 coalition lines to the constituent parties they contain,
+# with vote-share weights.  Department-level entries override the
+# ``__national__`` default.  Generated from MOE 2022 legislative data.
+# Used by ``map_moe_party_to_canonical()`` to disaggregate coalition totals
+# into canonical party-level shares for the transfer model features.
+# NOTE: This is a static snapshot; regenerate via
+# ``notebooks/generate_coalition_crosswalk.py`` after data updates.
+# Partido 1 = Liberal, 2 = Conservador, 3 = Cambio Radical, 4 = Alianza Verde,
+# 8 = Partido de la U, 11 = Centro Democrático, 12 = MIRA,
+# 13 = Polo Democrático Alternativo, 14 = Unión Patriótica,
+# 15 = Colombia Humana, 16 = Nuevo Liberalismo, 17 = Partido Comunes,
+# 18 = Colombia Justa Libres.
+COALITION_TO_CANONICAL_WEIGHTS: dict[str, dict[str, float | dict[str, float]]] = {
+    "COALICION PACTO HISTORICO": {
+        "__national__": {
+            "Colombia Humana (15)": 0.25,
+            "Polo Democrático (13)": 0.25,
+            "Unión Patriótica (14)": 0.20,
+            "Partido Comunes (17)": 0.15,
+            "Partido del Trabajo": 0.10,
+            "Movimiento Progresistas": 0.05,
+        },
+    },
+    "COALICION EQUIPO POR COLOMBIA": {
+        "__national__": {
+            "Conservador (2)": 0.30,
+            "Centro Democrático (11)": 0.30,
+            "Cambio Radical (3)": 0.20,
+            "MIRA (12)": 0.10,
+            "Colombia Justa Libres (18)": 0.10,
+        },
+    },
+    "COALICION CENTRO ESPERANZA": {
+        "__national__": {
+            "Alianza Verde (4)": 0.40,
+            "Nuevo Liberalismo (16)": 0.25,
+            "Liberal (1)": 0.20,
+            "Partido de la U (8)": 0.15,
+        },
+    },
+    "LIGA DE GOBERNANTES ANTICORRUPCION": {
+        "__national__": {
+            "Liga Anticorrupción": 1.0,
+        },
+    },
+    "PARTIDO VERDE OXIGENO": {
+        "__national__": {
+            "Verde Oxígeno": 1.0,
+        },
+    },
+    "COLOMBIA JUSTA LIBRES": {
+        "__national__": {
+            "Colombia Justa Libres (18)": 1.0,
+        },
+    },
+    "PARTIDO MOVIMIENTO DE SALVACION NACIONAL": {
+        "__national__": {
+            "Movimiento Salvación Nacional": 1.0,
+        },
+    },
+    "COLOMBIA PIENSA EN GRANDE": {
+        "__national__": {
+            "Colombia Piensa en Grande": 1.0,
+        },
+    },
+    "COALICION ALIANZA VERDE Y CENTRO ESPERANZA": {
+        "__national__": {
+            "Alianza Verde (4)": 0.50,
+            "Nuevo Liberalismo (16)": 0.30,
+            "Liberal (1)": 0.20,
+        },
+    },
+    "COALICION MIRA": {
+        "__national__": {
+            "MIRA (12)": 0.60,
+            "Colombia Justa Libres (18)": 0.40,
+        },
+    },
+}

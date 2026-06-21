@@ -11,44 +11,162 @@ import arviz as az  # type: ignore[reportMissingTypeStubs]
 import numpy as np
 import pandas as pd
 import pymc as pm  # type: ignore[reportMissingTypeStubs]
+import pytensor.tensor as pt
 
 from co_president.config import (
     CONSULTATION_VOTES,
     ELECTION_DATE_ROUND1,
-    ELECTION_DATES,
     FIRST_ROUND_CANDIDATES,
+    ModelConfig,
     consultation_log_share_prior,
 )
+from co_president.data_polls import merge_digital_signals
 from co_president.fundamentals.compositional import (
     _apply_zero_floor,  # type: ignore[reportPrivateUsage]
+)
+from co_president.model_municipal import (
+    build_municipal_model,
+    sample_municipal_model,
 )
 
 if TYPE_CHECKING:
     from xarray import DataTree
 
-    from co_president.config import ModelConfig
     from co_president.data import RoundResult
 
 logger = logging.getLogger(__name__)
 
+# Threshold above which concentration_election_prior_mean is treated as a
+# fixed constant instead of a learned Gamma parameter.  Values > 100,000
+# indicate the user wants to turn off the Gamma and fix phi_elec.
+_PHI_ELEC_FIXED_THRESHOLD = 0
+
+# Digital signal Beta decay peaks at T-1 (day before election) per SciELO 2023.
+# Formula: exp(-abs(days_from_elec - 1.0) / 3.0).  T-1=1.0 (peak), T-0=0.72,
+# T-7=0.135.  SciELO: T-1 has 1.86pp error, election day 6.56pp (bots distort).
+_DIGITAL_SIGNAL_DECAY_DAYS = 3.0
+
 __all__ = [
     "CandidateForecast",
     "Round1Forecast",
-    "build_multi_election_model",
     "build_round1_model",
     "forecast_round1",
     "predict_year",
     "sample_round1",
-    "simulate_elections",
 ]
 
 
-def build_round1_model(  # noqa: C901, PLR0912, PLR0915
+def _extract_municipal_prior(
+    features: pd.DataFrame,
+    config: ModelConfig,
+    candidate_keys: list[str],
+    target_year: int = 2022,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract municipal model posterior mean and std as structural prior.
+
+    Trains the municipal hierarchical model (SPEC-22) on the full feature
+    matrix in prior-only mode (no poll likelihood), then computes the
+    turnout-weighted national vote share posterior for each candidate.
+    Returns the CLR-space posterior mean and standard deviation for use
+    as a Normal prior on the first time-point theta.
+
+    Args:
+        features: Municipal feature matrix (M rows x F columns).
+        config: Model hyperparameters.
+        candidate_keys: Active candidate column names.
+        target_year: Historical election year for CLR left share.
+
+    Returns:
+        (mu_logit, sigma_logit): Arrays shape (K,) where K = len(candidate_keys).
+        mu_logit[k] is the CLR-scale posterior mean for candidate k.
+        sigma_logit[k] is the CLR-scale posterior std for candidate k.
+
+    Raises:
+        ValueError: If features is empty or missing required columns.
+
+    """
+    _eps = 1e-10
+
+    polls = pd.DataFrame(
+        columns=[*candidate_keys, "fecha", "encuestadora", "muestra"],
+    )
+
+    model = build_municipal_model(
+        features,
+        polls,
+        results=None,
+        config=config,
+        target_year=target_year,
+        prior_only=True,
+    )
+
+    muni_draws = max(config.mcmc_draws // 4, 200)
+    muni_config = ModelConfig(
+        mcmc_draws=muni_draws,
+        mcmc_tune=500,
+        mcmc_chains=config.mcmc_chains,
+        mcmc_cores=min(config.mcmc_cores, 2),
+        target_accept=0.9,
+        seed=config.seed,
+        nuts_sampler=config.nuts_sampler,
+    )
+    idata = sample_municipal_model(model, muni_config)
+
+    p_natl = idata.posterior["p_natl"].to_numpy()  # (chain, draw, K)
+    log_p = np.log(p_natl + _eps)
+    log_mean = np.mean(log_p, axis=-1, keepdims=True)
+    clr_p = log_p - log_mean  # (chain, draw, K)
+
+    mu_logit = np.asarray(clr_p.mean(axis=(0, 1)))
+    sigma_logit = np.asarray(clr_p.std(axis=(0, 1)))
+    return mu_logit, sigma_logit
+
+
+def _compute_national_internet_rate(
+    features: pd.DataFrame,
+    *,
+    alpha: float = 0.3,
+) -> float:
+    """Compute internet-penetration-adjusted digital signal weight.
+
+    Uses soft deflation: weight = 1 - alpha*(1 - rate).
+    alpha=0 gives no adjustment (SciELO approach).  alpha=1 gives full
+    deflation by penetration.  alpha=0.3 gives gentle correction: at
+    rate=0.36 the weight is 0.808 (2.2x stronger than full deflation).
+
+    Args:
+        features: Municipal feature matrix with ``internet_access_rate`` and
+            ``pop_2022`` columns.
+        alpha: Soft-deflation parameter in [0, 1].
+
+    Returns:
+        Float in [0, 1] representing the adjusted digital signal weight.
+
+    Raises:
+        ValueError: If features is empty or missing required columns.
+
+    """
+    required = {"internet_access_rate", "pop_2022"}
+    missing = required - set(features.columns)
+    if missing:
+        msg = f"features missing columns for internet rate: {sorted(missing)}"
+        raise ValueError(msg)
+    pop = features["pop_2022"].fillna(0).to_numpy()
+    rate = features["internet_access_rate"].fillna(0.0).to_numpy()
+    if pop.sum() == 0:
+        return 0.0
+    national_rate = float(np.average(rate, weights=pop))
+    return float(1.0 - alpha * (1.0 - national_rate))
+
+
+def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     polls: pd.DataFrame,
     results: RoundResult | None,
     config: ModelConfig,
     *,
     no_house_effects: bool = False,
+    features: pd.DataFrame | None = None,
+    digital_signals: pd.DataFrame,
 ) -> pm.Model:
     """Build the PyMC model graph for the first round.
 
@@ -65,6 +183,13 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
         no_house_effects: If True, build a simplified model without house
             effects and with a fixed concentration parameter. Defaults to
             False.
+        features: Optional municipal feature matrix. When provided, the
+            first time-point theta gets a structural prior from the
+            municipal hierarchical model instead of the flat consultation
+            prior.
+        digital_signals: DataFrame with ``fecha`` and per-candidate
+            columns containing digital signal values (e.g., Google Trends).
+            When provided, a separate Beta observation layer is added.
 
     Returns:
         pm.Model: Constructed PyMC model.
@@ -74,7 +199,7 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
 
     Examples:
         >>> config = ModelConfig()
-        >>> model = build_round1_model(polls, None, config)
+        >>> model = build_round1_model(polls, None, config, digital_signals=pd.DataFrame())
 
     """
     # Make a working copy to avoid mutating the input
@@ -117,19 +242,15 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
     # Observed poll counts from percentage shares.
     # The DirichletMultinomial trial count is the raw sample size (SPEC-06 §9.1),
     # not the sum of rounded per-candidate counts.
-    sample_sizes = polls["muestra"].to_numpy().astype(int)
-    observed_counts = np.round(
-        polls[candidate_keys].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
+    sample_sizes: np.ndarray = polls["muestra"].to_numpy().astype(int)
+    raw_probs: np.ndarray = polls[candidate_keys].to_numpy() / 100.0
+    raw_probs = raw_probs / raw_probs.sum(axis=1, keepdims=True)
+    observed_counts: np.ndarray = np.round(
+        raw_probs * sample_sizes[:, np.newaxis],
     ).astype(int)
 
-    # Adjust discrepancy so each row sums to its sample size
-    # (DirichletMultinomial requires observed.sum(axis=1) == n).
-    # Discrepancy arises from (a) rounding after multiplying percentages by
-    # sample sizes, or (b) unmodeled candidate categories missing from the
-    # DataFrame columns.  In either case the largest per-row count absorbs
-    # the difference to preserve the trial-count semantics of SPEC-06 §9.1.
-    row_sums = observed_counts.sum(axis=1)
-    diff = sample_sizes - row_sums
+    row_sums: np.ndarray = observed_counts.sum(axis=1)
+    diff: np.ndarray = sample_sizes - row_sums
     if not np.all(diff == 0):
         n_candidates = len(candidate_keys)
         if np.any(np.abs(diff) > n_candidates):
@@ -178,32 +299,61 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
         dtype=float,
     )
 
+    # Municipal structural prior: extract OUTSIDE the pm.Model() context
+    # to prevent municipal RVs from leaking into the round 1 trace.
+    if features is not None and len(features) > 0:
+        logger.info(
+            "Extracting municipal prior from %d municipalities...",
+            len(features),
+        )
+        theta_mu, theta_sigma = _extract_municipal_prior(
+            features,
+            config,
+            candidate_keys,
+        )
+    else:
+        theta_mu = prior_mean
+        theta_sigma = config.consultation_prior_strength
+
+    # Override blanco prior: shrink toward historical blank vote rate (~2.5%)
+    # instead of the poll-implied ~10.6%, which is systematically inflated in
+    # Colombian polls relative to actual blank voting.
+    _r1_historical_blanco = 0.020
+    if "blanco" in candidate_keys:
+        _b_idx = candidate_keys.index("blanco")
+        theta_mu[_b_idx] = np.log(_r1_historical_blanco)
+        if isinstance(theta_sigma, float | int):
+            theta_sigma = np.full(len(candidate_keys), float(theta_sigma))
+        else:
+            theta_sigma = theta_sigma.copy()
+        theta_sigma[_b_idx] = 0.3
+
     with pm.Model() as model:  # type: ignore
         sigma_rw = pm.HalfNormal(  # type: ignore
             "sigma_rw",
             sigma=config.random_walk_sigma_prior,
         )
 
-        # Reverse-time random walk
-        theta_rev: list = []  # type: ignore[reportMissingTypeArgument]
-        for t_idx in range(n_time_points - 1, -1, -1):
-            if t_idx == n_time_points - 1:
-                theta_t = pm.Normal(  # type: ignore
-                    f"theta_{t_idx}",
-                    mu=prior_mean,
-                    sigma=config.consultation_prior_strength,
-                    shape=n_candidates,
-                )
-            else:
-                theta_t = pm.Normal(  # type: ignore
-                    f"theta_{t_idx}",
-                    mu=theta_rev[-1],  # type: ignore
-                    sigma=sigma_rw,
-                    shape=n_candidates,
-                )
-            theta_rev.append(theta_t)  # type: ignore
-
-        theta_stacked = pm.math.stack(list(reversed(theta_rev)), axis=0)  # type: ignore
+        # Non-centered random walk: breaks posterior correlation between
+        # adjacent theta_t, enabling fast NUTS mixing (R-hat < 1.01).
+        theta_0 = pm.Normal(  # type: ignore
+            "theta_0",
+            mu=theta_mu,
+            sigma=theta_sigma,
+            shape=n_candidates,
+        )
+        rw_raw = pm.Normal(  # type: ignore
+            "rw_raw",
+            mu=0,
+            sigma=1,
+            shape=(n_time_points - 1, n_candidates),
+        )
+        theta_increments = sigma_rw * rw_raw  # type: ignore[reportUnknownVariableType]
+        theta_cumulative = pt.cumsum(theta_increments, axis=0)  # type: ignore[reportUnknownVariableType]
+        theta_rest = theta_0[None, :] + theta_cumulative  # type: ignore[reportUnknownVariableType]
+        theta_stacked = pt.concatenate(  # type: ignore[reportUnknownVariableType]
+            [theta_0[None, :], theta_rest], axis=0
+        )
 
         if not no_house_effects:
             sigma_house = pm.HalfNormal(  # type: ignore
@@ -268,12 +418,6 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
                 "p_elec",
                 pm.math.softmax(theta_stacked[0], axis=-1),  # type: ignore
             )
-            phi_elec = pm.Gamma(  # type: ignore
-                "phi_elec",
-                alpha=5,
-                beta=5.0 / config.concentration_election_prior_mean,
-            )
-            alpha_elec = p_elec * phi_elec  # type: ignore
 
             vote_dict = {c.candidate_key: c.votes for c in results.candidates}
             election_counts = np.array(
@@ -281,37 +425,108 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0915
                 dtype=int,
             )
 
-            pm.DirichletMultinomial(  # type: ignore
-                "election_likelihood",
-                n=election_counts.sum(),
-                a=alpha_elec,
-                observed=election_counts,
-            )
+            if config.concentration_election_prior_mean > _PHI_ELEC_FIXED_THRESHOLD:
+                phi_elec = config.concentration_election_prior_mean  # type: ignore[assignment]
+                alpha_elec = p_elec * phi_elec  # type: ignore[operator]
+
+                pm.DirichletMultinomial(  # type: ignore[reportUnknownMemberType]
+                    "election_likelihood",
+                    n=election_counts.sum(),
+                    a=alpha_elec,  # type: ignore[reportUnknownArgumentType]
+                    observed=election_counts,
+                )
+            else:
+                phi_elec = pm.Gamma(  # type: ignore
+                    "phi_elec",
+                    alpha=config.concentration_election_prior_shape,
+                    beta=config.concentration_election_prior_shape
+                    / config.concentration_election_prior_mean,
+                )
+                alpha_elec = p_elec * phi_elec  # type: ignore
+
+                total_votes_scaled = int(config.concentration_election_votes_scale)
+                election_counts_sum = int(election_counts.sum())
+                observed_scaled = np.round(
+                    election_counts.astype(float) / election_counts_sum * total_votes_scaled,
+                ).astype(int)
+                n_scaled = int(observed_scaled.sum())
+
+                pm.DirichletMultinomial(  # type: ignore
+                    "election_likelihood",
+                    n=n_scaled,
+                    a=alpha_elec,
+                    observed=observed_scaled,
+                )
+
+        # Digital signal Beta observation layer
+        if not digital_signals.empty:
+            _ds_cols = [c for c in candidate_keys if c in digital_signals.columns]
+            if _ds_cols:
+                ds_merged = merge_digital_signals(polls, digital_signals, candidate_keys)
+                if ds_merged.empty:
+                    msg = (
+                        "merge_digital_signals returned empty DataFrame. "
+                        "Time indices misaligned between polls and digital signals."
+                    )
+                    raise ValueError(msg)
+                ds_time_indices = ds_merged["days_before"].map(day_to_idx).to_numpy(dtype=int)
+                ds_values = np.clip(  # type: ignore[assignment]
+                    ds_merged[_ds_cols].to_numpy(dtype=float),
+                    1e-10,
+                    1 - 1e-10,
+                )
+                ds_candidate_indices = [candidate_keys.index(c) for c in _ds_cols]
+
+                _internet_rate = 1.0
+                if features is not None and not features.empty:
+                    _internet_rate = _compute_national_internet_rate(features)
+
+                phi_digital_base = pm.Gamma(  # type: ignore[reportUnknownMemberType]
+                    "phi_digital_base",
+                    alpha=5.0,
+                    beta=5.0 / 100.0,
+                )
+
+                days_from_elec = ds_merged["days_before"].to_numpy(dtype=float)
+                _decay = pm.math.exp(  # type: ignore[reportUnknownMemberType]
+                    -pm.math.abs(days_from_elec - 1.0) / _DIGITAL_SIGNAL_DECAY_DAYS,  # type: ignore[reportUnknownArgumentType]
+                )
+                phi_digital_t = phi_digital_base * _decay * _internet_rate  # type: ignore[reportUnknownVariableType]
+
+                _p_time = model["p_time"]  # type: ignore[reportUnknownVariableType]
+                for _j, _c_idx in enumerate(ds_candidate_indices):
+                    _p_c = _p_time[ds_time_indices, _c_idx]  # type: ignore[reportIndexIssue,reportUnknownVariableType]
+                    _p_c_safe = pm.math.clip(_p_c, 1e-10, 1 - 1e-10)  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+
+                    _alpha_beta = _p_c_safe * phi_digital_t  # type: ignore[reportUnknownVariableType]
+                    _beta_beta = (1.0 - _p_c_safe) * phi_digital_t  # type: ignore[reportUnknownVariableType]
+
+                    pm.Beta(  # type: ignore[reportUnknownMemberType]
+                        f"ds_{candidate_keys[_c_idx]}",
+                        alpha=pm.math.maximum(_alpha_beta, 1e-10),  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                        beta=pm.math.maximum(_beta_beta, 1e-10),  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                        observed=ds_values[:, _j],
+                    )
 
     return model
 
 
 def sample_round1(model: pm.Model, config: ModelConfig) -> DataTree:
-    """Sample posterior draws from a built first-round model via NUTS.
-
-    Runs MCMC sampling with the hyperparameters specified in *config*.
+    """Sample posterior draws from a built round 1 model via NUTS.
 
     Args:
         model: A built ``pm.Model`` from :func:`build_round1_model`.
         config: Model hyperparameters (draws, tune, chains, etc.).
 
-    Raises:
-        ValueError: If ``sample_round1`` receives invalid sampling inputs and
-            PyMC's NUTS/MCMC sampler rejects them.
-        RuntimeError: If ``sample_round1`` fails during NUTS/MCMC sampling
-            initialization or execution.
-
     Returns:
-        DataTree: Posterior and sampling stats only. Posterior
-        predictive samples require ``pm.sample_posterior_predictive``.
+        DataTree: Posterior and sampling stats.
+
+    Raises:
+        RuntimeError: If NUTS sampling fails to initialise or diverges.
 
     Examples:
-        >>> model = build_round1_model(polls, None, ModelConfig())
+        >>> model = build_round1_model(polls, results, ModelConfig(),
+        ...     digital_signals=pd.DataFrame())
         >>> idata = sample_round1(model, ModelConfig(mcmc_draws=200, mcmc_tune=100))
 
     """
@@ -322,26 +537,105 @@ def sample_round1(model: pm.Model, config: ModelConfig) -> DataTree:
             chains=config.mcmc_chains,
             cores=config.mcmc_cores,
             target_accept=config.target_accept,
+            init="adapt_diag",  # horseshoe → diagonal-dominant; adapt_full O(N³)
+            max_treedepth=12,
             random_seed=config.seed,
+            nuts_sampler=config.nuts_sampler,
+            mp_ctx="spawn",
         )
+
+
+def forecast_round1(
+    idata: DataTree,
+    candidate_keys: list[str],
+) -> Round1Forecast:
+    """Compute first-round forecast from posterior samples.
+
+    Extracts election-day ``p_time`` from a single-election posterior and
+    computes mean, median, credible intervals, and ranking-based probabilities.
+
+    Args:
+        idata: Posterior from :func:`sample_round1`.
+        candidate_keys: Ordered list of candidate keys (must match the model's
+            candidate column order).
+
+    Returns:
+        Round1Forecast for the election.
+
+    Raises:
+        ValueError: If ``p_time`` is missing or has wrong dimensions.
+
+    Examples:
+        >>> model = build_round1_model(polls, results, ModelConfig(),
+        ...     digital_signals=pd.DataFrame())
+        >>> idata = sample_round1(model, ModelConfig())
+        >>> forecast = forecast_round1(idata, sorted(FIRST_ROUND_CANDIDATES.keys()))
+
+    """
+    if "p_time" not in idata.posterior:
+        msg = (
+            f"Posterior does not contain 'p_time'.  Available variables: "
+            f"{list(idata.posterior.data_vars)}"
+        )
+        raise ValueError(msg)
+
+    p_time = idata.posterior["p_time"]
+    ndim = p_time.ndim
+    if ndim != 4:  # noqa: PLR2004
+        msg = f"p_time must have 4 dimensions (chain, draw, time, candidate), got {ndim}"
+        raise ValueError(msg)
+    last_dim = p_time.shape[-1]
+    if last_dim != len(candidate_keys):
+        msg = (
+            f"p_time candidate dimension ({last_dim}) does not match "
+            f"candidates list length ({len(candidate_keys)})"
+        )
+        raise ValueError(msg)
+    n_candidates = len(candidate_keys)
+    if n_candidates < 2:  # noqa: PLR2004
+        msg = f"forecast_round1 requires at least 2 candidates, got {n_candidates}"
+        raise ValueError(msg)
+
+    election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
+    n_total = election_day.shape[0] * election_day.shape[1]
+    shares = election_day.to_numpy().reshape(n_total, n_candidates)
+
+    ranks = np.argsort(-shares, axis=1)
+    ci_50_all = az.hdi(shares, prob=0.5, axis=0)  # type: ignore
+    ci_95_all = az.hdi(shares, prob=0.95, axis=0)  # type: ignore
+
+    candidate_forecasts: list[CandidateForecast] = []
+    for i, key in enumerate(candidate_keys):
+        vals = shares[:, i]
+        ci_50 = (float(ci_50_all[i, 0]), float(ci_50_all[i, 1]))  # type: ignore
+        ci_95 = (float(ci_95_all[i, 0]), float(ci_95_all[i, 1]))  # type: ignore
+        candidate_forecasts.append(
+            CandidateForecast(
+                candidate_key=key,
+                mean_share=float(vals.mean()),
+                median_share=float(np.median(vals)),
+                ci_50=ci_50,
+                ci_95=ci_95,
+                prob_first=float((ranks[:, 0] == i).mean()),
+                prob_second=float((ranks[:, 1] == i).mean()),
+                prob_top_two=float(np.any(ranks[:, :2] == i, axis=1).mean()),
+                prob_win_outright=float((vals > 0.5).mean()),  # noqa: PLR2004
+            ),
+        )
+
+    no_outright = (~np.any(shares > 0.5, axis=1)).mean()  # noqa: PLR2004
+    prob_runoff = float(no_outright)
+
+    return Round1Forecast(
+        candidates=candidate_forecasts,
+        prob_runoff=prob_runoff,
+        round_number=1,
+    )
 
 
 @dataclass(frozen=True)
 class CandidateForecast:
-    """Forecast for a single candidate in the first round.
-
-    Attributes:
-        candidate_key: Candidate identifier key.
-        mean_share: Posterior mean vote share.
-        median_share: Posterior median vote share.
-        ci_50: 50% credible interval for the vote share.
-        ci_95: 95% credible interval for the vote share.
-        prob_first: Probability the candidate finishes first.
-        prob_second: Probability the candidate finishes second.
-        prob_top_two: Probability the candidate finishes in the top two.
-        prob_win_outright: Probability the candidate wins outright (>50%).
-
-    """
+    """Forecast for a single candidate in the first round."""
 
     candidate_key: str
     mean_share: float
@@ -356,77 +650,36 @@ class CandidateForecast:
 
 @dataclass(frozen=True)
 class Round1Forecast:
-    """Forecast for the full first-round election.
-
-    Attributes:
-        candidates: Per-candidate forecast objects.
-        prob_runoff: Probability of a runoff (no candidate wins outright).
-        round_number: Round identifier, always 1.
-
-    """
+    """Forecast for the full first-round election."""
 
     candidates: list[CandidateForecast]
     prob_runoff: float
     round_number: Literal[1] = 1
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the Round1Forecast to a plain dictionary.
-
-        Uses ``dataclasses.asdict`` to recursively convert all fields,
-        including nested ``CandidateForecast`` objects. CI tuples
-        (``ci_50``, ``ci_95``) become lists in the output dict.
-
-        Returns:
-            dict[str, Any]: Dictionary representation with str keys.
-
-        Examples:
-            >>> f = Round1Forecast(candidates=[], prob_runoff=0.5)
-            >>> d = f.to_dict()
-            >>> isinstance(d["candidates"], list)
-            True
-
-        """
+        """Serialize to dictionary."""
         return asdict(self)
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> Round1Forecast:
-        """Reconstruct a Round1Forecast from a dictionary.
-
-        Handles type-casting of CI fields (lists back to tuples,
-        ints back to floats). Recursively reconstructs nested
-        ``CandidateForecast`` objects.
-
-        Args:
-            d: Dictionary produced by ``to_dict()``.
-
-        Returns:
-            Round1Forecast: Reconstructed dataclass instance.
-
-        Raises:
-            ValueError: If the dict is missing required keys or has
-                malformed CI fields.
-
-        """
+        """Reconstruct from dictionary."""
         try:
-            candidates = []
-            for c in d["candidates"]:
-                ci_50: tuple[float, float] = tuple(c["ci_50"])
-                ci_95: tuple[float, float] = tuple(c["ci_95"])
-                candidates.append(  # type: ignore
-                    CandidateForecast(
-                        candidate_key=str(c["candidate_key"]),
-                        mean_share=float(c["mean_share"]),
-                        median_share=float(c["median_share"]),
-                        ci_50=ci_50,
-                        ci_95=ci_95,
-                        prob_first=float(c["prob_first"]),
-                        prob_second=float(c["prob_second"]),
-                        prob_top_two=float(c["prob_top_two"]),
-                        prob_win_outright=float(c["prob_win_outright"]),
-                    )
+            candidates = [
+                CandidateForecast(
+                    candidate_key=str(c["candidate_key"]),
+                    mean_share=float(c["mean_share"]),
+                    median_share=float(c["median_share"]),
+                    ci_50=tuple(c["ci_50"]),
+                    ci_95=tuple(c["ci_95"]),
+                    prob_first=float(c["prob_first"]),
+                    prob_second=float(c["prob_second"]),
+                    prob_top_two=float(c["prob_top_two"]),
+                    prob_win_outright=float(c["prob_win_outright"]),
                 )
+                for c in d["candidates"]
+            ]
             return Round1Forecast(
-                candidates=candidates,  # type: ignore
+                candidates=candidates,
                 prob_runoff=d["prob_runoff"],
                 round_number=d["round_number"],
             )
@@ -435,526 +688,13 @@ class Round1Forecast:
             raise ValueError(msg) from exc
 
     def to_json(self) -> str:
-        """Serialize the Round1Forecast to a JSON string.
-
-        Returns:
-            str: JSON-encoded string via ``json.dumps(self.to_dict())``.
-
-        """
+        """Serialize to JSON string."""
         return json.dumps(self.to_dict())
 
     @staticmethod
     def from_json(s: str) -> Round1Forecast:
-        """Deserialize a Round1Forecast from a JSON string.
-
-        Args:
-            s: JSON string produced by ``to_json()``.
-
-        Returns:
-            Round1Forecast: Reconstructed dataclass instance.
-
-        Raises:
-            json.JSONDecodeError: If the string is not valid JSON.
-            ValueError: If the JSON is valid but missing required keys or
-                has malformed CI fields.
-
-        """
+        """Deserialize from JSON string."""
         return Round1Forecast.from_dict(json.loads(s))
-
-
-def forecast_round1(
-    idata: DataTree,
-    candidates: list[str],
-) -> Round1Forecast:
-    """Compute first-round forecast from posterior samples.
-
-    Extracts election-day (time=0) vote share posteriors, computes mean,
-    median, credible intervals, and ranking-based probabilities for each
-    candidate.
-
-    Args:
-        idata: Posterior samples from :func:`build_round1_model`.
-        candidates: Ordered list of candidate keys (must match the model's
-            candidate column order).
-
-    Returns:
-        Round1Forecast with per-candidate forecasts.
-
-    Examples:
-        >>> from co_president.config import FIRST_ROUND_CANDIDATES, ModelConfig
-        >>> model = build_round1_model(polls, None, ModelConfig())
-        >>> idata = sample_round1(model, ModelConfig(mcmc_draws=200, mcmc_tune=100))
-        >>> candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
-        >>> forecast = forecast_round1(idata, candidate_keys)
-        >>> forecast.prob_runoff
-        0.99
-
-    """
-    p_time = idata.posterior["p_time"]  # (chain, draw, time, candidate)
-    ndim = p_time.ndim
-    if ndim != 4:  # noqa: PLR2004
-        msg = f"p_time must have 4 dimensions (chain, draw, time, candidate), got {ndim}"
-        raise ValueError(msg)
-    last_dim = p_time.shape[-1]
-    if last_dim != len(candidates):
-        msg = (
-            f"p_time candidate dimension ({last_dim}) does not match "
-            f"candidates list length ({len(candidates)})"
-        )
-        raise ValueError(msg)
-    n_candidates = len(candidates)
-    if n_candidates < 2:  # noqa: PLR2004
-        msg = f"forecast_round1 requires at least 2 candidates, got {n_candidates}"
-        raise ValueError(msg)
-
-    election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
-
-    n_total = election_day.shape[0] * election_day.shape[1]
-    shares = election_day.to_numpy().reshape(n_total, n_candidates)
-
-    # Compute ranks for probability calculations (n_candidates >= 2 guaranteed)
-    ranks = np.argsort(-shares, axis=1)
-
-    # Highest Density Intervals for all candidates at once
-    ci_50_all = az.hdi(shares, prob=0.5, axis=0)  # type: ignore
-    ci_95_all = az.hdi(shares, prob=0.95, axis=0)  # type: ignore
-
-    candidate_forecasts: list[CandidateForecast] = []
-    for i, key in enumerate(candidates):
-        vals = shares[:, i]
-
-        candidate_forecasts.append(
-            CandidateForecast(
-                candidate_key=key,
-                mean_share=float(vals.mean()),
-                median_share=float(np.median(vals)),
-                ci_50=(float(ci_50_all[i, 0]), float(ci_50_all[i, 1])),  # type: ignore
-                ci_95=(float(ci_95_all[i, 0]), float(ci_95_all[i, 1])),  # type: ignore
-                prob_first=float((ranks[:, 0] == i).mean()),
-                prob_second=float((ranks[:, 1] == i).mean()),
-                prob_top_two=float(np.any(ranks[:, :2] == i, axis=1).mean()),
-                prob_win_outright=float((vals > 0.5).mean()),  # noqa: PLR2004
-            )
-        )
-
-    no_outright = (~np.any(shares > 0.5, axis=1)).mean()  # noqa: PLR2004
-    prob_runoff = float(no_outright)
-
-    return Round1Forecast(
-        candidates=candidate_forecasts,
-        prob_runoff=prob_runoff,
-        round_number=1,
-    )
-
-
-def simulate_elections(
-    idata: DataTree,
-    candidates: list[str],
-    n_simulations: int = 10000,
-) -> pd.DataFrame:
-    """Simulate election outcomes from posterior draws.
-
-    Extracts election-day (time=0) vote share posterior samples and draws
-    ``n_simulations`` simulations with replacement. For each simulation,
-    computes per-candidate shares, ranks candidates, and determines whether
-    an outright winner exists (>50%) or a runoff is needed.
-
-    Args:
-        idata: Posterior samples, must contain ``p_time`` with shape
-            ``(chain, draw, time, candidate)``.
-        candidates: Ordered list of candidate keys matching the model's
-            candidate column order.
-        n_simulations: Number of simulations to draw. Defaults to 10,000.
-
-    Returns:
-        pd.DataFrame: Long-format DataFrame with columns:
-            - ``sim_id`` (int): Simulation index (0 to ``n_simulations - 1``).
-            - ``candidate`` (str): Candidate key.
-            - ``share`` (float): Vote share for this simulation.
-            - ``rank`` (int): Rank in this simulation (1 = highest share).
-            - ``win_outright`` (bool): Whether this candidate won outright
-              (>50%) in this simulation.
-            - ``goes_to_runoff`` (bool): Whether no candidate won outright
-              in this simulation (same value for all candidates in a sim).
-
-    Raises:
-        ValueError: If ``p_time`` does not have 4 dimensions or the
-            candidate dimension does not match ``len(candidates)``.
-
-    Examples:
-        >>> from co_president.config import FIRST_ROUND_CANDIDATES
-        >>> candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
-        >>> sims = simulate_elections(idata, candidate_keys, n_simulations=1000)
-        >>> sims.shape
-        (n_simulations * len(candidate_keys), 6)
-
-    """
-    p_time = idata.posterior["p_time"]  # (chain, draw, time, candidate)
-    ndim = p_time.ndim
-    if ndim != 4:  # noqa: PLR2004
-        msg = f"p_time must have 4 dimensions (chain, draw, time, candidate), got {ndim}"
-        raise ValueError(msg)
-    last_dim = p_time.shape[-1]
-    if last_dim != len(candidates):
-        msg = (
-            f"p_time candidate dimension ({last_dim}) does not match "
-            f"candidates list length ({len(candidates)})"
-        )
-        raise ValueError(msg)
-
-    election_day = p_time[:, :, 0, :]  # (chain, draw, candidate)
-    n_total = election_day.shape[0] * election_day.shape[1]
-    n_candidates = len(candidates)
-    shares = election_day.to_numpy().reshape(n_total, n_candidates)
-
-    rng = np.random.default_rng()
-    indices = rng.integers(0, n_total, size=n_simulations)
-    selected = shares[indices]  # (n_simulations, n_candidates)
-
-    rows: list[dict[str, int | str | float | bool]] = []
-    for sim_idx in range(n_simulations):
-        sim_shares = selected[sim_idx]
-        sorted_indices = np.argsort(-sim_shares)
-        ranks: np.ndarray = np.empty(len(sim_shares), dtype=int)
-        ranks[sorted_indices] = np.arange(1, len(sim_shares) + 1)
-        win_outright = sim_shares > 0.5  # noqa: PLR2004
-        goes_to_runoff = not bool(win_outright.any())
-        for cand_idx, key in enumerate(candidates):
-            rows.append(
-                {
-                    "sim_id": sim_idx,
-                    "candidate": key,
-                    "share": float(sim_shares[cand_idx]),
-                    "rank": int(ranks[cand_idx]),
-                    "win_outright": bool(win_outright[cand_idx]),
-                    "goes_to_runoff": goes_to_runoff,
-                }
-            )
-
-    return pd.DataFrame(rows)
-
-
-def _preprocess_year_polls(
-    year: int,
-    polls: pd.DataFrame,
-    results: RoundResult | None,
-) -> dict[str, Any]:
-    """Preprocess a single year's polls for multi-election model.
-
-    Handles datetime conversion, candidate column detection, NaN filtering,
-    time index construction, pollster index construction, observation count
-    calculation, and rounding adjustment.
-
-    Args:
-        year: Election year.
-        polls: Raw polls DataFrame for this year.
-        results: RoundResult for this year, or None.
-
-    Returns:
-        Dict of preprocessed data arrays and metadata for use in PyMC model.
-
-    """
-    polls = polls.copy()
-    if year not in ELECTION_DATES:
-        msg = f"Unsupported election year: {year}. Supported: {sorted(ELECTION_DATES)}"
-        raise ValueError(msg)
-    election_date = ELECTION_DATES[year]
-
-    if not pd.api.types.is_datetime64_any_dtype(polls["fecha"]):
-        polls["fecha"] = pd.to_datetime(polls["fecha"])
-
-    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
-    n_candidates = len(candidate_keys)
-    if n_candidates == 0:
-        msg = f"No candidate columns found in polls DataFrame for year {year}"
-        raise ValueError(msg)
-
-    nan_mask = polls[[*candidate_keys, "muestra"]].isna().any(axis=1)
-    if nan_mask.any():
-        polls = polls.loc[~nan_mask].copy()
-        if len(polls) == 0:
-            msg = f"All polls have NaN candidate shares for year {year}"
-            raise ValueError(msg)
-
-    polls["days_before"] = (pd.Timestamp(election_date) - polls["fecha"]).dt.days
-    unique_days = sorted(polls["days_before"].unique())
-    n_time_points = len(unique_days)
-    day_to_idx = {day: i for i, day in enumerate(unique_days)}
-    polls["time_idx"] = polls["days_before"].map(day_to_idx)
-
-    unique_pollsters = polls["encuestadora"].unique()
-    n_pollsters = len(unique_pollsters)
-    pollster_to_idx = {name: i for i, name in enumerate(unique_pollsters)}
-    polls["pollster_idx"] = polls["encuestadora"].map(pollster_to_idx)
-
-    sample_sizes = polls["muestra"].to_numpy().astype(int)
-    observed_counts = np.round(
-        polls[candidate_keys].to_numpy() / 100.0 * sample_sizes[:, np.newaxis],
-    ).astype(int)
-
-    row_sums = observed_counts.sum(axis=1)
-    diff = sample_sizes - row_sums
-    if not np.all(diff == 0):
-        if np.any(np.abs(diff) > n_candidates):
-            logger.warning(
-                "Year %d: rounding mismatch >%d votes in %d row(s); largest |diff| = %d.",
-                year,
-                n_candidates,
-                int((np.abs(diff) > n_candidates).sum()),
-                int(np.abs(diff).max()),
-            )
-        max_idx = np.argmax(observed_counts, axis=1)
-        observed_counts[np.arange(len(observed_counts)), max_idx] += diff
-
-    # Zero floor — replace 0 with 1, redistributing from largest columns
-    # to preserve row sum (avoids log(0) in Dirichlet-Multinomial).
-    _apply_zero_floor(observed_counts)
-
-    eps = 1e-8
-    mean_sample_size = sample_sizes.mean()
-    numerator = np.log(sample_sizes + 1 + eps)
-    denominator = np.log(mean_sample_size + 1 + eps)
-    sample_size_multiplier = np.maximum(
-        numerator / denominator,
-        eps,
-    )[:, np.newaxis]
-
-    return {
-        "candidate_keys": candidate_keys,
-        "n_candidates": n_candidates,
-        "n_time_points": n_time_points,
-        "n_pollsters": n_pollsters,
-        "time_indices": polls["time_idx"].to_numpy().astype(int),
-        "pollster_indices": polls["pollster_idx"].to_numpy().astype(int),
-        "sample_sizes": sample_sizes,
-        "observed_counts": observed_counts,
-        "sample_size_multiplier": sample_size_multiplier,
-        "result": results,
-        "eps": eps,
-    }
-
-
-def _build_year_election_components(  # type: ignore[reportUnusedFunction]
-    year: int,
-    yd: dict[str, Any],
-    shared: dict[str, Any],
-    config: ModelConfig,
-) -> None:
-    """Add per-election RVs, deterministics, and likelihoods to the model.
-
-    Creates reverse-time random walk (theta), p_time, house effects,
-    poll likelihood, and (when results available) election likelihood for
-    a single election year within the multi-election model.
-
-    Args:
-        year: Election year.
-        yd: Preprocessed year data from ``_preprocess_year_polls``.
-        shared: Dict with keys ``sigma_rw``, ``sigma_house``, ``phi_poll``
-            containing the shared PyMC tensor variables.
-        config: Model hyperparameters.
-
-    """
-    n_candidates = yd["n_candidates"]
-    n_time_points = yd["n_time_points"]
-    n_pollsters = yd["n_pollsters"]
-    eps = yd["eps"]
-    sigma_rw = shared["sigma_rw"]
-    sigma_house = shared.get("sigma_house")
-    phi_poll = shared.get("phi_poll")
-    no_house_effects = shared.get("no_house_effects", False)
-
-    # Reverse-time random walk (flat prior, no consultation prior for
-    # historical elections)
-    theta_rev: list[Any] = []
-    for t_idx in range(n_time_points - 1, -1, -1):
-        if t_idx == n_time_points - 1:
-            theta_t = pm.Normal(  # type: ignore
-                f"{year}_theta_{t_idx}",
-                mu=0,
-                sigma=config.consultation_prior_strength,
-                shape=n_candidates,
-            )
-        else:
-            theta_t = pm.Normal(  # type: ignore
-                f"{year}_theta_{t_idx}",
-                mu=theta_rev[-1],
-                sigma=sigma_rw,
-                shape=n_candidates,
-            )
-        theta_rev.append(theta_t)
-
-    theta_stacked = pm.math.stack(  # type: ignore
-        list(reversed(theta_rev)),
-        axis=0,
-    )
-
-    pm.Deterministic(  # type: ignore
-        f"{year}_p_time",
-        pm.math.softmax(theta_stacked, axis=-1),  # type: ignore
-    )
-
-    if not no_house_effects:
-        phi_poll_n = pm.Deterministic(  # type: ignore
-            f"{year}_phi_poll_n",
-            phi_poll * yd["sample_size_multiplier"],
-        )
-
-        raw_house = pm.Normal(  # type: ignore
-            f"{year}_raw_house",
-            mu=0,
-            sigma=sigma_house,
-            shape=(n_pollsters, n_candidates),
-        )
-        house_effects = pm.Deterministic(  # type: ignore
-            f"{year}_house_effects",
-            raw_house - raw_house.mean(axis=0, keepdims=True),  # type: ignore
-        )
-
-        theta_selected = theta_stacked[yd["time_indices"]]  # type: ignore
-        house_selected = house_effects[yd["pollster_indices"]]  # type: ignore
-        theta_adj = theta_selected + house_selected  # type: ignore
-
-        p_adj = pm.Deterministic(  # type: ignore
-            f"{year}_p_adj",
-            pm.math.softmax(theta_adj, axis=-1),  # type: ignore
-        )
-        alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
-    else:
-        theta_selected = theta_stacked[yd["time_indices"]]  # type: ignore
-        p_adj = pm.Deterministic(  # type: ignore
-            f"{year}_p_adj",
-            pm.math.softmax(theta_selected, axis=-1),  # type: ignore
-        )
-        phi_poll_fixed = float(config.concentration_poll_prior_mean)
-        alpha_poll = pm.math.maximum(  # type: ignore
-            p_adj * phi_poll_fixed * yd["sample_size_multiplier"],  # type: ignore
-            eps,
-        )
-
-    pm.DirichletMultinomial(  # type: ignore
-        f"{year}_poll_likelihood",
-        n=yd["sample_sizes"],
-        a=alpha_poll,
-        observed=yd["observed_counts"],
-    )
-
-    if yd["result"] is not None:
-        p_elec = pm.Deterministic(  # type: ignore
-            f"{year}_p_elec",
-            pm.math.softmax(theta_stacked[0], axis=-1),  # type: ignore
-        )
-        phi_elec = pm.Gamma(  # type: ignore
-            f"{year}_phi_elec",
-            alpha=5,
-            beta=5.0 / config.concentration_election_prior_mean,
-        )
-        alpha_elec = p_elec * phi_elec  # type: ignore
-
-        vote_dict = {c.candidate_key: c.votes for c in yd["result"].candidates}
-        election_counts = np.array(
-            [vote_dict.get(k, 0) for k in yd["candidate_keys"]],
-            dtype=int,
-        )
-
-        pm.DirichletMultinomial(  # type: ignore
-            f"{year}_election_likelihood",
-            n=election_counts.sum(),
-            a=alpha_elec,
-            observed=election_counts,
-        )
-
-
-def build_multi_election_model(
-    polls_by_year: dict[int, pd.DataFrame],
-    results_by_year: dict[int, RoundResult],
-    config: ModelConfig,
-    *,
-    no_house_effects: bool = False,
-) -> pm.Model:
-    """Build multi-election PyMC model with shared + election-specific parameters.
-
-    Constructs a single PyMC model that jointly trains on multiple election
-    years (SPEC-40).  Shared hyperparameters (sigma_rw, sigma_house, phi_poll)
-    are estimated across all years, while election-specific parameters (theta
-    per year, house effects per year, phi_elec per year) are estimated per
-    election.
-
-    Args:
-        polls_by_year: Dict mapping election year -> polls DataFrame for that
-            year.  Each DataFrame must include columns for each active
-            candidate's vote share (%), ``fecha`` (dates), ``encuestadora``
-            (pollster name), and ``muestra`` (sample size).
-        results_by_year: Dict mapping election year -> ``RoundResult`` for
-            that year.  May be empty for years without known results.
-        config: Model hyperparameters.
-        no_house_effects: If True, build a simplified model without house
-            effects and with a fixed concentration parameter.  Defaults to
-            False.
-
-    Returns:
-        pm.Model: Constructed PyMC model with multi-election structure.
-
-    Raises:
-        ValueError: If ``polls_by_year`` is empty or no valid candidate
-            columns are found for any year.
-
-    Examples:
-        >>> config = ModelConfig()
-        >>> polls_by_year = {2022: polls_2022, 2026: polls_2026}
-        >>> results_by_year = {2022: result_2022}
-        >>> model = build_multi_election_model(polls_by_year, results_by_year, config)
-
-    """
-    if not polls_by_year:
-        msg = "polls_by_year must contain at least one year"
-        raise ValueError(msg)
-
-    years = sorted(polls_by_year)
-
-    # Preprocess each year's data
-    year_data: dict[int, dict[str, Any]] = {}
-    for year in years:
-        year_data[year] = _preprocess_year_polls(
-            year,
-            polls_by_year[year],
-            results_by_year.get(year),
-        )
-
-    with pm.Model() as model:  # type: ignore
-        sigma_rw = pm.HalfNormal(  # type: ignore
-            "sigma_rw",
-            sigma=config.random_walk_sigma_prior,
-        )
-
-        if not no_house_effects:
-            sigma_house = pm.HalfNormal(  # type: ignore
-                "sigma_house",
-                sigma=config.house_effect_sigma_prior,
-            )
-            phi_poll = pm.Gamma(  # type: ignore
-                "phi_poll",
-                alpha=2,
-                beta=2.0 / config.concentration_poll_prior_mean,
-            )
-        else:
-            sigma_house = None
-            phi_poll = None
-
-        shared: dict[str, Any] = {
-            "sigma_rw": sigma_rw,
-            "sigma_house": sigma_house,
-            "phi_poll": phi_poll,
-            "no_house_effects": no_house_effects,
-        }
-        for year in years:
-            _build_year_election_components(
-                year,
-                year_data[year],
-                shared,
-                config,
-            )
-
-    return model
 
 
 def predict_year(

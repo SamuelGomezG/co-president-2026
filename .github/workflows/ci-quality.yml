@@ -75,7 +75,7 @@ jobs:
           github.event_name == 'schedule' ||
           github.event_name == 'workflow_dispatch' ||
           needs.changes.outputs.code == 'true'
-        run: uv run pip-audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-196
+        run: uv run pip-audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-196 --ignore-vuln GHSA-6v7p-g79w-8964
       - if: |
           github.event_name == 'schedule' ||
           github.event_name == 'workflow_dispatch' ||

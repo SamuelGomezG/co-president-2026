@@ -21,7 +21,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
-_PYTRENDS_RETRIES = 3
+_PYTRENDS_RETRIES = 10
 
 
 def _resolve_window(window: str) -> str:
@@ -55,7 +55,7 @@ def _resolve_window(window: str) -> str:
 
 @retry(
     stop=stop_after_attempt(_PYTRENDS_RETRIES),
-    wait=wait_exponential(multiplier=1, min=1, max=30),
+    wait=wait_exponential(multiplier=1, min=1, max=120),
 )
 def _fetch_pytrends(
     kw_list: list[str],

@@ -332,11 +332,34 @@ def calculate_risk_features(
 
     """
     combined = moe.copy()
+    combined["codigo_municipio"] = (
+        pd.to_numeric(combined["codigo_municipio"], errors="coerce")
+        .astype("Int64")
+        .astype(str)
+        .str.zfill(5)
+    )
     if "codigo_municipio" in indepaz.columns:
+        indepaz["codigo_municipio"] = (
+            indepaz["codigo_municipio"].astype(str).str.strip().str.zfill(5)
+        )
+        valid = indepaz["codigo_municipio"].str.match(r"^\d{5}$")
+        if not valid.all():
+            logger.warning(
+                "Filtering out %d/%d INDEPAZ rows with invalid codes",
+                (~valid).sum(),
+                len(indepaz),
+            )
+        indepaz = indepaz[valid].copy()
         combined = combined.merge(indepaz, on="codigo_municipio", how="left")
     if "codigo_municipio" in pdet.columns:
+        pdet["codigo_municipio"] = pdet["codigo_municipio"].astype(str).str.strip().str.zfill(5)
+        valid = pdet["codigo_municipio"].str.match(r"^\d{5}$")
+        pdet = pdet[valid].copy()
         combined = combined.merge(pdet, on="codigo_municipio", how="left")
     if "codigo_municipio" in coca.columns:
+        coca["codigo_municipio"] = coca["codigo_municipio"].astype(str).str.strip().str.zfill(5)
+        valid = coca["codigo_municipio"].str.match(r"^\d{5}$")
+        coca = coca[valid].copy()
         combined = combined.merge(coca, on="codigo_municipio", how="left")
     if "armed_group_presence" in combined.columns:
         armed_col = combined["armed_group_presence"].fillna(0).astype(int)
@@ -381,8 +404,33 @@ def build_risk_matrix(data_dir: Path | None = None) -> None:
         data_dir = resolve_data_dir(None)
     moe = load_historical_moe_risk()
     indepaz = parse_indepaz_pdf(None)
+    _min_valid = 10
+    if not indepaz.empty:
+        valid_indepaz = indepaz[indepaz["codigo_municipio"].astype(str).str.match(r"^\d{5}$")]
+        if len(valid_indepaz) < _min_valid:
+            logger.warning(
+                "INDEPAZ PDF produced only %d valid codes; using hardcoded fallback",
+                len(valid_indepaz),
+            )
+            indepaz = _indepaz_hardcoded_fallback()
     pdet = fetch_pdet_list()
+    if not pdet.empty:
+        valid_pdet = pdet[pdet["codigo_municipio"].astype(str).str.match(r"^\d{5}$")]
+        if len(valid_pdet) < _min_valid:
+            logger.warning(
+                "fetch_pdet_list produced only %d valid codes; using hardcoded fallback",
+                len(valid_pdet),
+            )
+            pdet = _pdet_hardcoded_fallback()
     coca = fetch_unodc_coca()
+    if not coca.empty:
+        valid_coca = coca[coca["codigo_municipio"].astype(str).str.match(r"^\d{5}$")]
+        if len(valid_coca) < _min_valid:
+            logger.warning(
+                "fetch_unodc_coca produced only %d valid codes; using hardcoded fallback",
+                len(valid_coca),
+            )
+            coca = _coca_hardcoded_fallback()
     features = calculate_risk_features(moe, indepaz, pdet, coca)
     target_dir = data_dir / "fundamentals"
     target_dir.mkdir(parents=True, exist_ok=True)

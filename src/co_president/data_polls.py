@@ -47,6 +47,7 @@ __all__ = [
     "load_raw_consultas",
     "load_raw_polls",
     "map_consultation_name_to_key",
+    "merge_digital_signals",
     "normalize_undecided",
     "parse_consultations",
     "retain_active_candidates",
@@ -707,6 +708,81 @@ def parse_consultations(df: pd.DataFrame) -> list[ConsultationPoll]:
 # ═══════════════════════════════════════════════════════════════════
 
 
+def merge_digital_signals(
+    polls: pd.DataFrame,
+    digital_signals: pd.DataFrame,
+    candidate_keys: list[str],
+) -> pd.DataFrame:
+    """Merge digital signals onto each unique poll time point.
+
+    For each unique poll date (``days_before`` value), finds the nearest
+    prior digital signal observation using backward-fill merge_asof.
+    Returns a DataFrame sorted by ``days_before`` ascending (matching the
+    ``p_time`` axis 0 in ``model_round1``), with one row per time point
+    and candidate digital signal columns filled in.
+
+    Args:
+        polls: Poll DataFrame with ``fecha`` and ``days_before`` columns.
+        digital_signals: DataFrame with ``fecha`` and per-candidate
+            digital signal columns (prop_fav values).
+        candidate_keys: List of candidate column names to extract.
+
+    Returns:
+        DataFrame with columns ``days_before``, ``fecha``, and candidate
+        digital signal values.  Sorted by ``days_before`` ascending.
+
+    Raises:
+        ValueError: If ``polls`` is missing required columns or
+            ``digital_signals`` has no candidate columns.
+
+    """
+    required_poll_cols = {"fecha", "days_before"}
+    missing_poll = required_poll_cols - set(polls.columns)
+    if missing_poll:
+        msg = f"polls missing required columns for digital signal merge: {sorted(missing_poll)}"
+        raise ValueError(msg)
+
+    if "fecha" not in digital_signals.columns:
+        msg = "digital_signals missing required 'fecha' column"
+        raise ValueError(msg)
+
+    ds_cols = [c for c in candidate_keys if c in digital_signals.columns]
+    if not ds_cols:
+        msg = (
+            f"No candidate columns from {candidate_keys} found in "
+            f"digital_signals columns: {sorted(digital_signals.columns)}"
+        )
+        raise ValueError(msg)
+
+    # Unique time points sorted by fecha
+    time_grid = (
+        polls[["fecha", "days_before"]].drop_duplicates("days_before").sort_values("fecha").copy()
+    )
+
+    # Average digital signals per day (deduplicate multiple queries per day)
+    ds_daily = digital_signals[["fecha", *ds_cols]].copy()
+    ds_daily["fecha"] = pd.to_datetime(ds_daily["fecha"])
+    ds_avg = ds_daily.groupby("fecha", as_index=False)[ds_cols].mean()
+    ds_avg = ds_avg.sort_values("fecha")
+
+    # Backward-fill merge: each poll time point gets nearest prior digital signal
+    time_grid["fecha"] = time_grid["fecha"].astype("datetime64[us]")
+    ds_avg["fecha"] = ds_avg["fecha"].astype("datetime64[us]")
+    merged = pd.merge_asof(
+        time_grid,
+        ds_avg,
+        on="fecha",
+        direction="backward",
+    )
+
+    # Fill missing digital signal values with 0 (no signal before earliest date)
+    for c in ds_cols:
+        merged[c] = merged[c].fillna(0.0)
+
+    # Sort by days_before ascending to match p_time axis 0
+    return merged.sort_values("days_before", ascending=True).reset_index(drop=True)
+
+
 def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
     """Correct the known Invamer data-entry error.
 
@@ -1239,6 +1315,10 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     # Snapshot for all_polls (before column filtering)
     all_polls = combined.copy()
 
+    # Rename "otros" to "rest" for consistency with FIRST_ROUND_CANDIDATES
+    if "otros" in combined.columns:
+        combined = combined.rename(columns={"otros": "rest"})
+
     # Infer round number
     r1_keys = [c.key for c in get_active_candidates(1)]
     combined = retain_active_candidates(combined, r1_keys)
@@ -1293,7 +1373,7 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
 # ═══════════════════════════════════════════════════════════════════
 
 
-def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
+def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:  # noqa: C901
     """Load, clean, normalize, and classify all poll data.
 
     Pipeline:
@@ -1328,38 +1408,42 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
     # ── all_polls snapshot ──
     all_polls = polls.copy()
 
-    # Step 4: Retain active candidates (round 1 superset)
-    r1_keys = [c.key for c in get_active_candidates(1)]
+    # Step 4: Rename "otros" to "rest" for consistency with FIRST_ROUND_CANDIDATES
+    if "otros" in polls.columns:
+        polls = polls.rename(columns={"otros": "rest"})
+
+    # Step 5: Retain active candidates (round 1 superset)
+    r1_keys = [c.key for c in get_active_candidates(1, as_of=ELECTION_DATE_ROUND1)]
     polls = retain_active_candidates(polls, r1_keys)
 
-    # Step 5: Detect forced-choice BEFORE round inference
+    # Step 6: Detect forced-choice BEFORE round inference
     polls["forced_choice"] = _detect_forced_choice(polls)
 
-    # Step 6: Infer round number (forced-choice polls get classified as R1)
+    # Step 7: Infer round number (forced-choice polls get classified as R1)
     polls = infer_round_number(polls)
     all_polls["round_number"] = polls["round_number"]
     all_polls["forced_choice"] = polls["forced_choice"]
 
-    # Step 7: Split by round
+    # Step 8: Split by round
     mask_r1 = polls["round_number"] == 1
     mask_r2 = polls["round_number"] == _ROUND_TWO
     round1_df = polls[mask_r1].copy()
     round2_df = polls[mask_r2].copy()
 
-    # Step 7: Per-round retain_active_candidates
-    r2_keys = [c.key for c in get_active_candidates(2)]
+    # Step 9: Per-round retain_active_candidates
+    r2_keys = [c.key for c in get_active_candidates(2, as_of=ELECTION_DATE_ROUND1)]
     if not round1_df.empty:
         round1_df = retain_active_candidates(round1_df, r1_keys)
     if not round2_df.empty:
         round2_df = retain_active_candidates(round2_df, r2_keys)
 
-    # Step 8: Per-round deduplicate
+    # Step 10: Per-round deduplicate
     if not round1_df.empty:
         round1_df = deduplicate_polls(round1_df)
     if not round2_df.empty:
         round2_df = deduplicate_polls(round2_df)
 
-    # Step 8b: Renormalise round DFs to 100% (retain_active_candidates may have
+    # Step 10b: Renormalise round DFs to 100% (retain_active_candidates may have
     # dropped pre-consultation share columns that were part of the renormalisation).
     for df_round in [round1_df, round2_df]:
         if df_round.empty:
@@ -1373,11 +1457,20 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:
             tolerance_pct=_POST_RENORMALIZE_TOLERANCE_PCT,
         )
 
-    # Step 9: Consultation data
+    # Step 11: Consultation data
     consultas_df = load_raw_consultas(data_dir=data_dir)
     consultation_list = parse_consultations(consultas_df)
 
-    # Step 10: Build CleanPolls
+    # Step 12: Sort all DataFrames chronologically
+    _sort_keys = ["fecha", "encuestadora"]
+    if not round1_df.empty and "fecha" in round1_df.columns:
+        round1_df = round1_df.sort_values(_sort_keys, ascending=True)
+    if not round2_df.empty and "fecha" in round2_df.columns:
+        round2_df = round2_df.sort_values(_sort_keys, ascending=True)
+    if not all_polls.empty and "fecha" in all_polls.columns:
+        all_polls = all_polls.sort_values(_sort_keys, ascending=True)
+
+    # Step 13: Build CleanPolls
     return CleanPolls(
         round1=round1_df,
         round2=round2_df,

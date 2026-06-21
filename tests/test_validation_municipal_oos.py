@@ -457,6 +457,9 @@ def test_build_municipal_model_with_target_year() -> None:
         "beta_rural",
         "beta_education",
         "beta_risk",
+        "beta_pdet",
+        "beta_indigenous",
+        "beta_internet",
         "sigma_m",
         "mu_m_raw",
         "sigma_house",
@@ -853,6 +856,7 @@ class TestProduceGeneralizationReport:
             mcmc_tune=100,
             mcmc_chains=1,
             mcmc_cores=1,
+            nuts_sampler="numpyro",
         )
         output_path = tmp_path / "generalization.md"
 

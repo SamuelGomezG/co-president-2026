@@ -23,10 +23,11 @@ from pathlib import Path
 import sys
 from typing import TYPE_CHECKING, Any
 
+import pandas as pd  # type: ignore[reportMissingTypeStubs]
+
 if TYPE_CHECKING:
     from datetime import date
 
-    import pandas as pd  # type: ignore[reportMissingTypeStubs]
     from xarray import DataTree
 
 from co_president.benchmarks.runner import (
@@ -66,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 # ruff: noqa: T201 — CLI output uses print() for user-facing text
 
+_EMPTY_DF: pd.DataFrame = pd.DataFrame()
 _MIN_POLLSTERS_R1 = 5
 _MIN_POLLSTERS_R2 = 2
 _MAX_SHARE_PCT = 100.0
@@ -551,6 +553,9 @@ def _compute_runoff_matrix(  # noqa: PLR0913
     round2_polls: pd.DataFrame | None,
     config: ModelConfig,
     results_dir: Path,
+    candidate_keys: list[str] | None = None,
+    features: pd.DataFrame | None = None,
+    digital_signals: pd.DataFrame = _EMPTY_DF,
 ) -> tuple[RunoffMatrix | None, dict[str, float] | None]:
     """Estimate the runoff matrix, log top pairings, and save as JSON.
 
@@ -562,6 +567,12 @@ def _compute_runoff_matrix(  # noqa: PLR0913
         round2_polls: Clean Round 2 poll DataFrame (or ``None``).
         config: Model hyperparameters.
         results_dir: Directory to save the JSON matrix file.
+        candidate_keys: Candidate keys in the order they appear in posterior columns.
+            If ``None``, inferred from ``FIRST_ROUND_CANDIDATES``.
+        features: Municipal features DataFrame for on-demand transfer model
+            training.  When ``None``, uses the calibrated Dirichlet prior.
+        digital_signals: Digital signal time series (Google Trends, etc.). Empty
+            DataFrame when unavailable.
 
     Returns:
         Tuple of ``(runoff_matrix, overall_probs)``. Either may be ``None`` on
@@ -581,7 +592,13 @@ def _compute_runoff_matrix(  # noqa: PLR0913
             fc.candidate_key: fc.prob_win_outright for fc in round1_forecast.candidates
         }
         runoff_matrix = estimate_runoff_matrix(
-            idata_r1, (results_r1, results_r2), round2_polls, config
+            idata_r1,  # type: ignore[reportUnknownArgumentType]
+            (results_r1, results_r2),
+            round2_polls,
+            config,
+            candidate_keys=candidate_keys,
+            features=features,
+            digital_signals=digital_signals,
         )
         overall_probs_val = overall_win_probability(runoff_matrix, prob_win_outright_dict)
 
@@ -625,7 +642,9 @@ def _run_pipeline_mcmc(
 
     # ── Round 1 ────────────────────────────────────────────────────────
     logger.info("Building round 1 model...")
-    round1_model = m1.build_round1_model(clean_polls.round1, results_r1, config)
+    round1_model = m1.build_round1_model(
+        clean_polls.round1, results_r1, config, digital_signals=pd.DataFrame()
+    )
     logger.info(
         "Sampling round 1 model (%d draws x %d chains)...",
         config.mcmc_draws,
@@ -655,6 +674,7 @@ def _run_pipeline_mcmc(
         results_r1,
         idata_r1,
         config,
+        digital_signals=pd.DataFrame(),
     )
     logger.info("Sampling runoff model...")
     runoff_forecast: RunoffForecast | None = None
@@ -688,6 +708,8 @@ def _run_pipeline_mcmc(
         clean_polls.round2,
         config,
         results_dir,
+        candidate_keys=r1_candidate_keys,
+        digital_signals=pd.DataFrame(),
     )
 
     _print_run_summary_table(
@@ -1064,12 +1086,7 @@ def _cmd_validate() -> None:  # noqa: PLR0915
     import arviz as az  # noqa: PLC0415  # pyright: ignore[reportMissingTypeStubs]
 
     from co_president.data import load_canonical_results  # noqa: PLC0415
-    from co_president.model_round1 import (  # noqa: PLC0415
-        forecast_round1,
-    )
-    from co_president.model_runoff_simple import (  # noqa: PLC0415
-        forecast_runoff_simple,
-    )
+    from co_president.model_runoff_simple import forecast_runoff_simple  # noqa: PLC0415
     from co_president.validation import (  # noqa: PLC0415
         brier_score_round1,
         validate_round1,
@@ -1085,6 +1102,14 @@ def _cmd_validate() -> None:  # noqa: PLR0915
         print("Run 'python -m co_president run' first to generate traces.")
         sys.exit(1)
 
+    try:
+        from co_president.model_round1 import (  # noqa: PLC0415
+            forecast_round1,  # type: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+        )
+    except ImportError:
+        logger.exception("forecast_round1 not available — may need to run model first")
+        sys.exit(1)
+
     logger.info("Loading results and traces...")
     try:
         results_r1, results_r2 = load_canonical_results()
@@ -1097,13 +1122,13 @@ def _cmd_validate() -> None:  # noqa: PLR0915
 
     logger.info("Computing round 1 forecast from trace...")
     try:
-        round1_forecast = forecast_round1(idata_r1, r1_candidate_keys)
+        round1_forecast = forecast_round1(idata_r1, r1_candidate_keys)  # type: ignore[reportUnknownVariableType, reportUnknownArgumentType]
     except (ValueError, KeyError) as e:
         print(f"Error computing round 1 forecast: {e}")
         sys.exit(1)
 
-    r1_validation = validate_round1(round1_forecast, results_r1)
-    r1_brier = brier_score_round1(round1_forecast, results_r1)
+    r1_validation = validate_round1(round1_forecast, results_r1)  # type: ignore[reportUnknownArgumentType]
+    r1_brier = brier_score_round1(round1_forecast, results_r1)  # type: ignore[reportUnknownArgumentType]
 
     _print_separator()
     print("  VALIDATION REPORT")
@@ -1222,14 +1247,12 @@ def _plot_calibration(
 
     if trace_path.is_file():
         try:
-            from co_president.model_round1 import (  # noqa: PLC0415
-                forecast_round1,
-            )
+            from co_president.model_round1 import forecast_round1  # type: ignore[reportAttributeAccessIssue, reportUnknownVariableType]  # noqa: PLC0415, I001
 
             idata_r1 = az.from_netcdf(str(trace_path))  # pyright: ignore[reportUnknownMemberType]
-            r1_forecast = forecast_round1(idata_r1, sorted(FIRST_ROUND_CANDIDATES))
-            r1_validation = validate_round1(r1_forecast, results_r1)
-        except (ValueError, KeyError, OSError) as e:
+            r1_forecast = forecast_round1(idata_r1, sorted(FIRST_ROUND_CANDIDATES))  # type: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+            r1_validation = validate_round1(r1_forecast, results_r1)  # type: ignore[reportUnknownArgumentType]
+        except (ValueError, KeyError, OSError, ImportError) as e:
             logger.warning("Could not load trace for calibration: %s", e)
 
     if r1_validation is not None:

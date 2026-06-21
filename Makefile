@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help check fmt fmt-check lint lint-fix typecheck test test-fast test-model test-model-slow \
         dev sync install setup clean sec ci download-cnpv fundamentals cnpv nbi ipm population \
-        benchmark-fnn-clr generalization
+        benchmark-fnn-clr generalization backtest backtest-forward
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -36,12 +36,8 @@ test-model:  ## Run fast model tests only (graph + prior predictive)
 test-model-slow:  ## Run slow MCMC tests only (convergence + sanity)
 	@uv run pytest tests/test_model.py -v -m "slow"
 
-dev:  ## Run the dev entrypoint (if implemented)
-	@if [ -f src/co_president/__main__.py ]; then \
-		uv run python -m co_president run --no-sample; \
-	else \
-		echo "dev: __main__.py not yet implemented (SPEC-10 pending)"; \
-	fi
+dev:  ## Run the pipeline without MCMC (quick smoke test)
+	@uv run python -m co_president run --no-sample
 
 sec:  ## Run security scans (pip-audit + bandit)
 	@uv run pip-audit --skip-editable --ignore-vuln CVE-2025-3000 --ignore-vuln PYSEC-2026-196
@@ -115,3 +111,9 @@ generalization:  ## Run SPEC-29 generalization audit tests (eff df + ablation + 
 	@uv run pytest tests/test_validation_municipal_oos.py -v \
 		-k "effectivedf or ablation or calibration or produce_generalization" \
 		-m "not slow"
+
+backtest:  ## Run full 5000x4 backtest (R1 + runoff + report)
+	@uv run python scripts/run_100k_report.py
+
+backtest-forward:  ## Run true forward backtest (no election results)
+	@uv run python scripts/forward_backtest.py

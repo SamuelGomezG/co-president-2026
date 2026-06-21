@@ -10,6 +10,7 @@ import pytest
 
 from co_president.config import (
     COALITION_TO_CANDIDATE,
+    COALITION_TO_CANONICAL_WEIGHTS,
     CONSULTATION_KEY_MAP,
     CONSULTATION_VOTES,
     FIRST_ROUND_CANDIDATES,
@@ -18,11 +19,6 @@ from co_president.config import (
     HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS,
     HISTORICAL_ROUND2_IDEOLOGY,
     POLLSTER_RATINGS,
-    TRANSFER_BLANCO_SPLIT,
-    TRANSFER_FAJARDO_HERNANDEZ,
-    TRANSFER_FAJARDO_PETRO,
-    TRANSFER_GUTIERREZ_HERNANDEZ,
-    TRANSFER_GUTIERREZ_PETRO,
     Candidate,
     ModelConfig,
     consultation_log_share_prior,
@@ -79,7 +75,9 @@ class TestModelConfig:
         cfg = ModelConfig()
         assert cfg.random_walk_sigma_prior == 0.5
         assert cfg.concentration_poll_prior_mean == 5.0
-        assert cfg.concentration_election_prior_mean == 50.0
+        assert cfg.concentration_election_prior_mean == 5000.0
+        assert cfg.concentration_election_votes_scale == 1000000
+        assert cfg.concentration_election_prior_shape == 0.75
         assert cfg.house_effect_sigma_prior == 1.0
         assert cfg.mcmc_draws == 4000
         assert cfg.mcmc_tune == 1000
@@ -94,6 +92,8 @@ class TestModelConfig:
         assert cfg.sigma_m_prior == 0.3
         assert cfg.pool_alpha == 0.95
         assert cfg.enable_population_weighting is True
+        assert cfg.nuts_sampler is None
+        assert cfg.target_year == 2022
 
     def test_custom_values(self) -> None:
         """Verify ModelConfig accepts overrides for specific fields."""
@@ -474,50 +474,50 @@ class TestConsultationLogSharePrior:
         assert shares == {"gustavo_petro": -1.0, "rodolfo_hernandez": -1.0}
 
 
-class TestTransferConstants:
-    """Tests for the TRANSFER_* runoff constants."""
+class TestCoalitionCrosswalk:
+    """Tests for the COALITION_TO_CANONICAL_WEIGHTS crosswalk dict."""
 
-    def test_fajardo_transfers_sum_to_one(self) -> None:
-        """Verify Fajardo voter transfers partition correctly."""
-        assert TRANSFER_FAJARDO_PETRO + TRANSFER_FAJARDO_HERNANDEZ == 1.0
+    def test_pacto_historico_has_national_entry(self) -> None:
+        """Pacto Histórico has national-level weights."""
+        entry = COALITION_TO_CANONICAL_WEIGHTS.get("COALICION PACTO HISTORICO")
+        assert entry is not None
+        national = entry.get("__national__")
+        assert isinstance(national, dict)
+        assert len(national) >= 5
+        assert "Colombia Humana (15)" in national
 
-    def test_gutierrez_transfers_sum_to_one(self) -> None:
-        """Verify Gutiérrez voter transfers partition correctly."""
-        assert TRANSFER_GUTIERREZ_HERNANDEZ + TRANSFER_GUTIERREZ_PETRO == 1.0
+    def test_equipo_colombia_has_national_entry(self) -> None:
+        """Equipo por Colombia has national-level weights."""
+        entry = COALITION_TO_CANONICAL_WEIGHTS.get("COALICION EQUIPO POR COLOMBIA")
+        assert entry is not None
+        national = entry.get("__national__")
+        assert isinstance(national, dict)
+        assert len(national) >= 4
 
-    def test_all_in_unit_interval(self) -> None:
-        """Verify every transfer constant is in [0.0, 1.0]."""
-        for name, val in [
-            ("FAJARDO_PETRO", TRANSFER_FAJARDO_PETRO),
-            ("FAJARDO_HERNANDEZ", TRANSFER_FAJARDO_HERNANDEZ),
-            ("GUTIERREZ_HERNANDEZ", TRANSFER_GUTIERREZ_HERNANDEZ),
-            ("GUTIERREZ_PETRO", TRANSFER_GUTIERREZ_PETRO),
-            ("BLANCO_SPLIT", TRANSFER_BLANCO_SPLIT),
-        ]:
-            assert 0.0 <= val <= 1.0, f"TRANSFER_{name} out of range: {val}"
+    def test_centro_esperanza_has_national_entry(self) -> None:
+        """Centro Esperanza has national-level weights."""
+        entry = COALITION_TO_CANONICAL_WEIGHTS.get("COALICION CENTRO ESPERANZA")
+        assert entry is not None
+        national = entry.get("__national__")
+        assert isinstance(national, dict)
+        assert len(national) >= 4
 
-    def test_transfer_aggregate_split_approximates_observed(self) -> None:
-        """Verify the aggregate transfer split approximates the observed 73/27 within ±5pp.
+    def test_single_party_coalitions_weigh_one(self) -> None:
+        """Single-party coalitions have weight 1.0 for their party."""
+        entry = COALITION_TO_CANONICAL_WEIGHTS["LIGA DE GOBERNANTES ANTICORRUPCION"]
+        national = entry["__national__"]
+        assert isinstance(national, dict)
+        assert list(national.values()) == [1.0]
 
-        Note: The simple average assumes equal electorate sizes for Fajardo
-        and Gutiérrez. This is a calibration sanity check, not the true
-        weighted aggregate (which would use each candidate's vote share).
-        """
-        flow_petro = (TRANSFER_FAJARDO_PETRO + TRANSFER_GUTIERREZ_PETRO) / 2
-        flow_hernandez = (TRANSFER_FAJARDO_HERNANDEZ + TRANSFER_GUTIERREZ_HERNANDEZ) / 2
-
-        assert math.isclose(flow_petro, 0.27, abs_tol=0.05)
-        assert math.isclose(flow_hernandez, 0.73, abs_tol=0.05)
-
-    def test_directional_constraints(self) -> None:
-        """Verify directional constraints for transfer heuristics.
-
-        Gutierrez voters should flow more to Hernandez than Petro; Fajardo
-        voters should flow more to Hernandez than Petro per the empirical
-        calibration.
-        """
-        assert TRANSFER_GUTIERREZ_HERNANDEZ > TRANSFER_GUTIERREZ_PETRO
-        assert TRANSFER_FAJARDO_HERNANDEZ > TRANSFER_FAJARDO_PETRO
+    def test_all_weights_sum_to_one(self) -> None:
+        """Every national entry's weights sum to 1.0 within tolerance."""
+        for coalition, entry in COALITION_TO_CANONICAL_WEIGHTS.items():
+            national = entry.get("__national__")
+            if isinstance(national, dict):
+                total = sum(national.values())
+                assert abs(total - 1.0) < 0.01, (
+                    f"{coalition} national weights sum to {total:.3f} != 1.0"
+                )
 
 
 class TestConsultationKeyMap:

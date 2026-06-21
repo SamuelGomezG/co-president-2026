@@ -535,8 +535,8 @@ class TestEvolutionSeries:
         # matching what fetch_trends would return.
         trends_df = pd.DataFrame(
             {
-                "Gustavo Petro": [60.0, 60.0],
-                "Federico Guti\u00e9rrez": [40.0, 40.0],
+                "Petro": [60.0, 60.0],
+                "Fico": [40.0, 40.0],
             },
             index=pd.to_datetime(["2022-05-15", "2022-05-28"]),
         )
@@ -568,8 +568,8 @@ class TestEvolutionSeries:
         candidates = ["gustavo_petro", "federico_gutierrez"]
         trends_df = pd.DataFrame(
             {
-                "Gustavo Petro": [70.0, 50.0],
-                "Federico Gutiérrez": [30.0, 50.0],
+                "Petro": [70.0, 50.0],
+                "Fico": [30.0, 50.0],
             },
             index=pd.to_datetime(["2022-05-15", "2022-05-28"]),
         )
