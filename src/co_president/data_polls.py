@@ -1476,6 +1476,13 @@ def load_and_clean_all(  # noqa: C901
         A validated ``CleanPolls`` container.
 
     """
+    if year == 2026:  # noqa: PLR2004
+        from co_president.data_cne_2026 import (  # noqa: PLC0415
+            build_clean_polls_2026,
+        )
+
+        return build_clean_polls_2026(data_dir=data_dir)
+
     election_day_r1 = get_election_date(year, _ROUND_FIRST)
 
     # Step 1: Load raw polls

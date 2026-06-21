@@ -70,6 +70,8 @@ CANDIDATE_KEY_MAP_2026: dict[str, str] = {
     "Sondra Macollins": "rest",
     "Voto en Blanco": "blanco",
     "No Sabe / No Responde": "ns_nr",
+    "Gustavo Matamoros": "rest",
+    "Blanco": "blanco",
 }
 
 _CANONICAL_2026 = frozenset(FIRST_ROUND_CANDIDATES_2026.keys())
@@ -465,7 +467,12 @@ def _invamer_read_primary_xlsx(zf: zipfile.ZipFile, bundle_path: Path) -> pd.Dat
                 candidates = [n]
                 break
     if not candidates:
-        msg = f"No primary data XLSX found in Invamer bundle: {bundle_path}"
+        # Last-resort fallback: any .xlsx file (for non-Invamer bundles using Invamer loader)
+        any_xlsx = [n for n in zf.namelist() if n.lower().endswith(".xlsx") and "$" not in n]
+        if any_xlsx:
+            candidates = [any_xlsx[0]]
+    if not candidates:
+        msg = f"No primary data XLSX found in bundle: {bundle_path}"
         raise ValueError(msg)
     with zf.open(candidates[0]) as fh:
         return pd.read_excel(fh, engine="openpyxl")  # type: ignore[reportUnknownMemberType]
@@ -917,6 +924,10 @@ _FIRM_LOADERS: dict[str, Callable[[Path], pd.DataFrame]] = {
     "gad3": load_gad3,
     "invamer": load_invamer,
     "cnc": load_cnc,
+    "genesis_crea": load_invamer,
+    "tempo": load_invamer,
+    "corp_mmm": load_invamer,
+    "guarumo_ecoanalitica": load_invamer,
 }
 
 
