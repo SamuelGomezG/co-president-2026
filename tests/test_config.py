@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 import importlib
 import math
 from typing import ClassVar
@@ -9,6 +10,7 @@ from typing import ClassVar
 import pytest
 
 from co_president.config import (
+    CANDIDATES_BY_YEAR,
     COALITION_TO_CANDIDATE,
     COALITION_TO_CANONICAL_WEIGHTS,
     CONSULTATION_KEY_MAP,
@@ -24,7 +26,15 @@ from co_president.config import (
     consultation_log_share_prior,
     get_active_candidates,
     get_candidate_column_map,
+    get_coalition_to_candidate,
+    get_coalition_weights,
+    get_consultation_key_map,
+    get_consultation_votes,
     get_default_pollster_weight,
+    get_election_date,
+    get_historical_candidate_ideology,
+    get_pollster_ratings,
+    get_runoff_ideology,
     pollster_weight_formula,
 )
 
@@ -211,11 +221,21 @@ class TestFirstRoundCandidates:
 
 
 class TestFirstRoundCandidates2026:
-    """Tests for the FIRST_ROUND_CANDIDATES_2026 placeholder."""
+    """Tests for the FIRST_ROUND_CANDIDATES_2026 registry."""
 
-    def test_empty_by_default(self) -> None:
-        """Verify 2026 candidate dict is empty (placeholder)."""
-        assert len(FIRST_ROUND_CANDIDATES_2026) == 0
+    EXPECTED_KEYS_2026: ClassVar[set[str]] = {
+        "cepeda",
+        "de_la_espriella",
+        "valencia",
+        "fajardo",
+        "claudia_lopez",
+        "rest",
+        "blanco",
+    }
+
+    def test_populated(self) -> None:
+        """Verify 2026 candidate dict is populated with canonical keys."""
+        assert set(FIRST_ROUND_CANDIDATES_2026) == self.EXPECTED_KEYS_2026
 
     def test_is_dict(self) -> None:
         """Verify type is dict."""
@@ -348,14 +368,11 @@ class TestGetActiveCandidates:
         }
         assert keys == expected
 
-    def test_year_2026_fallback(self) -> None:
-        """Verify year=2026 falls back to 2022 candidates (placeholder empty)."""
-        active_2026 = get_active_candidates(1, year=2026)
-        active_2022 = get_active_candidates(1)
-        assert len(active_2026) == len(active_2022)
-        keys_2026 = {c.key for c in active_2026}
-        keys_2022 = {c.key for c in active_2022}
-        assert keys_2026 == keys_2022
+    def test_year_2026_returns_candidates(self) -> None:
+        """Verify year=2026 returns the populated candidate registry."""
+        active = get_active_candidates(1, year=2026)
+        keys = {c.key for c in active}
+        assert keys == TestFirstRoundCandidates2026.EXPECTED_KEYS_2026
 
 
 class TestGetCandidateColumnMap:
@@ -385,11 +402,11 @@ class TestGetCandidateColumnMap:
         }
         assert set(mapping) == expected
 
-    def test_year_2026_fallback(self) -> None:
-        """Verify year=2026 falls back to 2022 column map (placeholder empty)."""
-        mapping_2026 = get_candidate_column_map(year=2026)
-        mapping_2022 = get_candidate_column_map()
-        assert set(mapping_2026) == set(mapping_2022)
+    def test_year_2026_returns_mapping(self) -> None:
+        """Verify year=2026 returns an identity mapping for populated candidates."""
+        mapping = get_candidate_column_map(year=2026)
+        assert set(mapping) == TestFirstRoundCandidates2026.EXPECTED_KEYS_2026
+        assert mapping["cepeda"] == "cepeda"
 
 
 class TestConsultationVotes:
@@ -607,3 +624,77 @@ class TestHistoricalCandidateIdeology:
                 assert candidate in round_map, (
                     f"{year} R2 {side}={candidate!r} not in 5-class R2 map"
                 )
+
+
+class TestYearAgnosticHelpers:
+    """Tests for the year-indexed helper functions."""
+
+    def test_get_election_date_2022(self) -> None:
+        """Verify election date lookup for 2022."""
+        assert get_election_date(2022, 1) == date(2022, 5, 29)
+        assert get_election_date(2022, 2) == date(2022, 6, 19)
+        assert get_election_date(2022) == date(2022, 3, 13)
+
+    def test_get_election_date_unknown_year(self) -> None:
+        """Verify ValueError for unknown year/round combinations."""
+        with pytest.raises(ValueError, match="No first-round election date"):
+            get_election_date(1990, 1)
+        with pytest.raises(ValueError, match="No runoff election date"):
+            get_election_date(1990, 2)
+        with pytest.raises(ValueError, match="No consultation date"):
+            get_election_date(1990)
+
+    def test_get_pollster_ratings_2022(self) -> None:
+        """Verify 2022 pollster ratings are returned."""
+        ratings = get_pollster_ratings(2022)
+        assert ratings == POLLSTER_RATINGS
+
+    def test_get_pollster_ratings_empty_year(self) -> None:
+        """Verify ValueError for an empty year registry."""
+        with pytest.raises(ValueError, match="POLLSTER_RATINGS registry for year 2026 is empty"):
+            get_pollster_ratings(2026)
+
+    def test_get_consultation_votes_2022(self) -> None:
+        """Verify 2022 consultation votes are returned."""
+        assert get_consultation_votes(2022) == CONSULTATION_VOTES
+
+    def test_get_consultation_key_map_2022(self) -> None:
+        """Verify 2022 consultation key map is returned."""
+        assert get_consultation_key_map(2022) == CONSULTATION_KEY_MAP
+
+    def test_get_coalition_to_candidate_2022(self) -> None:
+        """Verify 2022 coalition-to-candidate map is returned."""
+        assert get_coalition_to_candidate(2022) == COALITION_TO_CANDIDATE
+
+    def test_get_coalition_weights_2022(self) -> None:
+        """Verify 2022 coalition weights are returned."""
+        assert get_coalition_weights(2022) == COALITION_TO_CANONICAL_WEIGHTS
+
+    def test_get_historical_candidate_ideology(self) -> None:
+        """Verify 5-class ideology lookup by (year, round)."""
+        r1_map = get_historical_candidate_ideology(2022, 1)
+        assert r1_map["gustavo_petro"] == "Izquierda"
+        assert get_historical_candidate_ideology(1990, 1) == {}
+
+    def test_get_runoff_ideology_2022(self) -> None:
+        """Verify runoff ideology override for 2022."""
+        assert get_runoff_ideology(2022) == {"left": "gustavo_petro", "right": "rodolfo_hernandez"}
+
+    def test_get_runoff_ideology_unknown(self) -> None:
+        """Verify empty dict for unknown year."""
+        assert get_runoff_ideology(1990) == {}
+
+    def test_candidates_by_year_2022(self) -> None:
+        """Verify 2022 candidate registry matches FIRST_ROUND_CANDIDATES."""
+        assert CANDIDATES_BY_YEAR[2022] == FIRST_ROUND_CANDIDATES
+        assert CANDIDATES_BY_YEAR[2026] == FIRST_ROUND_CANDIDATES_2026
+
+    def test_consultation_log_share_prior_year_default(self) -> None:
+        """Verify default year for consultation log prior is 2022."""
+        default = consultation_log_share_prior()
+        explicit = consultation_log_share_prior(2022)
+        assert default == explicit
+
+    def test_get_default_pollster_weight_year(self) -> None:
+        """Verify default weight uses the requested year's ratings."""
+        assert get_default_pollster_weight(2022) == get_default_pollster_weight()
