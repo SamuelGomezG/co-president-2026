@@ -312,10 +312,24 @@ def _merge_components(
         The matrix with all non-empty components merged in order.
 
     """
+    # Standardize merge key to string zfill(5) to avoid type-mismatch failures
+    # between int64 and string coded municipality codes.
+    matrix["codigo_municipio"] = (
+        pd.to_numeric(matrix["codigo_municipio"], errors="coerce")
+        .astype("Int64")
+        .astype(str)
+        .str.zfill(5)
+    )
     for name, df in components:
         if df.empty:
             logger.debug("Skipping empty component: %s", name)
             continue
+        df["codigo_municipio"] = (
+            pd.to_numeric(df["codigo_municipio"], errors="coerce")
+            .astype("Int64")
+            .astype(str)
+            .str.zfill(5)
+        )
         matrix = matrix.merge(df, on="codigo_municipio", how="left", validate="m:1")
     return matrix
 

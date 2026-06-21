@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Threshold above which concentration_election_prior_mean is treated as a
 # fixed constant instead of a learned Gamma parameter.  Values > 100,000
 # indicate the user wants to turn off the Gamma and fix phi_elec.
-_PHI_ELEC_FIXED_THRESHOLD = 100000
+_PHI_ELEC_FIXED_THRESHOLD = 0
 
 # Digital signal Beta decay peaks at T-1 (day before election) per SciELO 2023.
 # Formula: exp(-abs(days_from_elec - 1.0) / 3.0).  T-1=1.0 (peak), T-0=0.72,
@@ -315,6 +315,19 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
         theta_mu = prior_mean
         theta_sigma = config.consultation_prior_strength
 
+    # Override blanco prior: shrink toward historical blank vote rate (~2.5%)
+    # instead of the poll-implied ~10.6%, which is systematically inflated in
+    # Colombian polls relative to actual blank voting.
+    _r1_historical_blanco = 0.020
+    if "blanco" in candidate_keys:
+        _b_idx = candidate_keys.index("blanco")
+        theta_mu[_b_idx] = np.log(_r1_historical_blanco)
+        if isinstance(theta_sigma, float | int):
+            theta_sigma = np.full(len(candidate_keys), float(theta_sigma))
+        else:
+            theta_sigma = theta_sigma.copy()
+        theta_sigma[_b_idx] = 0.3
+
     with pm.Model() as model:  # type: ignore
         sigma_rw = pm.HalfNormal(  # type: ignore
             "sigma_rw",
@@ -450,6 +463,12 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             _ds_cols = [c for c in candidate_keys if c in digital_signals.columns]
             if _ds_cols:
                 ds_merged = merge_digital_signals(polls, digital_signals, candidate_keys)
+                if ds_merged.empty:
+                    msg = (
+                        "merge_digital_signals returned empty DataFrame. "
+                        "Time indices misaligned between polls and digital signals."
+                    )
+                    raise ValueError(msg)
                 ds_time_indices = ds_merged["days_before"].map(day_to_idx).to_numpy(dtype=int)
                 ds_values = np.clip(  # type: ignore[assignment]
                     ds_merged[_ds_cols].to_numpy(dtype=float),

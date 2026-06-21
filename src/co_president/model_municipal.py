@@ -248,6 +248,12 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     if np.isnan(turnout).any():
         _fill_turn = float(np.nanmean(turnout))
         turnout[np.isnan(turnout)] = _fill_turn
+    # WS-5(c): Turnout suppression from conflict/violence
+    # High-risk municipalities have reduced effective turnout
+    if "high_risk_flag" in features.columns:
+        high_risk_flag = features["high_risk_flag"].to_numpy().astype(float)
+        turnout_suppression = 1.0 - 0.05 * high_risk_flag
+        turnout = turnout * turnout_suppression
     if config.enable_population_weighting:
         effective_pop = compute_effective_pop(pop, turnout)
     else:
