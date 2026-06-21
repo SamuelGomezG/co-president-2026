@@ -91,6 +91,8 @@ class RunoffMatrix:
 
 _MIN_PAIRING_PROB: float = 0.01
 _MIN_PAIRED_POLLS: int = 3
+_EMPIRICAL_N_EFF_THRESHOLD: float = 50.0
+_BALANCED_PROB: float = 0.5
 
 
 def _get_candidate_order(year: int = 2022) -> list[str]:
@@ -460,17 +462,23 @@ def estimate_runoff_matrix(  # noqa: PLR0913
     candidate_keys: list[str] | None = None,
     features: pd.DataFrame | None = None,
     year: int = 2022,
+    empirical_betas: dict[tuple[str, str], tuple[float, float]] | None = None,
 ) -> RunoffMatrix:
     """Compute a full probabilistic runoff matrix.
 
     Uses the Round 1 posterior to identify plausible pairings, then for each
-    pairing estimates the runoff outcome using one of two paths:
+    pairing estimates the runoff outcome using one of three paths (in priority
+    order):
 
-    1. **Model path**: If ``round2_polls`` contains 3+ head-to-head polls for
+    1. **Empirical path**: If ``empirical_betas`` is provided and the pairing
+       has sufficient data (n_eff >= 50), uses empirical Beta posteriors from
+       CNE head-to-head polls via
+       :func:`~co_president.empirical_runoff.sample_empirical_transfer`.
+    2. **Model path**: If ``round2_polls`` contains 3+ head-to-head polls for
        the candidate pairing, runs the K=3
        :func:`~co_president.model_runoff_simple.build_runoff_simple_model`
        and extracts win probabilities from the posterior.
-    2. **Heuristic path**: Otherwise, uses the transfer heuristic that
+    3. **Heuristic path**: Otherwise, uses the transfer heuristic that
        redistributes eliminated candidates' votes using data-driven transfer
        rates from :func:`~co_president.model_transfer.sample_transfer_rates`.
 
@@ -489,6 +497,11 @@ def estimate_runoff_matrix(  # noqa: PLR0913
             the runoff K=3 poll likelihood.  Passed through to
             :func:`build_runoff_simple_model`.
         year: Election year (default 2022).
+        empirical_betas: Optional dict mapping ``(candidate_a, candidate_b)``
+            to ``(alpha, beta)`` from
+            :func:`~co_president.empirical_runoff.get_empirical_runoff_betas`.
+            When provided, pairings with ``alpha + beta >= 50.5`` (n_eff >= 50)
+            use empirical Beta sampling instead of the transfer heuristic.
 
     Returns:
         :class:`RunoffMatrix` containing all plausible pairings.
@@ -524,26 +537,50 @@ def estimate_runoff_matrix(  # noqa: PLR0913
     # for on-demand training when available.
     transfer_rates = sample_transfer_rates(features=features, config=config)
 
+    # Resolve empirical Beta posteriors for each pairing key (canonical ordering)
+    _empirical_lookup: dict[tuple[str, str], tuple[float, float]] = (empirical_betas or {}).copy()
+
     pairings: list[PairingForecast] = []
     for (first, second), prob in sorted(top_two_probs.items(), key=lambda x: x[1], reverse=True):
         if prob < _MIN_PAIRING_PROB:
             break
 
-        # If head-to-head polls are available for this pairing, use the
-        # K=3 runoff model instead of the transfer heuristic.
-        if round2_polls is not None:
-            pairing_polls = _filter_polls_for_pairing(round2_polls, first, second)
-        else:
-            pairing_polls = None
-
         idata_runoff: DataTree | None = None
-        if pairing_polls is not None:
-            # Use digital signals in the runoff model only when explicitly
-            # enabled via config (off by default — digital signals were
-            # systematically biased toward Rodolfo in 2022).
-            _ds_runoff = digital_signals if config.use_digital_signals_runoff else pd.DataFrame()
-            prob_first_wins, mean_margin, share_first, share_second, share_rest, idata_runoff = (
-                _run_runoff_model_for_pairing(
+
+        # ---- Path 1: empirical Beta posterior ----
+        emp_key = (first, second) if first <= second else (second, first)
+        emp_beta = _empirical_lookup.get(emp_key)
+        _use_empirical = (
+            emp_beta is not None and (emp_beta[0] + emp_beta[1] - 1.0) >= _EMPIRICAL_N_EFF_THRESHOLD
+        )
+
+        if _use_empirical and emp_beta is not None:
+            from co_president.empirical_runoff import (  # noqa: PLC0415
+                sample_empirical_transfer,
+            )
+
+            n_draws_local = election_day.reshape(-1, election_day.shape[-1]).shape[0]
+            emp_samples = sample_empirical_transfer(emp_beta, first, second, n_draws=n_draws_local)
+            prob_first_wins = float((emp_samples > _BALANCED_PROB).mean())
+            mean_margin = float((emp_samples - _BALANCED_PROB).mean() * 2)
+            share_first = float(emp_samples.mean())
+            share_second = 1.0 - share_first
+            share_rest = float("nan")
+        elif round2_polls is not None:
+            # ---- Path 2: K=3 runoff model ----
+            pairing_polls = _filter_polls_for_pairing(round2_polls, first, second)
+            if pairing_polls is not None:
+                _ds_runoff = (
+                    digital_signals if config.use_digital_signals_runoff else pd.DataFrame()
+                )
+                (
+                    prob_first_wins,
+                    mean_margin,
+                    share_first,
+                    share_second,
+                    share_rest,
+                    idata_runoff,
+                ) = _run_runoff_model_for_pairing(
                     pairing_polls,
                     round1_result,
                     round1_idata,
@@ -556,8 +593,18 @@ def estimate_runoff_matrix(  # noqa: PLR0913
                     all_candidate_keys=all_candidate_keys,
                     year=year,
                 )
-            )
+            else:
+                # ---- Path 3: transfer heuristic ----
+                prob_first_wins, mean_margin, share_first, share_second = _compute_transfer_outcome(
+                    election_day,
+                    all_candidate_keys,
+                    first,
+                    second,
+                    transfer_rates,
+                )
+                share_rest = float("nan")
         else:
+            # ---- Path 3: transfer heuristic ----
             prob_first_wins, mean_margin, share_first, share_second = _compute_transfer_outcome(
                 election_day,
                 all_candidate_keys,
