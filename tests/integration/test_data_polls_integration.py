@@ -236,8 +236,8 @@ class TestLoadAndCleanAllEmptyRounds:
             pytest.skip("No round2 rows available to test empty guard.")
         remove_indices = round2_df.index.tolist()
 
-        def fake_infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
-            result = infer_round_number(df)
+        def fake_infer_round_number(df: pd.DataFrame, **kwargs: object) -> pd.DataFrame:
+            result = infer_round_number(df, **kwargs)
             result.loc[remove_indices, "round_number"] = pd.NA
             result["round_number"] = result["round_number"].astype("Int64")
             return result
