@@ -504,9 +504,20 @@ POLLSTER_RATINGS: dict[str, float] = {
     "Mosqueteros": 1.00,
 }
 
+POLLSTER_RATINGS_2026: dict[str, float] = {
+    "GAD3": 6.2,
+    "Atlas Intel": 5.9,
+    "CNC": 5.8,
+    "Invamer": 5.3,
+    "Guarumo": 5.1,
+    "Genesis Crea": 2.0,
+    "Tempo": 2.0,
+    "Corp MMM": 2.0,
+}
+
 POLLSTER_RATINGS_BY_YEAR: dict[int, dict[str, float]] = {
     2022: POLLSTER_RATINGS,
-    2026: {},
+    2026: POLLSTER_RATINGS_2026,
 }
 
 

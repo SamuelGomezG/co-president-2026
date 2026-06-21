@@ -649,10 +649,13 @@ class TestYearAgnosticHelpers:
         ratings = get_pollster_ratings(2022)
         assert ratings == POLLSTER_RATINGS
 
-    def test_get_pollster_ratings_empty_year(self) -> None:
-        """Verify ValueError for an empty year registry."""
-        with pytest.raises(ValueError, match="POLLSTER_RATINGS registry for year 2026 is empty"):
-            get_pollster_ratings(2026)
+    def test_get_pollster_ratings_2026(self) -> None:
+        """Verify 2026 pollster ratings are returned."""
+        ratings = get_pollster_ratings(2026)
+        assert isinstance(ratings, dict)
+        assert len(ratings) > 0
+        assert "CNC" in ratings
+        assert ratings["CNC"] == 5.8
 
     def test_get_consultation_votes_2022(self) -> None:
         """Verify 2022 consultation votes are returned."""
