@@ -1,0 +1,38 @@
+path: data/2022-polls/as_coa
+purpose: "AS/COA poll tracker data"
+category: data
+specs: [SPEC-25]
+files:
+  - name: extract.py
+    role: key
+    type: module
+    description: "Our AS/COA data extraction script"
+    spec: SPEC-25
+  - name: README.md
+    role: secondary
+    type: markdown
+    description: "Our documentation"
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Our package init"
+  - name: round1.csv
+    role: key
+    type: csv
+    description: "AS/COA R1 poll data (external, not tracked)"
+  - name: round1_raw.json
+    role: secondary
+    type: json
+    description: "Raw R1 data (external, not tracked)"
+  - name: runoff.csv
+    role: key
+    type: csv
+    description: "AS/COA runoff poll data (external, not tracked)"
+  - name: runoff_raw.json
+    role: secondary
+    type: json
+    description: "Raw runoff data (external, not tracked)"
+  - name: transfer_matrix.csv
+    role: secondary
+    type: csv
+    description: "Empirical transfer rates (external, not tracked)"

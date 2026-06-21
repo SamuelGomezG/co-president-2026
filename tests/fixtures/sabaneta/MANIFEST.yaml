@@ -1,0 +1,5 @@
+path: tests/fixtures/sabaneta
+purpose: "Sabaneta Cámara 2002-2022 fixture for ingestion tests"
+category: test
+specs: [SPEC-16]
+files: []

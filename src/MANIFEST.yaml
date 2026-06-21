@@ -1,0 +1,8 @@
+path: src
+purpose: "Source directory for the co_president Python package"
+category: source
+specs: []
+files: []
+subdirs:
+  - name: co_president
+    purpose: "Core Python package — Bayesian models, data loading, ingestion, benchmarks"

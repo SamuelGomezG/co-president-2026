@@ -1,0 +1,36 @@
+path: src/co_president/benchmarks
+purpose: "ML benchmark suite for comparison with Bayesian models"
+category: source
+specs: [SPEC-37, SPEC-41]
+files:
+  - name: transforms.py
+    role: key
+    type: module
+    description: "Compositional ALR/ILR/CLR transforms"
+    spec: SPEC-37
+    exports: [alr_transform, ilr_transform, clr_transform]
+    imports: [numpy]
+  - name: fnn_clr.py
+    role: key
+    type: module
+    description: "FNN+CLR feedforward neural network (USANTOMAS benchmark)"
+    spec: SPEC-41
+    exports: [train_fnn_clr]
+    imports: [numpy, pandas, sklearn]
+  - name: runner.py
+    role: key
+    type: module
+    description: "Benchmark runner: train/evaluate all ML models"
+    spec: SPEC-41
+    exports: [run_benchmarks]
+    imports: [numpy, pandas, sklearn]
+  - name: terridata.py
+    role: secondary
+    type: module
+    description: "TerriData fiscal feature loader"
+    imports: [pandas, pathlib]
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Package init"
+subdirs: []

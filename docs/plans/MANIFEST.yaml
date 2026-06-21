@@ -1,0 +1,14 @@
+path: docs/plans
+purpose: "Future work plans (not yet fully implemented)"
+category: docs
+specs: [SPEC-31, SPEC-32, SPEC-33, SPEC-34, SPEC-35, SPEC-36]
+files:
+  - name: PLAN_cne_2026_ingestion.md
+    role: key
+    type: markdown
+    description: "CNE microdata integration for 2026 forecast (SPEC-31 through SPEC-36)"
+    spec: SPEC-31
+  - name: PLAN_demographic_ingestion.md
+    role: key
+    type: markdown
+    description: "Demographic data ingestion plan (SPEC-15 through SPEC-30, mostly shipped)"

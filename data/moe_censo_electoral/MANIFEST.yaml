@@ -1,0 +1,5 @@
+path: data/moe_censo_electoral
+purpose: "Data directory. See docs/data/ for full data source reports."
+category: data
+specs: []
+files: []

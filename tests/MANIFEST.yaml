@@ -1,0 +1,84 @@
+path: tests
+purpose: "Pytest test suite mirroring src/ one-to-one"
+category: test
+specs: [SPEC-01, SPEC-02, SPEC-03, SPEC-04, SPEC-05, SPEC-06, SPEC-07, SPEC-08, SPEC-09]
+files:
+  - name: test_config.py
+    role: key
+    type: module
+    description: "Candidate, ModelConfig, constants, formulas, SPEC-02 tests"
+    spec: SPEC-02
+  - name: test_model.py
+    role: key
+    type: module
+    description: "Model graph tests, prior predictive, convergence, sanity (SPEC-06/07/08/22)"
+    spec: SPEC-06
+  - name: test_data_polls.py
+    role: key
+    type: module
+    description: "Poll loading, cleaning, undecided redistribution, deduplication"
+    spec: SPEC-04
+  - name: test_data_results.py
+    role: key
+    type: module
+    description: "Results consolidation, cross-validation, RoundResult dataclass"
+    spec: SPEC-03
+  - name: test_aggregation.py
+    role: key
+    type: module
+    description: "Weighted averages, time decay, evolution series"
+    spec: SPEC-05
+  - name: test_validation.py
+    role: key
+    type: module
+    description: "Backtesting metrics, CI coverage, forecast dataclasses"
+    spec: SPEC-09
+  - name: test_data.py
+    role: secondary
+    type: module
+    description: "Data loading facade tests"
+  - name: test_model_integration.py
+    role: secondary
+    type: module
+    description: "End-to-end model integration tests"
+  - name: test_ingestion_cnpv.py
+    role: secondary
+    type: module
+    description: "CNPV 2018 census ingestion tests"
+  - name: test_ingestion_nbi.py
+    role: secondary
+    type: module
+    description: "NBI poverty ingestion tests"
+  - name: test_fundamentals_features.py
+    role: secondary
+    type: module
+    description: "MunicipalFeatures dataclass, CLR transform tests"
+  - name: test_benchmarks.py
+    role: secondary
+    type: module
+    description: "ML benchmark tests"
+  - name: conftest.py
+    role: secondary
+    type: module
+    description: "Shared pytest fixtures: data_dir, sample DataFrames"
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Package init"
+  - name: test_aggregation_baseline.py
+    role: secondary
+    type: module
+    description: "Aggregation baseline tests"
+  - name: test_cli.py
+    role: secondary
+    type: module
+    description: "CLI entry point tests (SPEC-10)"
+  - name: test_compositional.py
+    role: secondary
+    type: module
+    description: "Compositional data transform tests"
+subdirs:
+  - name: fixtures
+    purpose: "Test fixtures: synthetic data, mini DataFrames"
+  - name: integration
+    purpose: "Integration tests: end-to-end pipeline"

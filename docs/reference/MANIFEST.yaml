@@ -1,0 +1,9 @@
+path: docs/reference
+purpose: "Derived analytical documents from academic PDFs and tech guides"
+category: docs
+specs: []
+files:
+  - name: gap_analysis_pdfs_2026-06-12.md
+    role: key
+    type: markdown
+    description: "P68 gap analysis: 68 techniques from 8 PDFs with implementation status"

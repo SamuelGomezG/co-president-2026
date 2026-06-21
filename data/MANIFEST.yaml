@@ -1,0 +1,18 @@
+path: data
+purpose: "Data files — raw external and processed/derived"
+category: data
+specs: []
+files: []
+subdirs:
+  - name: fundamentals
+    purpose: "Processed demographic and historical feature CSVs"
+  - name: processed
+    purpose: "Generated municipal feature matrices"
+  - name: 2022-polls
+    purpose: "2022 poll CSV files (encuestas_2022, consultas, AS/COA)"
+  - name: 2022-presidential-results
+    purpose: "2022 election results (Registraduria, MOE)"
+  - name: 2026-polls
+    purpose: "2026 CNE poll microdata (23 ZIP bundles)"
+  - name: 2026-elections
+    purpose: "2026 election data (presidential/legislative results)"

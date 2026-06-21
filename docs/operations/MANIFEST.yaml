@@ -1,0 +1,9 @@
+path: docs/operations
+purpose: "Infrastructure and data management documentation"
+category: docs
+specs: []
+files:
+  - name: data-files.md
+    role: key
+    type: markdown
+    description: "Data file inventory for the project"

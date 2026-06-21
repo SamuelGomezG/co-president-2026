@@ -1,0 +1,24 @@
+path: src/co_president/fundamentals
+purpose: "Municipal features API — loading, validation, CLR/logit transforms"
+category: source
+specs: [SPEC-21, SPEC-37]
+files:
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Re-exports load_features, MunicipalFeatures"
+  - name: features.py
+    role: key
+    type: module
+    description: "MunicipalFeatures dataclass, load_features(), CLR/logit transforms, z-scoring"
+    spec: SPEC-21
+    exports: [MunicipalFeatures, load_features, HistoricalRecord]
+    imports: [pandas, numpy, dataclasses, typing]
+  - name: compositional.py
+    role: secondary
+    type: module
+    description: "Zero-share imputation for compositional data, zero-floor"
+    spec: SPEC-37
+    exports: [_apply_zero_floor, impute_zero_shares]
+    imports: [numpy]
+subdirs: []

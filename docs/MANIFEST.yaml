@@ -1,0 +1,26 @@
+path: docs
+purpose: "Project documentation — architecture, results, data, plans, reference, specs"
+category: docs
+specs: []
+files:
+  - name: README.md
+    role: key
+    type: markdown
+    description: "Docs directory index with links to all subdirectories"
+subdirs:
+  - name: architecture
+    purpose: "Architectural rationale: model design, honest forecast, sampling, features, packages"
+  - name: data
+    purpose: "Data source executive reports for all data sources"
+  - name: results
+    purpose: "Backtest and forward forecast tables"
+  - name: reference
+    purpose: "Derived gap analysis from academic PDFs"
+  - name: specs
+    purpose: "SPEC implementation status tracker"
+  - name: plans
+    purpose: "Future work plans (CNE 2026, demographic ingestion)"
+  - name: archive
+    purpose: "Superseded planning documents"
+  - name: operations
+    purpose: "Infrastructure and data management documentation"

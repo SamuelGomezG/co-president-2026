@@ -1,0 +1,121 @@
+path: src/co_president
+purpose: "Core Python package for Bayesian election forecasting"
+category: source
+specs: [SPEC-02, SPEC-03, SPEC-04, SPEC-05, SPEC-06, SPEC-07, SPEC-08, SPEC-09, SPEC-10, SPEC-22, SPEC-30]
+files:
+  - name: config.py
+    role: key
+    type: module
+    description: "Candidate dataclass, ModelConfig hyperparameters, election dates, pollster ratings"
+    spec: SPEC-02
+    exports: [Candidate, ModelConfig, FIRST_ROUND_CANDIDATES, POLLSTER_RATINGS, ELECTION_DATE_ROUND1, ELECTION_DATE_ROUND2]
+    imports: [dataclasses, datetime, math, statistics, typing]
+  - name: model_round1.py
+    role: key
+    type: module
+    description: "Dirichlet-Multinomial + reverse-time RW + hierarchical house effects (first round)"
+    spec: SPEC-06
+    exports: [build_round1_model, sample_round1, forecast_round1, CandidateForecast, Round1Forecast]
+    imports: [pymc, numpy, arviz, pandas, config, data_polls]
+  - name: model_runoff_simple.py
+    role: key
+    type: module
+    description: "K=3 Dirichlet runoff model with drift, transfer prior, rest_blanco override"
+    spec: SPEC-07
+    exports: [build_runoff_simple_model, sample_runoff, forecast_runoff_simple, RunoffForecast]
+    imports: [pymc, numpy, arviz, pandas, config, data_polls]
+  - name: model_runoff_matrix.py
+    role: key
+    type: module
+    description: "Probabilistic pairing matrix from R1 posterior + transfer rates"
+    spec: SPEC-08
+    exports: [compute_top_two_probabilities, estimate_runoff_matrix, RunoffMatrix, PairingForecast]
+    imports: [numpy, config, data, model_runoff_simple, model_utils]
+  - name: model_municipal.py
+    role: key
+    type: module
+    description: "Hierarchical municipal model: demographics → per-municipality vote shares"
+    spec: SPEC-22
+    exports: [build_municipal_model, sample_municipal_model]
+    imports: [pymc, numpy, pandas, config, fundamentals, ingestion]
+  - name: model_transfer.py
+    role: key
+    type: module
+    description: "Bayesian ecological inference for runoff transfer rates (2010/2014/2018 training)"
+    spec: SPEC-30
+    exports: [build_transfer_model, sample_transfer_rates]
+    imports: [pymc, numpy, arviz, pandas, config]
+  - name: model_utils.py
+    role: key
+    type: module
+    description: "Shared model utilities: get_election_day_array, extract_election_day_shares"
+    exports: [get_election_day_array, extract_election_day_shares]
+    imports: [numpy, arviz, config]
+  - name: data.py
+    role: key
+    type: module
+    description: "Re-export facade: load_and_clean_all, load_canonical_results"
+    exports: [load_and_clean_all, load_canonical_results, CleanPolls, RoundResult, CandidateResult]
+  - name: data_polls.py
+    role: key
+    type: module
+    description: "Poll loading, cleaning, undecided redistribution, deduplication"
+    spec: SPEC-04
+    exports: [load_and_clean_all, merge_digital_signals, CleanPolls]
+    imports: [pandas, numpy, config, paths]
+  - name: data_results.py
+    role: key
+    type: module
+    description: "Results consolidation: Registraduría + MOE cross-validation"
+    spec: SPEC-03
+    exports: [load_canonical_results, RoundResult, CandidateResult]
+    imports: [pandas, numpy, config, paths]
+  - name: aggregation.py
+    role: key
+    type: module
+    description: "Baseline weighted polling averages: time decay, sample size, pollster quality"
+    spec: SPEC-05
+    exports: [combined_weight, weighted_average, evolution_series, aggregation_snapshot]
+    imports: [pandas, numpy, config]
+  - name: validation.py
+    role: key
+    type: module
+    description: "Backtesting metrics: MAE, RMSE, Brier, calibration, rolling forecasts"
+    spec: SPEC-09
+    exports: [compute_r1_accuracy, compute_r2_accuracy, check_convergence]
+    imports: [numpy, arviz, pandas, config, model_utils]
+  - name: plotting.py
+    role: key
+    type: module
+    description: "Visualization: evolution plots, calibration, error, interactive maps"
+    spec: SPEC-09
+    imports: [matplotlib, numpy, pandas]
+  - name: __main__.py
+    role: key
+    type: module
+    description: "CLI entry point: run, aggregate, validate, plot, ingest, forecast, config"
+    spec: SPEC-10
+    imports: [click, config, data, aggregation, model_round1, model_runoff_simple, model_runoff_matrix, validation, plotting]
+  - name: _data_quality.py
+    role: secondary
+    type: module
+    description: "Pollster accuracy monitoring, time decay validation, methodology effects"
+    spec: SPEC-11
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Package version: __version__ = '0.1.0'"
+  - name: paths.py
+    role: secondary
+    type: module
+    description: "Data directory resolution via PROJECT_DIR"
+    spec: SPEC-01
+subdirs:
+  - name: ingestion
+    purpose: "Data acquisition pipelines: trends, census, historical results, risk"
+  - name: fundamentals
+    purpose: "MunicipalFeatures dataclass, CLR transforms, feature loading"
+  - name: validation
+    purpose: "Extended validation: compositional data, municipal OOS"
+  - name: benchmarks
+    purpose: "ML benchmark suite: FNN+CLR, SVR, RF, GB, KNN"

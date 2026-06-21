@@ -1,0 +1,41 @@
+path: docs/data
+purpose: "Data source executive reports"
+category: docs
+specs: []
+files:
+  - name: README.md
+    role: key
+    type: markdown
+    description: "Directory index"
+  - name: polls.md
+    role: key
+    type: markdown
+    description: "Poll data: 2022 CSVs, 2026 CNE microdata, La Silla Vacia"
+  - name: election-results.md
+    role: key
+    type: markdown
+    description: "Official results: Registraduria, MOE, participation"
+  - name: census-demographics.md
+    role: key
+    type: markdown
+    description: "DANE census: CNPV 2018, NBI, IPM, population"
+  - name: historical-results.md
+    role: key
+    type: markdown
+    description: "CEDAE 2002-2018, MOE legislative, Sabaneta"
+  - name: risk-and-conflict.md
+    role: key
+    type: markdown
+    description: "MOE risk, PDET, INDEPAZ, UNODC"
+  - name: digital-signals.md
+    role: key
+    type: markdown
+    description: "Google Trends: methodology, query maps, bias documentation"
+  - name: geographic-reference.md
+    role: key
+    type: markdown
+    description: "DIVIPOLA, Bogota localidades"
+  - name: 2026-candidate-config.md
+    role: key
+    type: markdown
+    description: "2026 timeline, pollster ratings, differences from 2022"

@@ -1,0 +1,61 @@
+path: data/fundamentals
+purpose: "Processed demographic and historical feature CSVs (our derived data)"
+category: data
+specs: [SPEC-12, SPEC-14, SPEC-17, SPEC-18, SPEC-19, SPEC-20]
+files:
+  - name: divipola_master.csv
+    role: key
+    type: csv
+    description: "DIVIPOLA municipality registry: codes, departments, regions"
+    spec: SPEC-12
+  - name: historical_results.csv
+    role: key
+    type: csv
+    description: "Per-municipality election results 2002-2022"
+    spec: SPEC-12
+  - name: cnpv_2018.csv
+    role: key
+    type: csv
+    description: "CNPV 2018 census demographics"
+    spec: SPEC-17
+  - name: nbi_2018.csv
+    role: key
+    type: csv
+    description: "NBI poverty rates (primary poverty feature)"
+    spec: SPEC-18
+  - name: ipm_2018.csv
+    role: secondary
+    type: csv
+    description: "IPM multidimensional poverty (secondary)"
+    spec: SPEC-18
+  - name: population_2018_2026.csv
+    role: key
+    type: csv
+    description: "Population projections per municipality 2018-2026"
+    spec: SPEC-19
+  - name: risk_factors.csv
+    role: key
+    type: csv
+    description: "MOE risk levels, PDET, INDEPAZ armed groups, UNODC coca"
+    spec: SPEC-20
+  - name: socioeconomic.csv
+    role: secondary
+    type: csv
+    description: "Socioeconomic demographics (partially stub)"
+  - name: fiscal.csv
+    role: secondary
+    type: csv
+    description: "Fiscal autonomy indicators from TerriData"
+  - name: sabaneta_camara.csv
+    role: secondary
+    type: csv
+    description: "Sabaneta Camara 2002-2022 fixture"
+    spec: SPEC-16
+  - name: historical_lagged_features.csv
+    role: secondary
+    type: csv
+    description: "Lagged CLR historical features"
+  - name: historical_turnout_moe.csv
+    role: secondary
+    type: csv
+    description: "Turnout MOE cross-validation"
