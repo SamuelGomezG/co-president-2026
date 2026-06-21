@@ -78,4 +78,4 @@ jobs:
       - if: needs.changes.outputs.python == 'true'
         run: uv sync --extra dev
       - if: needs.changes.outputs.python == 'true'
-        run: uv run pytest tests/ -v --ignore=tests/test_model.py --cov=src/co_president --cov-report=term-missing --cov-report=xml
+        run: uv run pytest tests/ -v -m "not slow" --ignore=tests/test_model.py --cov=src/co_president --cov-report=term-missing --cov-report=xml

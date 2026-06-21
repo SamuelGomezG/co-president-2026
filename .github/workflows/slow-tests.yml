@@ -30,4 +30,4 @@ jobs:
           uv pip install -e .
 
       - name: Run slow MCMC tests
-        run: uv run pytest tests/test_model.py -v -m "slow" --cov=src/co_president --cov-report=xml
+        run: uv run pytest tests/test_model.py tests/test_model_municipal.py tests/test_validation_municipal_oos.py -v -m "slow" --cov=src/co_president --cov-report=xml

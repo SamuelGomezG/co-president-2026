@@ -283,23 +283,24 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             sigma=np.array([0.5, _theta_rest_sigma]),
             shape=2,
         )
-        rw_raw = pm.Normal(  # type: ignore
-            "rw_raw",
-            mu=0,
-            sigma=1,
-            shape=(n_time_points - 1, 2),
-        )
-        # RW drift: extrapolates poll-level trends (e.g., Petro rising in 2022).
-        # mu=0 (no prior assumption on direction), sigma=0.02 in logit space
-        # ≈ 0.5pp/day in probability space.
-        drift = pm.Normal("drift", mu=0, sigma=0.02, shape=2)  # type: ignore[reportUnknownMemberType]
-        theta_increments = sigma_rw * rw_raw + drift  # type: ignore[reportUnknownVariableType]
-        theta_cumulative = pt.cumsum(theta_increments, axis=0)  # type: ignore[reportUnknownMemberType]
-        # Build forward from farthest to closest (T, 2)
-        theta_forward = pt.concatenate(  # type: ignore[reportUnknownMemberType]
-            [theta_0[None, :], theta_0[None, :] + theta_cumulative],
-            axis=0,
-        )
+        # Reverse-time random walk with drift (skipped when only 1 time point —
+        # empty RV shapes cause NUTS sampler failure with nutpie and numpyro).
+        if n_time_points > 1:
+            rw_raw = pm.Normal(  # type: ignore
+                "rw_raw",
+                mu=0,
+                sigma=1,
+                shape=(n_time_points - 1, 2),
+            )
+            drift = pm.Normal("drift", mu=0, sigma=0.02, shape=2)  # type: ignore[reportUnknownMemberType]
+            theta_increments = sigma_rw * rw_raw + drift  # type: ignore[reportUnknownVariableType]
+            theta_cumulative = pt.cumsum(theta_increments, axis=0)  # type: ignore[reportUnknownMemberType]
+            theta_forward = pt.concatenate(  # type: ignore[reportUnknownMemberType]
+                [theta_0[None, :], theta_0[None, :] + theta_cumulative],
+                axis=0,
+            )
+        else:
+            theta_forward = theta_0[None, :]  # type: ignore[assignment]
         # Reverse so index 0 = closest to election (matching p_time[0] = election)
         theta_free_stacked = theta_forward[::-1]  # type: ignore[reportUnknownVariableType]
         zero_a = pm.math.zeros((n_time_points, 1))  # type: ignore

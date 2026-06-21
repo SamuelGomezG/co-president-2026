@@ -235,24 +235,38 @@ def test_round1_forecast_json_roundtrip() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_3row_runoff_polls_round2() -> pd.DataFrame:
-    """Return a 3-row synthetic Round 2 DataFrame with Petro, Hernandez, blanco."""
+def _make_6row_runoff_polls_round2() -> pd.DataFrame:
+    """Return a 6-row synthetic Round 2 DataFrame with Petro, Hernandez, blanco."""
     return pd.DataFrame(
         {
-            "fecha": ["2022-06-19", "2022-06-19", "2022-06-19"],
-            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
-            "muestra": [1000, 1000, 1000],
-            "gustavo_petro": [52.0, 51.0, 50.0],
-            "rodolfo_hernandez": [48.0, 49.0, 50.0],
-            "blanco": [0.0, 0.0, 0.0],
-            "round_number": [2, 2, 2],
+            "fecha": [
+                "2022-06-19",
+                "2022-06-19",
+                "2022-06-19",
+                "2022-06-15",
+                "2022-06-15",
+                "2022-06-15",
+            ],
+            "encuestadora": [
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+            ],
+            "muestra": [1000, 1000, 1000, 1000, 1000, 1000],
+            "gustavo_petro": [52.0, 51.0, 50.0, 53.0, 52.0, 51.0],
+            "rodolfo_hernandez": [48.0, 49.0, 50.0, 47.0, 48.0, 49.0],
+            "blanco": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "round_number": [2, 2, 2, 2, 2, 2],
         }
     )
 
 
 def test_build_runoff_simple_model_graph() -> None:
     """Test that the runoff model builds with correct graph structure (K=3)."""
-    polls = _make_3row_runoff_polls_round2()
+    polls = _make_6row_runoff_polls_round2()
     results = _make_round1_result()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
 
@@ -269,7 +283,7 @@ def test_build_runoff_simple_model_graph() -> None:
 
 def test_build_runoff_simple_model_prior_predictive() -> None:
     """Test that runoff prior predictive samples produce valid shares in [0, 1]."""
-    polls = _make_3row_runoff_polls_round2()
+    polls = _make_6row_runoff_polls_round2()
     results = _make_round1_result()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
 
@@ -294,7 +308,7 @@ def test_build_runoff_simple_model_prior_predictive() -> None:
 
 def test_build_runoff_simple_model_zero_share_floor() -> None:
     """Zero-floor on runoff model: prior predictive valid despite zero-share polls."""
-    polls = _make_3row_runoff_polls_round2()  # blanco=[0,0,0]
+    polls = _make_6row_runoff_polls_round2()  # blanco=[0]*6
     results = _make_round1_result()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
 
@@ -311,7 +325,7 @@ def test_build_runoff_simple_model_zero_share_floor() -> None:
 
 def test_build_runoff_simple_model_informative_prior() -> None:
     """Test that providing round1_idata produces a valid model."""
-    polls = _make_3row_runoff_polls_round2()
+    polls = _make_6row_runoff_polls_round2()
     results = _make_round1_result()
     config = ModelConfig()
 
@@ -336,7 +350,7 @@ def test_build_runoff_simple_model_informed_fallback() -> None:
     (~2.3%).  This test verifies that prior predictive samples center around
     the corrected shares.
     """
-    polls = _make_3row_runoff_polls_round2()
+    polls = _make_6row_runoff_polls_round2()
     results = _make_round1_result()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
 
@@ -893,17 +907,32 @@ def test_estimate_runoff_matrix_uses_head_to_head_polls() -> None:
         mcmc_chains=2,
         mcmc_cores=2,
         seed=42,
+        nuts_sampler="numpyro",
     )
 
     round2_polls = pd.DataFrame(
         {
-            "fecha": ["2022-06-19", "2022-06-19", "2022-06-19"],
-            "encuestadora": ["PollsterA", "PollsterB", "PollsterC"],
-            "muestra": [1000, 1000, 1000],
-            "gustavo_petro": [52.0, 51.0, 50.0],
-            "rodolfo_hernandez": [48.0, 49.0, 50.0],
-            "blanco": [0.0, 0.0, 0.0],
-            "round_number": [2, 2, 2],
+            "fecha": [
+                "2022-06-19",
+                "2022-06-19",
+                "2022-06-19",
+                "2022-06-15",
+                "2022-06-15",
+                "2022-06-15",
+            ],
+            "encuestadora": [
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+                "PollsterA",
+                "PollsterB",
+                "PollsterC",
+            ],
+            "muestra": [1000, 1000, 1000, 1000, 1000, 1000],
+            "gustavo_petro": [52.0, 51.0, 50.0, 53.0, 52.0, 51.0],
+            "rodolfo_hernandez": [48.0, 49.0, 50.0, 47.0, 48.0, 49.0],
+            "blanco": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "round_number": [2, 2, 2, 2, 2, 2],
         }
     )
 

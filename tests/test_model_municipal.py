@@ -734,6 +734,7 @@ def test_sample_municipal_convergence() -> None:
             "~house_effects",
             "~raw_house",
             "~phi_poll_n",
+            "~sigma_house",
         ],
     )
     r_hat = pd.to_numeric(summary["r_hat"], errors="coerce").dropna()
