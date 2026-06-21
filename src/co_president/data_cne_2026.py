@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 import numpy as np
 import pandas as pd
 
-from co_president.config import FIRST_ROUND_CANDIDATES_2026
+from co_president.config import FIRST_ROUND_CANDIDATES_2026, get_election_date
+from co_president.data_polls import CleanPolls
 from co_president.paths import resolve_data_dir
 
 logger = logging.getLogger(__name__)
@@ -1021,3 +1022,78 @@ def build_cne_2026_tables(
         logger.info("Wrote %d rows to 2026_runoff_pairings.parquet", len(all_runoff))
 
     return all_topline, all_runoff
+
+
+def build_clean_polls_2026(
+    data_dir: Path | None = None,
+    *,
+    rebuild: bool = False,
+) -> CleanPolls:
+    """Build a CleanPolls instance from 2026 CNE topline data.
+
+    SPEC-33: Loads processed 2026 topline and runoff-pairing parquet files,
+    splits by election round based on ``field_end`` date, and wraps the
+    result in a typed ``CleanPolls`` container.
+
+    Args:
+        data_dir: Optional override for the project data directory.
+        rebuild: If ``True`` (or the processed parquet files are missing),
+            rebuild them via ``build_cne_2026_tables`` before loading.
+
+    Returns:
+        ``CleanPolls`` with ``round1`` (polls whose ``field_end`` is on or
+        before the 2026 first-round election date), ``round2`` (polls after
+        that date), ``consultation=[]``, and ``all_polls`` (the full
+        concatenation of both rounds).
+
+    Raises:
+        ValueError: If round pollster diversity fails validation in
+            ``CleanPolls.__post_init__`` (e.g., fewer than 5 unique
+            pollsters in round 1 when data is not AS/COA-only).
+
+    """
+    r1_date = get_election_date(2026, 1)
+    _empty_template = pd.DataFrame(columns=["encuestadora"])
+
+    out_dir = _resolve_2026_dir(data_dir) / "_processed"
+    topline_path = out_dir / "2026_topline.parquet"
+    runoff_path = out_dir / "2026_runoff_pairings.parquet"
+
+    if rebuild or not topline_path.exists():
+        build_cne_2026_tables(data_dir=data_dir)
+
+    topline = pd.read_parquet(topline_path) if topline_path.exists() else pd.DataFrame()
+    _ = pd.read_parquet(runoff_path) if runoff_path.exists() else None
+
+    if topline.empty:
+        return CleanPolls(
+            round1=_empty_template.copy(),
+            round2=_empty_template.copy(),
+            consultation=[],
+            all_polls=_empty_template.copy(),
+        )
+
+    field_end = pd.to_datetime(topline["field_end"]).dt.date
+    round1_mask = field_end <= r1_date
+
+    round1_df = topline[round1_mask].copy()
+    round2_df = topline[~round1_mask].copy()
+
+    if round1_df.empty:
+        round1_df = _empty_template.copy()
+    else:
+        round1_df["round_number"] = 1
+
+    if round2_df.empty:
+        round2_df = _empty_template.copy()
+    else:
+        round2_df["round_number"] = 2
+
+    all_polls = pd.concat([round1_df, round2_df], ignore_index=True)
+
+    return CleanPolls(
+        round1=round1_df,
+        round2=round2_df,
+        consultation=[],
+        all_polls=all_polls,
+    )
