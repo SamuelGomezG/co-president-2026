@@ -23,8 +23,8 @@ import pymc as pm  # type: ignore[reportMissingTypeStubs]
 import pytensor.tensor as pt  # type: ignore[reportMissingTypeStubs]
 
 from co_president.config import (
-    ELECTION_DATE_ROUND2,
-    FIRST_ROUND_CANDIDATES,
+    get_active_candidates,
+    get_election_date,
 )
 from co_president.data_polls import merge_digital_signals
 from co_president.fundamentals.compositional import (
@@ -106,6 +106,7 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     features: pd.DataFrame | None = None,
     digital_signals: pd.DataFrame,
     round2_result: RoundResult | None = None,
+    year: int = 2022,
 ) -> pm.Model:
     """Build the PyMC model graph for the runoff (K=3).
 
@@ -136,6 +137,7 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             ``config.concentration_election_prior_mean > 100000``, adds a
             fixed-concentration DirichletMultinomial likelihood for the
             election-day posterior (goodness-of-fit backtest mode).
+        year: Election year (default 2022).
 
     Returns:
         pm.Model: Constructed PyMC model.
@@ -164,7 +166,9 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     cand_b_key = top_two[1].candidate_key
 
     # Build K=3 columns: [cand_a, cand_b, rest_blanco]
-    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
+    candidate_keys = sorted(
+        {c.key for c in get_active_candidates(1, year=year)} & set(polls.columns)
+    )
 
     if cand_a_key not in polls.columns or cand_b_key not in polls.columns:
         msg = f"Runoff candidates {cand_a_key}, {cand_b_key} not found in polls"
@@ -186,7 +190,8 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             raise ValueError(msg)
 
     # Time index anchored on runoff election date
-    work["days_before"] = (pd.Timestamp(ELECTION_DATE_ROUND2) - work["fecha"]).dt.days
+    election_day_r2 = get_election_date(year, 2)
+    work["days_before"] = (pd.Timestamp(election_day_r2) - work["fecha"]).dt.days
     unique_days = sorted(work["days_before"].unique())
     n_time_points = len(unique_days)
     day_to_idx = {day: i for i, day in enumerate(unique_days)}
@@ -228,7 +233,7 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     # a_idx / b_idx rely on this ordering to correctly extract posterior means
     # for the two runoff candidates.
     if round1_idata is not None:
-        candidate_order = sorted(FIRST_ROUND_CANDIDATES.keys())
+        candidate_order = sorted(c.key for c in get_active_candidates(1, year=year))
         a_idx = candidate_order.index(cand_a_key)
         b_idx = candidate_order.index(cand_b_key)
 
@@ -402,7 +407,7 @@ def build_runoff_simple_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 # SciELO 2023: T-1 achieves 1.86pp error vs 6.56pp on election
                 # day. Add a strong Beta observation on the closest-to-election
                 # vote shares using the T-1 digital signal values.
-                _t1_date = pd.Timestamp(ELECTION_DATE_ROUND2) - pd.Timedelta(days=1)
+                _t1_date = pd.Timestamp(election_day_r2) - pd.Timedelta(days=1)
                 _t1_row = digital_signals[digital_signals["fecha"] == _t1_date]
                 if not _t1_row.empty:
                     _t1_cols = [c for c in (cand_a_key, cand_b_key) if c in _t1_row.columns]
