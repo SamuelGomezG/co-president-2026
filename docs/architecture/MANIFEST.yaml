@@ -1,0 +1,29 @@
+path: docs/architecture
+purpose: "Architectural rationale with academic citations"
+category: docs
+specs: []
+files:
+  - name: overview.md
+    role: key
+    type: markdown
+    description: "Pipeline diagram, model layers, data flow, key design principles"
+  - name: model-design.md
+    role: key
+    type: markdown
+    description: "Dirichlet-Multinomial, reverse-time RW, K=3, drift, non-centered rationale"
+  - name: honest-forecast.md
+    role: key
+    type: markdown
+    description: "No R2 leakage, transfer prior, drift, rest/blanco override, blanco prior"
+  - name: features.md
+    role: key
+    type: markdown
+    description: "Complete feature catalog by module and source"
+  - name: sampling-strategy.md
+    role: key
+    type: markdown
+    description: "numpyro, non-centered parameterization, phi_elec fix, convergence diagnostics"
+  - name: packages.md
+    role: secondary
+    type: markdown
+    description: "Package organization rationale and test structure"

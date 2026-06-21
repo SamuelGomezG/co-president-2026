@@ -1,0 +1,27 @@
+path: data/processed
+purpose: "Generated feature matrices (our derived data)"
+category: data
+specs: [SPEC-14]
+files:
+  - name: municipal_feature_matrix.csv
+    role: key
+    type: csv
+    description: "Full municipal feature matrix (1,143 rows x ~50 columns)"
+    spec: SPEC-14
+  - name: municipal_feature_matrix.parquet
+    role: key
+    type: parquet
+    description: "Same matrix in Parquet format (faster loading)"
+    spec: SPEC-14
+  - name: feature_dictionary.md
+    role: secondary
+    type: markdown
+    description: "Auto-generated data dictionary"
+  - name: build_summary.json
+    role: secondary
+    type: json
+    description: "Build statistics"
+  - name: terridata_fiscal.parquet
+    role: secondary
+    type: parquet
+    description: "TerriData fiscal features"

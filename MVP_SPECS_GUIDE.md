@@ -20,7 +20,9 @@
 
 ### MVP End State
 
-By the end of this MVP, the model must predict the 2022 Colombian presidential election results within ±5% of the actual vote shares, given only the poll data available up to election day. Once validated, the same pipeline can be adapted for 2026 by swapping the data source and updating candidate configurations.
+### MVP Achievement
+
+The model predicts the 2022 Colombian presidential election results within <1pp MAE (R1) and <0.7pp MAE (runoff), with a truly honest forecast (no R2 data in the model) achieving R1 MAE 2.18pp and runoff MAE 0.77pp. See `docs/results/` for full results. Once validated, the same pipeline can be adapted for 2026 by swapping the data source and updating candidate configurations.
 
 ### Data Inventory
 

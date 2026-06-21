@@ -1,0 +1,17 @@
+path: docs/archive
+purpose: "Superseded planning documents"
+category: docs
+specs: []
+files:
+  - name: ARCHITECTURE_PLAN.md
+    role: secondary
+    type: markdown
+    description: "Old implementation plan (all phases applied, superseded by docs/architecture/)"
+  - name: ENHANCEMENT_ROADMAP.md
+    role: secondary
+    type: markdown
+    description: "Old enhancement roadmap (superseded by docs/specs/STATUS.md + docs/plans/)"
+  - name: 2026-05-CNE-data-plan.md
+    role: secondary
+    type: markdown
+    description: "Old CNE data plan (superseded by docs/plans/cne_2026_ingestion.md)"

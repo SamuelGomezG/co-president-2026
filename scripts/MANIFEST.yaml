@@ -1,0 +1,38 @@
+path: scripts
+purpose: "CLI runners for backtesting, reports, and 2026 forecast"
+category: script
+specs: []
+files:
+  - name: run_100k_report.py
+    role: key
+    type: module
+    description: "Full 5000x4 backtest pipeline: R1 → runoff → report"
+    imports: [pandas, config, data, model_round1, model_runoff_matrix, report_utils]
+  - name: forward_backtest.py
+    role: key
+    type: module
+    description: "True forward backtest: both rounds without election results, logs accuracy"
+    imports: [pandas, numpy, arviz, config, data, model_transfer, model_runoff_simple, model_runoff_matrix]
+  - name: report_utils.py
+    role: key
+    type: module
+    description: "Shared utilities: survey runners, accuracy computation, report generation"
+    exports: [run_round1_survey, run_round2_survey, compute_r1_accuracy, compute_r2_accuracy, generate_report, save_reports, print_summary]
+    imports: [pandas, numpy, arviz, config, data, model_round1, model_runoff_matrix]
+  - name: run_2026_backtest.py
+    role: key
+    type: module
+    description: "2026 backtest with updated dates and candidate config"
+    imports: [pandas, config, data, model_round1]
+  - name: download_cnpv_2018.py
+    role: secondary
+    type: module
+    description: "CNPV 2018 census dept ZIP download script"
+  - name: plot_validation.py
+    role: secondary
+    type: module
+    description: "Validation plot generation"
+  - name: run_baseline.py
+    role: secondary
+    type: module
+    description: "Baseline weighted-averaging runner"

@@ -15,7 +15,7 @@ notebooks/**
 !notebooks/04-*.ipynb
 results/
 *.nc
-reference/
+/reference/
 *.egg-info/
 *.egg
 

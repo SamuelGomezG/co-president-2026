@@ -1,0 +1,13 @@
+path: benchmarks
+purpose: "Root-level ML benchmark scripts"
+category: script
+specs: []
+files:
+  - name: compositional_lme4.py
+    role: key
+    type: module
+    description: "LME4 mixed-effects benchmark using pymer4"
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Package init"

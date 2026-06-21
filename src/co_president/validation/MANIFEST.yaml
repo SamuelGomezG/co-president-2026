@@ -1,0 +1,22 @@
+path: src/co_president/validation
+purpose: "Extended validation modules — compositional data, OOS framework"
+category: source
+specs: [SPEC-26, SPEC-37]
+files:
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Re-exports from validation.py; serialization utilities"
+  - name: compositional.py
+    role: key
+    type: module
+    description: "Validation for compositional data: Aitchison distance, composite residuals"
+    spec: SPEC-37
+    imports: [numpy, pandas]
+  - name: municipal_oos.py
+    role: key
+    type: module
+    description: "Leave-one-year-out OOS validation framework"
+    spec: SPEC-26
+    imports: [pandas, numpy, config]
+subdirs: []

@@ -9,28 +9,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- docs/specs/STATUS.md — centralized SPEC status tracker
-- docs/README.md — documentation directory index
-- CONTRIBUTING.md — human-readable contribution guide
-- `docs/archive/` — superseded planning documents
-- SPEC-23 → SPEC-29: Extension feature shipments (MOE PDF X-validation, ECP signal, AS/COA polls, OOS validation, horseshoe regularization, 2026 forecast mode, generalization audit)
-- SPEC-30: Transfer-rate estimation model (`model_transfer.py`) with probabilistic pairing matrix
-- SPEC-37: Compositional ALR/ILR transforms for target-side application (`benchmarks/transforms.py`)
-- SPEC-38: Google Trends ingestion pipeline (`ingest_trends.py`, `trends_keywords.py`)
-- SPEC-39: Twitter sentiment pipeline (RoBERTuito, GPT-4o-mini, spam filter, sentiment series)
-- SPEC-40: Multi-election hierarchical model refactor for 2002-2026 training
-- SPEC-41: FNN+CLR ML benchmark with SVR/RF/GB/KNN baselines (R² 0.94)
-- `SPEC-41-FNN-CLR-BENCHMARK-REPORT.md` — FNN+CLR benchmark report documentation
+- docs/architecture/ — architecture directory with rationale docs (overview, model-design, honest-forecast, sampling-strategy, packages)
+- docs/results/ — result docs (2022-backtest.md, 2022-forward.md) documenting achieved accuracy
+- docs/plans/ — reorganized plan documents (moved from docs/)
+- docs/reference/ — research reference documents (moved from docs/)
+- RW with drift parameter for trend extrapolation in runoff model (`model_runoff_simple.py`)
+- Transfer-implied prior for runoff: R1 posterior → transfer rates → runoff anchor (replaces R1-share prior)
+- Rest_blanco prior override at historical runoff rate (~2.3%) to prevent absolute-share inflation
+- Config flag `use_digital_signals_runoff` (default False, guards biased 2022 digital signals)
+- True forward forecast mode: both rounds run without election results
 
 ### Changed
-- `AGENTS.md` — fixed PyMC version reference (≥6.0 → ≥5.15), removed stale pytest-fast hook claim, removed unavailable python-executor skill
-- `docs/specs/STATUS.md` — full SPEC status reconciliation (23→29 shipped, 30 in progress)
-- `ENHANCEMENT_ROADMAP.md` — updated scope header and last-updated date
-- `README.md` — updated project structure and specs roadmap
-- `.pre-commit-config.yaml` — removed stale pytest-fast hook
-- `.github/workflows/slow-tests.yml` — reconciled setup-uv to v6
-- `.gitignore` — added 2026 data dirs and parallel coverage artifacts
-- `pyproject.toml` — added PD013 per-file-ignore to model_municipal.py
+- Phi_elec: Gamma(funnel) → fixed path (`_PHI_ELEC_FIXED_THRESHOLD=0`, `concentration_election_prior_mean=5000`)
+  - Eliminated 1106 divergences → 0 divergences
+  - ESS bulk improved 303→595
+  - R1 MAE now 0.14pp (realistic, not reciting)
+- Blanco prior: 2.5%→2.0% (reduced error from +1.61pp to +0.20pp)
+- concentration_t1_boost: 2.0→0.0 (disabled T-1 digital signal in runoff — was biased toward Rodolfo)
+- estimate_runoff_matrix: round2_result always None (honest forecast, no R2 leakage)
+- `docs/features.md` → `docs/architecture/features.md` (moved)
+- `ARCHITECTURE_PLAN.md` → `docs/archive/` (all phases applied, superseded by architecture docs)
+- `ENHANCEMENT_ROADMAP.md` → `docs/archive/` (superseded by STATUS.md + plans/)
+- `docs/gap_analysis_pdfs_2026-06-12.md` → `docs/reference/`
+- `docs/PLAN_cne_2026_ingestion.md` → `docs/plans/`
+- `docs/PLAN_demographic_ingestion.md` → `docs/plans/`
 
 ### Removed
 - `HANDOFF.md`, `.pr_body.md`, `branch-protection-ci-removal.md` — root-level leftovers

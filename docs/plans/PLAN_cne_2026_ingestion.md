@@ -3,7 +3,7 @@
 **Author**: planning agent
 **Date**: 2026-06-03
 **Branch baseline**: `dev`
-**Reference docs**: `AGENTS.md`, `MVP_SPECS_GUIDE.md`, `ENHANCEMENT_ROADMAP.md`, `docs/PLAN_demographic_ingestion.md`
+**Reference docs**: `AGENTS.md`, `MVP_SPECS_GUIDE.md`, `docs/archive/ENHANCEMENT_ROADMAP.md`, `docs/plans/demographic_ingestion.md`
 **Critical constraints**:
 - (A) The model must support predicting the 2026 election, treating the 2022 framework as a reusable backbone. Backward compatibility with 2022 validation must be preserved.
 - (B) Respondent-level design weights (micro-weights) must be strictly separated from poll-level weights (macro-weights).

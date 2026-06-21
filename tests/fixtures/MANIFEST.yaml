@@ -1,0 +1,10 @@
+path: tests/fixtures
+purpose: "Test fixtures: synthetic data, mini DataFrames"
+category: test
+specs: []
+files: []
+subdirs:
+  - name: fundamentals
+    purpose: "Mini municipal feature matrix for fundamentals tests"
+  - name: sabaneta
+    purpose: "Sabaneta Cámara 2002-2022 fixture for ingestion tests"

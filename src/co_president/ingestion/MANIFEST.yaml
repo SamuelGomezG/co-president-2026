@@ -1,0 +1,91 @@
+path: src/co_president/ingestion
+purpose: "Data acquisition pipelines for the co-president-2026 model"
+category: source
+specs: [SPEC-12, SPEC-13, SPEC-16, SPEC-17, SPEC-18, SPEC-19, SPEC-20, SPEC-21a, SPEC-21b, SPEC-38]
+files:
+  - name: ingest_trends.py
+    role: key
+    type: module
+    description: "Google Trends data: pytrends fetch, prop_fav computation, decay function"
+    spec: SPEC-38
+    imports: [pandas, numpy, pytrends]
+  - name: trends_keywords.py
+    role: key
+    type: module
+    description: "Candidate query maps: 2022 single-name (Petro, Rodolfo, Fico, Fajardo)"
+    imports: [typing]
+  - name: ingest_divipola.py
+    role: key
+    type: module
+    description: "DIVIPOLA master registry via Socrata API, 1,122 municipalities"
+    spec: SPEC-12
+    imports: [pandas, requests, sodapy]
+  - name: ingest_historical.py
+    role: key
+    type: module
+    description: "CEDAE historical results 2002-2018, MOE legislative 2022, CLR features"
+    spec: SPEC-12
+    imports: [pandas, numpy, requests]
+  - name: ingest_cnpv.py
+    role: key
+    type: module
+    description: "CNPV 2018 census: ethnic composition, education, internet, age, housing"
+    spec: SPEC-17
+    imports: [pandas, zipfile, pathlib]
+  - name: ingest_nbi.py
+    role: key
+    type: module
+    description: "NBI poverty indicators (primary poverty feature, complete coverage)"
+    spec: SPEC-18
+    imports: [pandas, pathlib]
+  - name: ingest_ipm.py
+    role: secondary
+    type: module
+    description: "IPM multidimensional poverty (secondary, ~80% imputed)"
+    spec: SPEC-18
+    imports: [pandas, pathlib]
+  - name: ingest_population.py
+    role: key
+    type: module
+    description: "DANE population projections 2018-2026 per municipality"
+    spec: SPEC-19
+    imports: [pandas, pathlib]
+  - name: ingest_risk.py
+    role: key
+    type: module
+    description: "MOE electoral risk, PDET, INDEPAZ armed groups, UNODC coca"
+    spec: SPEC-20
+    imports: [pandas, requests, pdfplumber, pathlib]
+  - name: ingest_socioeconomic.py
+    role: secondary
+    type: module
+    description: "Socioeconomic demographics (stub fallback with hardcoded rows)"
+  - name: ingest_fiscal.py
+    role: secondary
+    type: module
+    description: "Fiscal autonomy indicators from TerriData"
+    spec: SPEC-21a
+    imports: [pandas, pathlib]
+  - name: ingest_bogota.py
+    role: secondary
+    type: module
+    description: "Bogotá localidad disaggregation: 21 localidades"
+    spec: SPEC-21b
+    imports: [pandas, pathlib]
+  - name: ingest_sabaneta.py
+    role: secondary
+    type: module
+    description: "Sabaneta Cámara 2002-2022 fixture loader"
+    spec: SPEC-16
+    imports: [pandas, pathlib]
+  - name: build_feature_matrix.py
+    role: key
+    type: module
+    description: "Join all component CSVs → municipal_feature_matrix.csv/parquet"
+    spec: SPEC-14
+    imports: [pandas, numpy, json, pathlib]
+  - name: __init__.py
+    role: secondary
+    type: module
+    description: "Re-exports all ingestion symbols"
+subdirs: []

@@ -1,7 +1,7 @@
 # SPEC Status Tracker
 
-> **Source of truth**: See `MVP_SPECS_GUIDE.md` (SPEC-01→11), `ENHANCEMENT_ROADMAP.md` (SPEC-12→14),
-> `docs/PLAN_demographic_ingestion.md` (SPEC-15→30), `docs/PLAN_cne_2026_ingestion.md` (SPEC-31→36).
+> **Source of truth**: See `MVP_SPECS_GUIDE.md` (SPEC-01→11), `docs/plans/demographic_ingestion.md` (SPEC-15→30),
+> `docs/plans/cne_2026_ingestion.md` (SPEC-31→36).
 
 ## MVP — National Polling Model (Shipped)
 
@@ -44,13 +44,13 @@
 
 | SPEC | Title | Plan doc | Status |
 |------|-------|----------|--------|
-| SPEC-23 | MOE PDF cross-validation | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
-| SPEC-24 | ECP cultural attitudinal signal | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
-| SPEC-25 | AS/COA third poll source | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
-| SPEC-26 | OOS validation framework | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
-| SPEC-27 | Regularization (horseshoe) | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
-| SPEC-28 | 2026 forecast mode | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
-| SPEC-29 | Generalization audit | `docs/PLAN_demographic_ingestion.md` | ✅ Shipped |
+| SPEC-23 | MOE PDF cross-validation | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
+| SPEC-24 | ECP cultural attitudinal signal | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
+| SPEC-25 | AS/COA third poll source | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
+| SPEC-26 | OOS validation framework | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
+| SPEC-27 | Regularization (horseshoe) | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
+| SPEC-28 | 2026 forecast mode | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
+| SPEC-29 | Generalization audit | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
 
 ## Digital Signals (Shipped)
 
@@ -74,15 +74,15 @@
 
 | SPEC | Title | Plan doc | Status |
 |------|-------|----------|--------|
-| SPEC-30 | Transfer rate estimation | `docs/PLAN_demographic_ingestion.md` | 🚧 In Progress |
+| SPEC-30 | Transfer rate estimation | `docs/plans/demographic_ingestion.md` | ✅ Shipped |
 
 ## Planned (not yet implemented)
 
 | SPEC | Title | Plan doc | Status |
 |------|-------|----------|--------|
-| SPEC-31 | CNE ingest & normalization | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-| SPEC-32 | CNE cross-validation & calibration | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-| SPEC-33 | Backfill pipeline | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-| SPEC-34 | Empirical runoff matrix | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-| SPEC-35 | 2026 validation & forecasting | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
-| SPEC-36 | Stretch: demographics | `docs/PLAN_cne_2026_ingestion.md` | 📋 Planned |
+| SPEC-31 | CNE ingest & normalization | `docs/plans/cne_2026_ingestion.md` | 📋 Planned |
+| SPEC-32 | CNE cross-validation & calibration | `docs/plans/cne_2026_ingestion.md` | 📋 Planned |
+| SPEC-33 | Backfill pipeline | `docs/plans/cne_2026_ingestion.md` | 📋 Planned |
+| SPEC-34 | Empirical runoff matrix | `docs/plans/cne_2026_ingestion.md` | 📋 Planned |
+| SPEC-35 | 2026 validation & forecasting | `docs/plans/cne_2026_ingestion.md` | 📋 Planned |
+| SPEC-36 | Stretch: demographics | `docs/plans/cne_2026_ingestion.md` | 📋 Planned |

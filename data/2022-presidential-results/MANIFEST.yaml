@@ -1,0 +1,45 @@
+path: data/2022-presidential-results
+purpose: "2022 election results (external, not tracked in git)"
+category: data
+specs: [SPEC-03]
+files:
+  - name: MMV_NACIONAL_PRESIDENTE_2022_1v.csv.gz
+    role: key
+    type: csv.gz
+    description: "Registraduria R1 polling-station-level results (~727K rows)"
+    spec: SPEC-03
+  - name: MMV_NACIONAL_PRESIDENTE_2022_2v.csv.gz
+    role: key
+    type: csv.gz
+    description: "Registraduria R2 polling-station-level results (~398K rows)"
+    spec: SPEC-03
+  - name: moe_vuelta1.csv
+    role: key
+    type: csv
+    description: "MOE R1 municipal-level results (~12K rows)"
+    spec: SPEC-03
+  - name: moe_vuelta2.csv
+    role: key
+    type: csv
+    description: "MOE R2 municipal-level results (~5.5K rows)"
+    spec: SPEC-03
+  - name: reg_participacion_vuelta1.csv
+    role: secondary
+    type: csv
+    description: "R1 participation data (~33K rows)"
+  - name: reg_participacion_vuelta2.csv
+    role: secondary
+    type: csv
+    description: "R2 participation data (~33K rows)"
+  - name: reg_resultados_vuelta1.csv
+    role: secondary
+    type: csv
+    description: "R1 additional results"
+  - name: reg_resultados_vuelta2.csv
+    role: secondary
+    type: csv
+    description: "R2 additional results"
+  - name: 2022.11.09-LIBRO-RESULTADOS-ELECTORALES-PRESIDENCIALES-2022.pdf
+    role: secondary
+    type: pdf
+    description: "MOE official resultados book (image-only pages)"

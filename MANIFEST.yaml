@@ -1,0 +1,70 @@
+path: .
+purpose: "Bayesian presidential election forecaster for Colombia"
+category: root
+specs: [SPEC-01, SPEC-02, SPEC-03, SPEC-04, SPEC-05, SPEC-06, SPEC-07, SPEC-08, SPEC-09, SPEC-10, SPEC-11, SPEC-30]
+files:
+  - name: README.md
+    role: key
+    type: markdown
+    description: "Public-facing project documentation with results table"
+  - name: MVP_SPECS_GUIDE.md
+    role: key
+    type: markdown
+    description: "Authoritative technical specification (SPEC-01 through SPEC-11)"
+  - name: CHANGELOG.md
+    role: key
+    type: markdown
+    description: "Milestone-based changelog"
+  - name: AGENTS.md
+    role: key
+    type: markdown
+    description: "AI agent operating manual — TDD, commands, conventions, CodeRabbit"
+  - name: CONTRIBUTING.md
+    role: secondary
+    type: markdown
+    description: "Contribution guide"
+  - name: GUIDE.md
+    role: key
+    type: markdown
+    description: "Directory guide for humans and AI agents (this file)"
+  - name: MANIFEST.yaml
+    role: key
+    type: yaml
+    description: "Machine-readable directory manifest (this file)"
+  - name: pyproject.toml
+    role: key
+    type: config
+    description: "Project metadata, dependencies, ruff/pyright/pytest config"
+  - name: Makefile
+    role: key
+    type: script
+    description: "Developer commands: fmt, lint, typecheck, test, setup"
+  - name: .gitignore
+    role: secondary
+    type: config
+    description: "Git exclusion rules for data, results, venv, cache"
+  - name: .pre-commit-config.yaml
+    role: secondary
+    type: config
+    description: "Pre-commit hooks: ruff, pyright, detect-private-key"
+  - name: .python-version
+    role: secondary
+    type: config
+    description: "Python version pin (3.12)"
+subdirs:
+  - name: src
+    purpose: "Core Python package — models, data loading, ingestion, benchmarks"
+  - name: tests
+    purpose: "Pytest test suite mirroring src/co_president/ one-to-one"
+  - name: scripts
+    purpose: "CLI runners: 100K report, 2026 backtest, report utilities"
+  - name: docs
+    purpose: "Architecture, results, data reports, plans, reference, specs"
+  - name: reference
+    purpose: "Academic PDFs, tech guides, bibliography, key findings"
+  - name: data
+    purpose: "Raw and processed data for 2022 and 2026 elections"
+  - name: benchmarks
+    purpose: "Root-level ML benchmark scripts"
+  - name: results
+    purpose: "Generated MCMC traces, reports, trend caches"

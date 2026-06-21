@@ -1,0 +1,16 @@
+path: data/2022-polls
+purpose: "2022 poll data (external, not tracked in git)"
+category: data
+specs: []
+files:
+  - name: encuestas_2022.csv
+    role: key
+    type: csv
+    description: "46 national polls from recetas-electorales.com (not tracked)"
+  - name: consultas.csv
+    role: key
+    type: csv
+    description: "65 coalition consultation polls (not tracked)"
+subdirs:
+  - name: as_coa
+    purpose: "AS/COA poll tracker data"
