@@ -1,129 +1,335 @@
-"""True forward backtest: R1 without election result, then honest runoff."""
+"""True forward backtest: R1 without election result, then honest runoff.
 
-import warnings
+Saves report to ``results/forward_backtest_2022_report.{md,json}``.
+"""
 
-warnings.filterwarnings("ignore")
-import pandas as pd, numpy as np, arviz as az, logging
+from __future__ import annotations
+
+from datetime import UTC, datetime
+import logging
 from pathlib import Path
 
-logging.getLogger("pytensor").setLevel(logging.ERROR)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
+import pandas as pd
+from report_utils import (
+    ReportInputs,
+    check_convergence,
+    compute_r1_accuracy,
+    generate_report,
+    print_summary,
+    run_round2_survey,
+    save_reports,
+)
+
+from co_president.config import ModelConfig
+from co_president.data import load_and_clean_all, load_canonical_results
+from co_president.fundamentals.features import load_features
+from co_president.ingestion.ingest_trends import compute_prop_fav, fetch_trends
+from co_president.ingestion.trends_keywords import (
+    CANDIDATE_QUERY_MAPS,
+    CANDIDATE_QUERY_MAP_2022_RUNOFF,
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger("forward")
 
-from co_president.config import ModelConfig, FIRST_ROUND_CANDIDATES, ELECTION_DATE_ROUND2
-from co_president.data import (
-    load_and_clean_all,
-    load_canonical_results,
-    CandidateResult,
-    RoundResult,
-)
-from co_president.model_round1 import build_round1_model, sample_round1
-from co_president.model_runoff_simple import (
-    build_runoff_simple_model,
-    sample_runoff,
-    forecast_runoff_simple,
-)
-from co_president.model_runoff_matrix import _filter_polls_for_pairing, _compute_transfer_shares
-from co_president.model_transfer import sample_transfer_rates
-from co_president.model_utils import get_election_day_array
-
 CONFIG = ModelConfig(
-    mcmc_draws=2000,
-    mcmc_tune=1000,
+    mcmc_draws=5000,
+    mcmc_tune=5000,
     mcmc_chains=4,
     mcmc_cores=4,
     target_accept=0.95,
     seed=332211,
+    random_walk_sigma_prior=0.5,
+    concentration_election_prior_mean=5000,
     nuts_sampler="numpyro",
 )
 
+RESULTS_DIR = Path("results")
+REPORT_PATH = RESULTS_DIR / "forward_backtest_2022_report.md"
+JSON_PATH = RESULTS_DIR / "forward_backtest_2022_report.json"
 
-def main():
-    logger.info("Loading data...")
-    cp = load_and_clean_all()
-    r1, r2 = load_canonical_results()
-    ds = pd.read_parquet("results/trends_cache_2022.parquet")
-    ds["fecha"] = pd.to_datetime(ds["fecha"])
+
+def _load_digital_signals() -> pd.DataFrame:
+    """Load or fetch Google Trends digital signals.
+
+    Returns:
+        DataFrame with ``fecha`` column and per-candidate proportion-favorable
+        columns, or empty ``DataFrame`` if unavailable.
+
+    """
+    digital_signals: pd.DataFrame = pd.DataFrame()
+    trends_cache = RESULTS_DIR / "trends_cache_2022.parquet"
+    if trends_cache.exists():
+        try:
+            digital_signals = pd.read_parquet(trends_cache)
+            digital_signals["fecha"] = pd.to_datetime(digital_signals["fecha"])
+            logger.info(
+                "Loaded cached Google Trends for %d candidates",
+                len([c for c in digital_signals.columns if c != "fecha"]),
+            )
+        except (OSError, ValueError, KeyError):
+            digital_signals = pd.DataFrame()
+            logger.warning("Failed to load cached Google Trends; will attempt fetch")
+    if digital_signals.empty:
+        query_map = CANDIDATE_QUERY_MAPS.get("2022")
+        if query_map:
+            try:
+                logger.info("Fetching Google Trends data...")
+                trends_raw = fetch_trends(
+                    list(query_map.values()),
+                    start_date="2022-03-01",
+                    end_date="2022-06-18",
+                )
+                if not trends_raw.empty:
+                    prop_fav_long = compute_prop_fav(trends_raw, query_map)
+                    digital_signals = prop_fav_long.pivot_table(
+                        index="as_of_date",
+                        columns="candidate",
+                        values="prop_fav",
+                    ).reset_index()
+                    digital_signals = digital_signals.rename(columns={"as_of_date": "fecha"})
+                    digital_signals["fecha"] = pd.to_datetime(digital_signals["fecha"])
+                    digital_signals.to_parquet(trends_cache)
+                    logger.info(
+                        "Fetched and cached Google Trends for %d candidates",
+                        len(query_map),
+                    )
+            except (OSError, ValueError, KeyError, RuntimeError):
+                logger.warning(
+                    "Failed to fetch Google Trends data",
+                    exc_info=True,
+                )
+    return digital_signals
+
+
+def _load_digital_signals_runoff(digital_signals: pd.DataFrame) -> pd.DataFrame:
+    """Load or compute head-to-head runoff digital signals.
+
+    Args:
+        digital_signals: Multi-candidate trends DataFrame.
+
+    Returns:
+        DataFrame with Petro/Rodolfo head-to-head proportions.
+
+    """
+    digital_signals_runoff: pd.DataFrame = pd.DataFrame()
+    runoff_cache = RESULTS_DIR / "trends_cache_2022_runoff.parquet"
+    if runoff_cache.exists():
+        try:
+            digital_signals_runoff = pd.read_parquet(runoff_cache)
+            digital_signals_runoff["fecha"] = pd.to_datetime(digital_signals_runoff["fecha"])
+            logger.info("Loaded cached runoff-specific head-to-head Trends")
+            return digital_signals_runoff
+        except (OSError, ValueError, KeyError):
+            digital_signals_runoff = pd.DataFrame()
+    if digital_signals_runoff.empty:
+        runoff_keys = list(CANDIDATE_QUERY_MAP_2022_RUNOFF.values())
+        try:
+            logger.info("Fetching runoff-specific Google Trends (Petro vs Rodolfo)...")
+            trends_raw = fetch_trends(
+                runoff_keys,
+                start_date="2022-05-01",
+                end_date="2022-06-18",
+            )
+            if not trends_raw.empty:
+                prop_fav_long = compute_prop_fav(trends_raw, CANDIDATE_QUERY_MAP_2022_RUNOFF)
+                digital_signals_runoff = prop_fav_long.pivot_table(
+                    index="as_of_date",
+                    columns="candidate",
+                    values="prop_fav",
+                ).reset_index()
+                digital_signals_runoff = digital_signals_runoff.rename(
+                    columns={"as_of_date": "fecha"},
+                )
+                digital_signals_runoff["fecha"] = pd.to_datetime(digital_signals_runoff["fecha"])
+                digital_signals_runoff.to_parquet(runoff_cache)
+                logger.info("Fetched and cached runoff-specific Trends")
+                return digital_signals_runoff
+        except (OSError, ValueError, KeyError, RuntimeError):
+            logger.warning("Failed to fetch runoff-specific Trends")
+    if digital_signals_runoff.empty and not digital_signals.empty:
+        runoff_cols = ["gustavo_petro", "rodolfo_hernandez"]
+        if all(c in digital_signals.columns for c in runoff_cols):
+            ds_h2h = digital_signals[runoff_cols].copy()
+            total = ds_h2h.sum(axis=1)
+            ds_h2h = ds_h2h.div(total.where(total > 0, 1.0), axis=0).fillna(0.0)
+            ds_h2h["fecha"] = digital_signals["fecha"]
+            digital_signals_runoff = ds_h2h
+            logger.info("Computed head-to-head from multi-candidate Trends cache")
+    if digital_signals_runoff.empty and not digital_signals.empty:
+        logger.warning("Using multi-candidate signals as runoff fallback")
+        digital_signals_runoff = digital_signals
+    return digital_signals_runoff
+
+
+def _extract_posterior_summaries(
+    idata_r1: object,
+    features: pd.DataFrame | None,
+) -> dict:
+    """Extract model parameter posteriors for the report."""
+    import arviz as az
+
+    summaries: dict = {}
+
+    try:
+        phi_elec_samples = idata_r1.posterior["phi_elec"].to_numpy().flatten()  # type: ignore[union-attr]
+        ci = az.hdi(phi_elec_samples, prob=0.95)  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
+        summaries["phi_elec"] = {
+            "mean": round(float(phi_elec_samples.mean()), 1),
+            "std": round(float(phi_elec_samples.std()), 1),
+            "ci_95_lower": round(float(ci[0]), 1),
+            "ci_95_upper": round(float(ci[1]), 1),
+        }
+    except (KeyError, ValueError, TypeError):
+        summaries["phi_elec"] = {}
+
+    try:
+        phi_digital_samples = idata_r1.posterior["phi_digital_base"].to_numpy().flatten()  # type: ignore[union-attr]
+        ci = az.hdi(phi_digital_samples, prob=0.95)  # type: ignore[reportUnknownVariableType, reportUnknownMemberType]
+        summaries["phi_digital_base"] = {
+            "mean": round(float(phi_digital_samples.mean()), 1),
+            "std": round(float(phi_digital_samples.std()), 1),
+            "ci_95_lower": round(float(ci[0]), 1),
+            "ci_95_upper": round(float(ci[1]), 1),
+        }
+    except (KeyError, ValueError, TypeError):
+        summaries["phi_digital_base"] = {}
+
+    if features is not None and not features.empty:
+        from co_president.model_round1 import _compute_national_internet_rate  # noqa: PLC0415
+
+        summaries["internet_rate"] = round(
+            _compute_national_internet_rate(features),
+            4,
+        )
+    else:
+        summaries["internet_rate"] = None
+
+    return summaries
+
+
+def main() -> None:
+    """Run true forward backtest (R1 without election result)."""
+    started_at = datetime.now(UTC)
+    logger.info("Starting true forward backtest...")
+
+    logger.info("Loading canonical election results...")
+    results_r1, results_r2 = load_canonical_results()
+
+    logger.info("Loading and cleaning poll data...")
+    clean_polls = load_and_clean_all()
+
+    n_polls_r1 = len(clean_polls.round1)
+    n_polls_r2 = len(clean_polls.round2)
+    logger.info("Loaded %d round-1 polls, %d runoff polls", n_polls_r1, n_polls_r2)
+
+    features: pd.DataFrame | None = None
+    try:
+        features = load_features()
+        logger.info("Loaded municipal features (%d municipalities)", len(features))
+    except (FileNotFoundError, ValueError):
+        logger.warning(
+            "Municipal features not available; falling back to polls-only model",
+        )
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    digital_signals = _load_digital_signals()
+    if digital_signals.empty:
+        logger.warning(
+            "Digital signals unavailable; model will proceed without trends data",
+        )
+
+    digital_signals_runoff = _load_digital_signals_runoff(digital_signals)
 
     # ── R1 model WITHOUT election result (true forward) ──
+    import co_president.model_round1 as m1  # noqa: PLC0415
+
     logger.info("Building R1 model without election result...")
-    model_r1 = build_round1_model(cp.round1, results=None, config=CONFIG, digital_signals=ds)
-    logger.info(f"Sampling R1 {CONFIG.mcmc_draws}x{CONFIG.mcmc_chains}...")
-    idata_r1 = sample_round1(model_r1, CONFIG)
-
-    # R1 accuracy
-    from report_utils import compute_r1_accuracy  # type: ignore[import-unused]
-
-    r1_metrics = compute_r1_accuracy(idata_r1, r1, poll_columns=set(cp.round1.columns))
-    rhat = list(az.rhat(idata_r1.posterior).values())
-    r1_max_rhat = max(float(np.max(v.values)) for v in rhat)
-    logger.info(f"R1 forward MAE: {r1_metrics.get('mae', 0) * 100:.2f}pp")
-    logger.info(f"R1 forward max R-hat: {r1_max_rhat:.4f}")
-
-    # ── Honest Runoff ──
-    logger.info("Computing runoff pairing matrix...")
-    tr = sample_transfer_rates(features=None, config=CONFIG)
-    ed = get_election_day_array(idata_r1)
-    n_dim = ed.shape[-1]
-    all_keys = sorted(set(FIRST_ROUND_CANDIDATES.keys()) & set(cp.round1.columns))[:n_dim]
-    sf, ss = _compute_transfer_shares(ed, all_keys, "gustavo_petro", "rodolfo_hernandez", tr)
-    f1, f2 = float(sf.mean()), float(ss.mean())
-    logger.info(f"Transfer prior: Petro={f1:.4f} Rodolfo={f2:.4f}")
-
-    sc = (
-        CandidateResult("gustavo_petro", int(f1 * 100000), f1),
-        CandidateResult("rodolfo_hernandez", int(f2 * 100000), f2),
+    model_r1 = m1.build_round1_model(
+        clean_polls.round1,
+        results=None,
+        config=CONFIG,
+        features=features,
+        digital_signals=digital_signals,
     )
-    sr = RoundResult(
-        1,
-        r1.date,
-        int((f1 + f2) * 100000),
-        int((f1 + f2) * 100000),
-        r1.registered_voters,
-        r1.polling_stations,
-        sc,
-        0,
-        0,
-        0,
-    )
-    polls = _filter_polls_for_pairing(cp.round2, "gustavo_petro", "rodolfo_hernandez")
-    model = build_runoff_simple_model(
-        polls, sr, idata_r1, CONFIG, digital_signals=pd.DataFrame(), round2_result=None
-    )
-    logger.info(f"Sampling runoff {CONFIG.mcmc_draws}x{CONFIG.mcmc_chains}...")
-    idata_r2 = sample_runoff(model, CONFIG)
-    fc = forecast_runoff_simple(idata_r2, "gustavo_petro", "rodolfo_hernandez")
 
-    r2_rhat_vals = list(az.rhat(idata_r2.posterior).values())
-    r2_rhat = max(float(np.max(v.values)) for v in r2_rhat_vals)
-    r2_ess_vals = list(az.ess(idata_r2.posterior).values())
-    r2_ess_bulk = min(float(np.min(v.values)) for v in r2_ess_vals)
+    logger.info(
+        "Sampling R1 model (%d draws x %d chains)...",
+        CONFIG.mcmc_draws,
+        CONFIG.mcmc_chains,
+    )
+    t0 = datetime.now(UTC)
+    idata_r1 = m1.sample_round1(model_r1, CONFIG)
+    elapsed_r1_s = (datetime.now(UTC) - t0).total_seconds()
+    logger.info("R1 sampling complete in %.0fs", elapsed_r1_s)
 
-    print(f"\n{'=' * 60}")
-    print(f"  TRUE FORWARD BACKTEST (R1 without election result)")
-    print(f"{'=' * 60}")
-    print(f"\n-- Round 1 --")
-    r1_mae = r1_metrics.get("mae", 0) * 100
-    r1_rmse = r1_metrics.get("rmse", 0) * 100
-    print(f"  MAE:            {r1_mae:.2f}pp")
-    print(f"  RMSE:           {r1_rmse:.2f}pp")
-    print(f"  Max R-hat:      {r1_max_rhat:.4f}")
-    print(f"\n-- Runoff --")
-    print(
-        f"  Petro:          {fc.mean_share_a * 100:.2f}%  (actual 50.42%)  error {fc.mean_share_a - 0.5042:+.2%}"
+    # R1 convergence and accuracy
+    r1_rhat, r1_converged = check_convergence(idata_r1, "R1")
+    r1_metrics = compute_r1_accuracy(
+        idata_r1,
+        results_r1,
+        poll_columns=set(clean_polls.round1.columns),
     )
-    print(
-        f"  Rodolfo:        {fc.mean_share_b * 100:.2f}%  (actual 47.35%)  error {fc.mean_share_b - 0.4735:+.2%}"
+    r1_metrics["posterior_summaries"] = _extract_posterior_summaries(idata_r1, features)
+
+    # ── Runoff via estimate_runoff_matrix ──
+    logger.info("Computing runoff matrix...")
+    _idata_runoff, r2_metrics, r2_rhat, r2_converged, elapsed_r2_s = run_round2_survey(
+        CONFIG,
+        clean_polls,
+        results_r1,
+        results_r2,
+        idata_r1,
+        features=features,
+        digital_signals=digital_signals_runoff,
     )
-    print(f"  Rest:           {fc.mean_share_rest * 100:.2f}%  (actual 2.23%)")
-    print(f"  Margin:         {fc.mean_margin:+.2%}")
-    print(f"  P(Petro wins):  {fc.prob_a_wins:.1%}")
-    print(f"  Max R-hat:      {r2_rhat:.4f}")
-    print(f"  Min ESS bulk:   {r2_ess_bulk:.0f}")
-    print(f"\n-- Compared to backtest WITH R1 election result --")
-    print(f"  (previous run: R1 used election likelihood, runoff had no digital signals)")
-    print(f"  Full backtest: R1 MAE 1.02pp, Runoff MAE 0.72pp, P(Petro)=57.7%")
-    print(f"  Forward:       R1 MAE {r1_metrics.get('mae', 0) * 100:.2f}pp, Runoff MAE ???")
+
+    total_elapsed = (datetime.now(UTC) - started_at).total_seconds()
+
+    # ── Report ──
+    report_data = ReportInputs(
+        r1_metrics=r1_metrics,
+        r2_metrics=r2_metrics,
+        r1_rhat=r1_rhat,
+        r1_converged=r1_converged,
+        r2_rhat=r2_rhat,
+        r2_converged=r2_converged,
+        elapsed_r1_s=elapsed_r1_s,
+        elapsed_r2_s=elapsed_r2_s,
+        n_polls_r1=n_polls_r1,
+        n_polls_r2=n_polls_r2,
+        election_year=2022,
+    )
+
+    report_md = generate_report(report_data, CONFIG)
+    REPORT_PATH.write_text(report_md, encoding="utf-8")
+    logger.info("Saved report to %s", REPORT_PATH)
+
+    save_reports(
+        r1_metrics,
+        r2_metrics,
+        total_elapsed,
+        n_polls_r1,
+        n_polls_r2,
+        CONFIG,
+        REPORT_PATH,
+        JSON_PATH,
+        year=2022,
+    )
+    print_summary(
+        r1_metrics,
+        r2_metrics,
+        total_elapsed,
+        REPORT_PATH,
+        JSON_PATH,
+        r1_converged=r1_converged,
+        r2_converged=r2_converged,
+    )
 
 
 if __name__ == "__main__":
