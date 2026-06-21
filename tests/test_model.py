@@ -258,8 +258,8 @@ def test_build_runoff_simple_model_graph() -> None:
 
     model = build_runoff_simple_model(polls, results, None, config, digital_signals=pd.DataFrame())
 
-    # Free RVs: sigma_rw, sigma_house, phi_poll, theta_r_0, raw_house
-    assert len(model.free_RVs) == 5
+    # Free RVs: sigma_rw, sigma_house, phi_poll, theta_0, rw_raw, drift, raw_house
+    assert len(model.free_RVs) == 7
     # Deterministics: p_time, house_effects, p_adj, phi_poll_n
     det_names = {d.name for d in model.deterministics}
     assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
@@ -320,8 +320,8 @@ def test_build_runoff_simple_model_informative_prior() -> None:
         polls, results, round1_idata, config, digital_signals=pd.DataFrame()
     )
 
-    # Same graph structure as with informed prior
-    assert len(model.free_RVs) == 5
+    # Non-centered RW with drift: sigma_rw, sigma_house, phi_poll, theta_0, rw_raw, drift, raw_house
+    assert len(model.free_RVs) == 7
     det_names = {d.name for d in model.deterministics}
     assert det_names == {"p_time", "house_effects", "p_adj", "phi_poll_n"}
     assert len(model.observed_RVs) == 1
@@ -331,17 +331,19 @@ def test_build_runoff_simple_model_informed_fallback() -> None:
     """Test that round1_idata=None uses actual election results as informed prior.
 
     When ``round1_idata`` is ``None``, the fallback computes the prior for
-    ``theta[T-1]`` from the actual Round 1 vote shares (``results.get_share``).
-    This test verifies that prior predictive samples center around those shares.
+    ``theta[T-1]`` from the actual Round 1 vote shares (``results.get_share``),
+    with the rest_blanco category overridden at the historical runoff rest rate
+    (~2.3%).  This test verifies that prior predictive samples center around
+    the corrected shares.
     """
     polls = _make_3row_runoff_polls_round2()
     results = _make_round1_result()
     config = ModelConfig(random_walk_sigma_prior=0.5, house_effect_sigma_prior=1.0)
 
-    # Petro 40%, Hernandez 28%, rest+blanco 32%
-    expected_a = 0.40
-    expected_b = 0.28
-    expected_rest = 0.32
+    # Petro 57.5%, Hernandez 40.2%, rest 2.3% (rest overridden to historical rate)
+    expected_a = 0.575
+    expected_b = 0.402
+    expected_rest = 0.023
 
     model = build_runoff_simple_model(polls, results, None, config, digital_signals=pd.DataFrame())
 
@@ -365,7 +367,7 @@ def test_build_runoff_simple_model_informed_fallback() -> None:
     # informed-prior targets (allowing Monte Carlo noise)
     np.testing.assert_allclose(prior_mean[0], expected_a, atol=0.08)
     np.testing.assert_allclose(prior_mean[1], expected_b, atol=0.08)
-    np.testing.assert_allclose(prior_mean[2], expected_rest, atol=0.08)
+    np.testing.assert_allclose(prior_mean[2], expected_rest, atol=0.03)
 
 
 def test_forecast_runoff_simple() -> None:

@@ -75,9 +75,9 @@ class TestModelConfig:
         cfg = ModelConfig()
         assert cfg.random_walk_sigma_prior == 0.5
         assert cfg.concentration_poll_prior_mean == 5.0
-        assert cfg.concentration_election_prior_mean == 50000.0
+        assert cfg.concentration_election_prior_mean == 5000.0
         assert cfg.concentration_election_votes_scale == 1000000
-        assert cfg.concentration_election_prior_shape == 10.0
+        assert cfg.concentration_election_prior_shape == 0.75
         assert cfg.house_effect_sigma_prior == 1.0
         assert cfg.mcmc_draws == 4000
         assert cfg.mcmc_tune == 1000
