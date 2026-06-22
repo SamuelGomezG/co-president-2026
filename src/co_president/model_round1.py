@@ -322,6 +322,21 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
         theta_mu = prior_mean
         theta_sigma = config.consultation_prior_strength
 
+    # Ensure theta_sigma shape matches theta_mu (guard against municipal
+    # model returning wrong candidate count for non-2022 years)
+    if not isinstance(theta_sigma, float | int):
+        theta_sigma = np.asarray(theta_sigma, dtype=float)
+        if theta_sigma.shape != theta_mu.shape:
+            theta_sigma = np.full_like(theta_mu, float(config.consultation_prior_strength))
+    if theta_mu.shape != (n_candidates,):
+        logger.warning(
+            "Municipal prior mu shape %s != n_candidates %d; using flat prior",
+            theta_mu.shape,
+            n_candidates,
+        )
+        theta_mu = prior_mean
+        theta_sigma = float(config.consultation_prior_strength)
+
     # Override blanco prior: shrink toward historical blank vote rate (~2.5%)
     # instead of the poll-implied ~10.6%, which is systematically inflated in
     # Colombian polls relative to actual blank voting.
