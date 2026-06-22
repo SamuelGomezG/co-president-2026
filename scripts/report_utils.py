@@ -816,6 +816,7 @@ def run_round2_survey(  # noqa: PLR0913
     digital_signals: pd.DataFrame,
     features: pd.DataFrame | None = None,
     year: int = 2022,
+    empirical_betas: dict | None = None,
 ) -> tuple:
     """Compute runoff metrics via the probabilistic pairing matrix.
 
@@ -833,6 +834,11 @@ def run_round2_survey(  # noqa: PLR0913
         digital_signals: Google Trends data for the runoff K=3 poll
             likelihood.
         year: Election year (default 2022).
+        empirical_betas: Optional dict mapping ``(candidate_a, candidate_b)``
+            to ``(alpha, beta)`` from
+            :func:`~co_president.empirical_runoff.get_empirical_runoff_betas`.
+            When provided, passed through to
+            :func:`estimate_runoff_matrix` for empirical Beta sampling.
 
     Returns:
         Tuple of ``(idata_runoff, metrics, rhat, converged, elapsed_s)``.
@@ -856,6 +862,7 @@ def run_round2_survey(  # noqa: PLR0913
         features=features,
         digital_signals=digital_signals,
         year=year,
+        empirical_betas=empirical_betas,
     )
     elapsed_r2_s = (datetime.now(UTC) - t0).total_seconds()
     logger.info("Runoff matrix computed in %.0fs", elapsed_r2_s)
