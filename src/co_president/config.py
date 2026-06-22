@@ -656,7 +656,10 @@ def get_consultation_votes(year: int = 2022) -> dict[str, int]:
     """
     if year == _DEFAULT_YEAR:
         return CONSULTATION_VOTES
-    return _lookup_by_year(CONSULTATION_VOTES_BY_YEAR, year, "CONSULTATION_VOTES")
+    if year in CONSULTATION_VOTES_BY_YEAR:
+        return CONSULTATION_VOTES_BY_YEAR[year]
+    msg = f"No CONSULTATION_VOTES registry for year {year}"
+    raise ValueError(msg)
 
 
 def get_consultation_key_map(year: int = 2022) -> dict[str, str]:
@@ -674,7 +677,10 @@ def get_consultation_key_map(year: int = 2022) -> dict[str, str]:
     """
     if year == _DEFAULT_YEAR:
         return CONSULTATION_KEY_MAP
-    return _lookup_by_year(CONSULTATION_KEY_MAP_BY_YEAR, year, "CONSULTATION_KEY_MAP")
+    if year in CONSULTATION_KEY_MAP_BY_YEAR:
+        return CONSULTATION_KEY_MAP_BY_YEAR[year]
+    msg = f"No CONSULTATION_KEY_MAP registry for year {year}"
+    raise ValueError(msg)
 
 
 def get_coalition_to_candidate(year: int = 2022) -> dict[str, str]:
