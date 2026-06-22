@@ -14,11 +14,11 @@ import pymc as pm  # type: ignore[reportMissingTypeStubs]
 import pytensor.tensor as pt
 
 from co_president.config import (
-    CONSULTATION_VOTES,
-    ELECTION_DATE_ROUND1,
-    FIRST_ROUND_CANDIDATES,
     ModelConfig,
     consultation_log_share_prior,
+    get_active_candidates,
+    get_consultation_votes,
+    get_election_date,
 )
 from co_president.data_polls import merge_digital_signals
 from co_president.fundamentals.compositional import (
@@ -167,6 +167,7 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     no_house_effects: bool = False,
     features: pd.DataFrame | None = None,
     digital_signals: pd.DataFrame,
+    year: int = 2022,
 ) -> pm.Model:
     """Build the PyMC model graph for the first round.
 
@@ -190,6 +191,7 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
         digital_signals: DataFrame with ``fecha`` and per-candidate
             columns containing digital signal values (e.g., Google Trends).
             When provided, a separate Beta observation layer is added.
+        year: Election year (default 2022).
 
     Returns:
         pm.Model: Constructed PyMC model.
@@ -210,7 +212,9 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
         polls["fecha"] = pd.to_datetime(polls["fecha"])
 
     # Determine candidate keys from DataFrame columns
-    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
+    candidate_keys = sorted(
+        {c.key for c in get_active_candidates(1, year=year)} & set(polls.columns)
+    )
     n_candidates = len(candidate_keys)
     if n_candidates == 0:
         msg = "No candidate columns found in polls DataFrame"
@@ -227,7 +231,8 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             raise ValueError(msg)
 
     # Build time index mapping: 0 = election day, n_time_points-1 = farthest back
-    polls["days_before"] = (pd.Timestamp(ELECTION_DATE_ROUND1) - polls["fecha"]).dt.days
+    election_day_r1 = get_election_date(year, 1)
+    polls["days_before"] = (pd.Timestamp(election_day_r1) - polls["fecha"]).dt.days
     unique_days = sorted(polls["days_before"].unique())
     n_time_points = len(unique_days)
     day_to_idx = {day: i for i, day in enumerate(unique_days)}
@@ -284,12 +289,13 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     pollster_indices = polls["pollster_idx"].to_numpy().astype(int)
 
     # Consultation log-share prior for theta[T-1] (earliest time point)
-    log_prior = consultation_log_share_prior()
+    log_prior = consultation_log_share_prior(year)
+    consultation_votes = get_consultation_votes(year)
 
     # Default log-share for candidates without consultation data
-    nonzero_total = sum(v for v in CONSULTATION_VOTES.values() if v > 0)
+    nonzero_total = sum(v for v in consultation_votes.values() if v > 0)
     if nonzero_total > 0:
-        nonzero_shares = [v / nonzero_total for v in CONSULTATION_VOTES.values() if v > 0]
+        nonzero_shares = [v / nonzero_total for v in consultation_votes.values() if v > 0]
         default_log_share = float(np.log(min(nonzero_shares) / 2.0))
     else:
         default_log_share = -1.0
@@ -310,10 +316,26 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             features,
             config,
             candidate_keys,
+            target_year=year,
         )
     else:
         theta_mu = prior_mean
         theta_sigma = config.consultation_prior_strength
+
+    # Ensure theta_sigma shape matches theta_mu (guard against municipal
+    # model returning wrong candidate count for non-2022 years)
+    if not isinstance(theta_sigma, float | int):
+        theta_sigma = np.asarray(theta_sigma, dtype=float)
+        if theta_sigma.shape != theta_mu.shape:
+            theta_sigma = np.full_like(theta_mu, float(config.consultation_prior_strength))
+    if theta_mu.shape != (n_candidates,):
+        logger.warning(
+            "Municipal prior mu shape %s != n_candidates %d; using flat prior",
+            theta_mu.shape,
+            n_candidates,
+        )
+        theta_mu = prior_mean
+        theta_sigma = float(config.consultation_prior_strength)
 
     # Override blanco prior: shrink toward historical blank vote rate (~2.5%)
     # instead of the poll-implied ~10.6%, which is systematically inflated in

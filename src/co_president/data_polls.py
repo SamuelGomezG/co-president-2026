@@ -24,11 +24,10 @@ if TYPE_CHECKING:
 import pandas as pd
 
 from co_president.config import (
-    CONSULTATION_DATE,
-    CONSULTATION_KEY_MAP,
-    CONSULTATION_VOTES,
-    ELECTION_DATE_ROUND1,
     get_active_candidates,
+    get_consultation_key_map,
+    get_consultation_votes,
+    get_election_date,
 )
 from co_president.paths import resolve_data_dir
 
@@ -57,7 +56,11 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
+_ROUND_FIRST = 1  # first round identifier
 _ROUND_TWO = 2  # second (runoff) round identifier
+
+_DEFAULT_YEAR = 2022  # year used for backward-compatible defaults
+_MIN_RUNOFF_CANDIDATES = 2
 
 _AGREGADO_POLLSTER = "AGREGADO"  # AS/COA aggregate pollster identifier
 
@@ -143,10 +146,11 @@ def _normalize_consultation_name(name: str) -> str:
 
 
 @cache
-def _build_normalized_consultation_map() -> dict[str, str]:
-    """Build a cached, normalized-key version of CONSULTATION_KEY_MAP."""
+def _build_normalized_consultation_map(year: int = 2022) -> dict[str, str]:
+    """Build a cached, normalized-key version of the year's consultation map."""
+    key_map = get_consultation_key_map(year)
     result: dict[str, str] = {}
-    for raw_name, key in CONSULTATION_KEY_MAP.items():
+    for raw_name, key in key_map.items():
         result[_normalize_consultation_name(raw_name)] = key
     return result
 
@@ -276,14 +280,16 @@ class CleanPolls:
             raise ValueError(msg)
 
 
-def map_consultation_name_to_key(name: str) -> str:
+def map_consultation_name_to_key(name: str, year: int = 2022) -> str:
     """Map a consultation candidate display name to its canonical key.
 
     Uses accent-insensitive matching via NFKD Unicode normalization.
-    Raises ``ValueError`` if the name is not found in ``CONSULTATION_KEY_MAP``.
+    Raises ``ValueError`` if the name is not found in the year's consultation
+    key map.
 
     Args:
         name: Raw candidate name from the consultation CSV.
+        year: Election year (default 2022).
 
     Returns:
         Canonical candidate key (e.g. ``"gustavo_petro"``).
@@ -292,7 +298,7 @@ def map_consultation_name_to_key(name: str) -> str:
         ValueError: If ``name`` has no mapping.
 
     """
-    lookup = _build_normalized_consultation_map()
+    lookup = _build_normalized_consultation_map(year)
     normalized = _normalize_consultation_name(name)
     key = lookup.get(normalized)
     if key is None:
@@ -308,11 +314,12 @@ def _normalize_name(name: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c)).casefold()
 
 
-def _read_consultation_data(csv_path: Path) -> dict[str, list[float]]:
+def _read_consultation_data(csv_path: Path, year: int = 2022) -> dict[str, list[float]]:
     """Read ``consultas.csv`` and group ``int_voto`` values by candidate key.
 
     Args:
         csv_path: Path to ``consultas.csv``.
+        year: Election year (default 2022).
 
     Returns:
         Mapping of candidate key to list of ``int_voto / 100`` values.
@@ -323,7 +330,7 @@ def _read_consultation_data(csv_path: Path) -> dict[str, list[float]]:
         reader = csv.DictReader(f)
         for row in reader:
             name = _normalize_name(row["candidato"])
-            key = _build_normalized_consultation_map().get(name)
+            key = _build_normalized_consultation_map(year).get(name)
             if key is not None:
                 try:
                     strengths.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
@@ -339,15 +346,17 @@ def _read_consultation_data(csv_path: Path) -> dict[str, list[float]]:
 
 def _compute_strength_results(
     strengths: dict[str, list[float]],
+    votes: dict[str, int],
 ) -> dict[str, float]:
     """Compute prior strength (stdev or floor) for each candidate.
 
     Candidates with a single data point get the 0.10 floor.
-    Candidates with zero ``CONSULTATION_VOTES`` (independents) get the
+    Candidates with zero consultation votes (independents) get the
     mean strength * 1.5 as fallback.
 
     Args:
         strengths: Mapping of candidate key to ``int_voto / 100`` values.
+        votes: Consultation vote totals for the year.
 
     Returns:
         Mapping of candidate key to prior standard deviation.
@@ -362,14 +371,14 @@ def _compute_strength_results(
 
     if results:
         mean_strength = statistics.mean(results.values())
-        for key in CONSULTATION_VOTES:
+        for key in votes:
             if key not in results:
                 results[key] = mean_strength * 1.5
 
     return results
 
 
-def compute_consultation_prior_strength() -> dict[str, float]:
+def compute_consultation_prior_strength(year: int = 2022) -> dict[str, float]:
     """Compute candidate-specific prior strengths from consultation polls.
 
     Reads ``consultas.csv`` from the project data directory, groups poll
@@ -381,11 +390,15 @@ def compute_consultation_prior_strength() -> dict[str, float]:
     The result is memoized via :func:`get_computed_consultation_prior_strengths`
     so repeated calls incur no I/O after the first.
 
+    Args:
+        year: Election year (default 2022).
+
     Returns:
         Mapping of candidate key to prior standard deviation.
 
     Raises:
-        ValueError: If no candidate data is found in the CSV at all.
+        ValueError: If no candidate data is found in the CSV at all, or if the
+            year has no consultation registry.
 
     Examples:
         >>> strengths = compute_consultation_prior_strength()
@@ -395,15 +408,16 @@ def compute_consultation_prior_strength() -> dict[str, float]:
         True
 
     """
+    votes = get_consultation_votes(year)
     data_dir = resolve_data_dir(None)
-    csv_path = data_dir / "2022-polls" / "consultas.csv"
-    strengths = _read_consultation_data(csv_path)
+    csv_path = data_dir / f"{year}-polls" / "consultas.csv"
+    strengths = _read_consultation_data(csv_path, year)
 
-    results = _compute_strength_results(strengths)
+    results = _compute_strength_results(strengths, votes)
 
     # Candidates with non-zero consultation votes are expected in the CSV;
     # those with zero votes (independents) are not.
-    expected = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
+    expected = [k for k, v in votes.items() if v > 0]
     missing = [k for k in expected if k not in strengths]
     if missing:
         if not strengths:
@@ -425,11 +439,12 @@ def compute_consultation_prior_strength() -> dict[str, float]:
 def validate_consultation_prior_means(
     means: dict[str, float],
     consultas_path: str | None = None,
+    year: int = 2022,
 ) -> None:
     """Validate prior means against ``consultas.csv`` polling ranges.
 
-    Reads ``consultas.csv``, groups by candidate key (using
-    ``CONSULTATION_KEY_MAP``), and computes the min/max ``int_voto/100`` for
+    Reads ``consultas.csv``, groups by candidate key (using the year's
+    consultation key map), and computes the min/max ``int_voto/100`` for
     each candidate. Every mean must fall within ``[min, max]`` of that
     candidate's polling range.
 
@@ -437,6 +452,7 @@ def validate_consultation_prior_means(
         means: Mapping of candidate key to prior mean (proportion in [0,1]).
         consultas_path: Override path to ``consultas.csv``. If ``None``,
             resolves via ``resolve_data_dir``.
+        year: Election year (default 2022).
 
     Returns:
         None. Raises on validation failure.
@@ -453,16 +469,17 @@ def validate_consultation_prior_means(
         ValueError: Prior mean for ...
 
     """
+    votes = get_consultation_votes(year)
     if consultas_path is None:
         data_dir = resolve_data_dir(None)
-        consultas_path = str(data_dir / "2022-polls" / "consultas.csv")
+        consultas_path = str(data_dir / f"{year}-polls" / "consultas.csv")
 
     ranges: dict[str, list[float]] = {}
     with Path(consultas_path).open(encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             name = _normalize_name(row["candidato"])
-            key = _build_normalized_consultation_map().get(name)
+            key = _build_normalized_consultation_map(year).get(name)
             if key is not None:
                 try:
                     ranges.setdefault(key, []).append(float(row["int_voto"]) / 100.0)
@@ -475,7 +492,7 @@ def validate_consultation_prior_means(
                     )
 
     # Pre-registration check: verify all expected candidates have CSV data
-    expected_csv_candidates = [k for k, v in CONSULTATION_VOTES.items() if v > 0]
+    expected_csv_candidates = [k for k, v in votes.items() if v > 0]
     missing_from_csv = [k for k in expected_csv_candidates if k not in ranges]
     if missing_from_csv:
         logger.warning(
@@ -498,12 +515,15 @@ def validate_consultation_prior_means(
 
 
 @cache
-def get_computed_consultation_prior_strengths() -> dict[str, float]:
+def get_computed_consultation_prior_strengths(year: int = 2022) -> dict[str, float]:
     """Memoized wrapper around ``compute_consultation_prior_strength``.
 
     On first call, reads ``consultas.csv``, computes candidate-specific
     standard deviations, and caches the result. Subsequent calls return the
     cached dict without I/O.
+
+    Args:
+        year: Election year (default 2022).
 
     Returns:
         Mapping of candidate key to prior standard deviation, computed from
@@ -517,17 +537,18 @@ def get_computed_consultation_prior_strengths() -> dict[str, float]:
         True
 
     """
-    return compute_consultation_prior_strength()
+    return compute_consultation_prior_strength(year)
 
 
-def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
-    """Load raw poll data from ``encuestas_2022.csv``.
+def load_raw_polls(data_dir: Path | None = None, year: int = 2022) -> pd.DataFrame:
+    """Load raw poll data from ``encuestas_{year}.csv``.
 
     Parses ``fecha`` to datetime, coerces numeric columns, and preserves
     all columns from the source CSV.
 
     Args:
         data_dir: Path to the project data directory. Auto-resolved if ``None``.
+        year: Election year (default 2022).
 
     Returns:
         DataFrame with parsed types; ``fecha`` is ``datetime64[ns]``.
@@ -545,18 +566,23 @@ def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
 
     """
     resolved = resolve_data_dir(data_dir)
-    path = resolved / "2022-polls" / "encuestas_2022.csv"
+    path = resolved / f"{year}-polls" / f"encuestas_{year}.csv"
     df = pd.read_csv(path, encoding="utf-8", low_memory=False)
 
-    # Validate required columns exist
+    # Validate required columns exist.  For the default year keep the
+    # original required set to preserve exact backward compatibility.
+    if year == _DEFAULT_YEAR:
+        required_candidate_cols = {"federico_gutierrez", "gustavo_petro", "rodolfo_hernandez"}
+    else:
+        required_candidate_cols = {
+            c.key for c in get_active_candidates(1, year=year) if c.key not in {"rest", "blanco"}
+        }
     required_poll_cols = {
         "fecha",
         "encuestadora",
         "muestra",
-        "federico_gutierrez",
-        "gustavo_petro",
-        "rodolfo_hernandez",
         "ns_nr",
+        *required_candidate_cols,
     }
     missing = required_poll_cols - set(df.columns)
     if missing:
@@ -588,11 +614,12 @@ def load_raw_polls(data_dir: Path | None = None) -> pd.DataFrame:
     return df
 
 
-def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
+def load_raw_consultas(data_dir: Path | None = None, year: int = 2022) -> pd.DataFrame:
     """Load raw consultation poll data from ``consultas.csv``.
 
     Args:
         data_dir: Path to the project data directory. Auto-resolved if ``None``.
+        year: Election year (default 2022).
 
     Returns:
         DataFrame with parsed types.
@@ -602,7 +629,7 @@ def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
 
     """
     resolved = resolve_data_dir(data_dir)
-    path = resolved / "2022-polls" / "consultas.csv"
+    path = resolved / f"{year}-polls" / "consultas.csv"
     df = pd.read_csv(path, encoding="latin-1", low_memory=False)
 
     # Validate required columns exist
@@ -646,7 +673,7 @@ def load_raw_consultas(data_dir: Path | None = None) -> pd.DataFrame:
     return df
 
 
-def parse_consultations(df: pd.DataFrame) -> list[ConsultationPoll]:
+def parse_consultations(df: pd.DataFrame, year: int = 2022) -> list[ConsultationPoll]:
     """Convert raw consultation DataFrame into typed ``ConsultationPoll`` objects.
 
     Skips rows with unrecognized candidate names (logged as warnings).
@@ -654,6 +681,7 @@ def parse_consultations(df: pd.DataFrame) -> list[ConsultationPoll]:
 
     Args:
         df: DataFrame from ``load_raw_consultas``.
+        year: Election year (default 2022).
 
     Returns:
         List of ``ConsultationPoll`` objects.
@@ -666,7 +694,7 @@ def parse_consultations(df: pd.DataFrame) -> list[ConsultationPoll]:
     skipped = 0
     for _, row in df.iterrows():
         try:
-            candidate_key = map_consultation_name_to_key(str(row["candidato"]))
+            candidate_key = map_consultation_name_to_key(str(row["candidato"]), year=year)
         except ValueError:
             logger.warning(
                 "Skipping consultation row: unrecognized candidate %r",
@@ -783,7 +811,7 @@ def merge_digital_signals(
     return merged.sort_values("days_before", ascending=True).reset_index(drop=True)
 
 
-def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
+def fix_invamer_date(df: pd.DataFrame, year: int = 2022) -> pd.DataFrame:
     """Correct the known Invamer data-entry error.
 
     The Invamer poll dated ``2022-04-19`` should be ``2022-05-19``.
@@ -791,12 +819,15 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df: Raw poll DataFrame (must have ``encuestadora`` and ``fecha`` columns).
+        year: Election year (default 2022). No-op for non-2022 years.
 
     Returns:
         Copy of ``df`` with the corrected date.
 
     """
     result = df.copy()
+    if year != _DEFAULT_YEAR:
+        return result
     mask = (result["encuestadora"].str.strip() == "Invamer") & (
         result["fecha"] == pd.Timestamp("2022-04-19")
     )
@@ -810,57 +841,67 @@ def fix_invamer_date(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _detect_forced_choice(df: pd.DataFrame) -> pd.Series:
+def _detect_forced_choice(df: pd.DataFrame, year: int = 2022) -> pd.Series:
     """Detect forced-choice R2 polls.
 
-    Flags rows where blanco is NA, ns_nr is absent or zero, and
-    petro+hernandez sum to 100% ± 1pp.
+    Flags rows where blanco is NA, ns_nr is absent or zero, and the two
+    runoff candidates sum to 100% ± 1pp.
 
     Handles detection both before and after ``normalize_undecided``
     (which fills NaN ns_nr values with 0.0).
 
     Args:
         df: Poll DataFrame with candidate share columns.
+        year: Election year (default 2022).
 
     Returns:
         Boolean Series indexed like ``df``, True for forced-choice polls.
 
     """
-    petro = df["gustavo_petro"].fillna(0)
-    hernandez = df["rodolfo_hernandez"].fillna(0)
-    both_present = df["gustavo_petro"].notna() & df["rodolfo_hernandez"].notna()
+    runoff_candidates = [c.key for c in get_active_candidates(2, year=year) if c.key != "rest"]
+    if len(runoff_candidates) < _MIN_RUNOFF_CANDIDATES:
+        return pd.Series(data=False, index=df.index)
+
+    cand_a = df[runoff_candidates[0]].fillna(0)
+    cand_b = df[runoff_candidates[1]].fillna(0)
+    both_present = df[runoff_candidates[0]].notna() & df[runoff_candidates[1]].notna()
 
     blanco_na = df["blanco"].isna()
     ns_nr_zero = df["ns_nr"].fillna(0) == 0
-    sum_check = (petro + hernandez - 100).abs() <= 1
+    sum_check = (cand_a + cand_b - 100).abs() <= 1
 
     return blanco_na & ns_nr_zero & sum_check & both_present
 
 
-def _fix_known_anomalies(df: pd.DataFrame) -> pd.DataFrame:
+def _fix_known_anomalies(df: pd.DataFrame, year: int = 2022) -> pd.DataFrame:
     """Apply known data-entry corrections to raw poll data.
 
     Wraps ``fix_invamer_date`` and ``_fix_yanhaas_20220611`` so both
     pipelines (``load_and_clean_all`` and ``load_as_coa_polls``) apply
-    the same corrections.
+    the same corrections.  These corrections are year-gated: they only
+    run for 2022.
 
     Args:
         df: Raw poll DataFrame.
+        year: Election year (default 2022).
 
     Returns:
         Corrected copy of ``df``.
 
     """
-    return _fix_yanhaas_20220611(fix_invamer_date(df))
+    return _fix_yanhaas_20220611(fix_invamer_date(df, year=year), year=year)
 
 
-def _fix_yanhaas_20220611(df: pd.DataFrame) -> pd.DataFrame:
+def _fix_yanhaas_20220611(df: pd.DataFrame, year: int = 2022) -> pd.DataFrame:
     """Correct YanHaas 103% sum anomaly on 2022-06-11.
 
     Redistributes ns_nr (10.0pp) proportionally to Petro, Hernandez, Blanco.
-    If total > 100% ± 0.01%, renormalizes rows.
+    If total > 100% ± 0.01%, renormalizes rows.  No-op for non-2022 years.
     """
     result = df.copy()
+    if year != _DEFAULT_YEAR:
+        return result
+
     mask = (result["encuestadora"].str.strip() == "YanHaas") & (
         result["fecha"] == pd.Timestamp("2022-06-11")
     )
@@ -1080,62 +1121,94 @@ def retain_active_candidates(
     return result
 
 
-_ROUND1_REQUIRED = ["gustavo_petro", "federico_gutierrez", "rodolfo_hernandez"]
-_ROUND1_OPTIONAL = ["sergio_fajardo", "ingrid_betancourt"]
-_ROUND2_REQUIRED = ["gustavo_petro", "rodolfo_hernandez"]
-_ROUND2_ABSENT = ["federico_gutierrez", "sergio_fajardo", "ingrid_betancourt"]
+_ROUND1_REQUIRED_2022 = ["gustavo_petro", "federico_gutierrez", "rodolfo_hernandez"]
+_ROUND1_OPTIONAL_2022 = ["sergio_fajardo", "ingrid_betancourt"]
+_ROUND2_REQUIRED_2022 = ["gustavo_petro", "rodolfo_hernandez"]
+_ROUND2_ABSENT_2022 = ["federico_gutierrez", "sergio_fajardo", "ingrid_betancourt"]
 
 
-def _is_round1_candidate(row: pd.Series, columns: pd.Index) -> bool:
+def _get_round_inference_keys(
+    year: int,
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Return (r1_required, r1_optional, r2_required, r2_absent) for a year.
+
+    For 2022, returns the hard-coded lists that encode the exact historical
+    candidate set.  For other years, the lists are derived from the active
+    candidate registry so the inference logic stays year-agnostic.
+
+    """
+    if year == _DEFAULT_YEAR:
+        return (
+            _ROUND1_REQUIRED_2022,
+            _ROUND1_OPTIONAL_2022,
+            _ROUND2_REQUIRED_2022,
+            _ROUND2_ABSENT_2022,
+        )
+
+    r1_keys = [c.key for c in get_active_candidates(1, year=year)]
+    r2_keys = [c.key for c in get_active_candidates(2, year=year) if c.key != "rest"]
+    r1_named = [k for k in r1_keys if k not in {"rest", "blanco"}]
+    # Require all named first-round candidates; no optional set.
+    r1_required = r1_named
+    r1_optional: list[str] = []
+    r2_required = r2_keys
+    r2_absent = [k for k in r1_named if k not in r2_keys]
+    return r1_required, r1_optional, r2_required, r2_absent
+
+
+def _is_round1_candidate(row: pd.Series, columns: pd.Index, year: int = 2022) -> bool:
     """Check if a poll matches the round 1 candidate pattern."""
-    for col in _ROUND1_REQUIRED:
+    required, optional, _, _ = _get_round_inference_keys(year)
+    for col in required:
         if col not in columns or not _col_has_value(row, col):
             return False
-    optional = [col for col in _ROUND1_OPTIONAL if col in columns and _col_has_value(row, col)]
-    if not optional:
+    present_optional = [col for col in optional if col in columns and _col_has_value(row, col)]
+    if optional and not present_optional:
         return False
     fecha = _get_timestamp_or_none(row, "fecha")
     if fecha is None:
         return False
-    return fecha >= pd.Timestamp(CONSULTATION_DATE)
+    return fecha >= pd.Timestamp(get_election_date(year))
 
 
-def _is_round2_candidate(row: pd.Series, columns: pd.Index) -> bool:
+def _is_round2_candidate(row: pd.Series, columns: pd.Index, year: int = 2022) -> bool:
     """Check if a poll matches the round 2 candidate pattern."""
-    for col in _ROUND2_REQUIRED:
+    _, _, required, absent = _get_round_inference_keys(year)
+    for col in required:
         if col not in columns or not _col_has_value(row, col):
             return False
-    for col in _ROUND2_ABSENT:
+    for col in absent:
         if col in columns and _col_has_value(row, col):
             return False
     fecha = _get_timestamp_or_none(row, "fecha")
     if fecha is None:
         return False
-    return fecha >= pd.Timestamp(ELECTION_DATE_ROUND1)
+    return fecha >= pd.Timestamp(get_election_date(year, 1))
 
 
-def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
+def infer_round_number(df: pd.DataFrame, year: int = 2022) -> pd.DataFrame:
     """Assign ``round_number`` (1, 2, or NaN) to each poll based on candidate pattern.
 
     Round 1 (relaxed criteria):
-        - ``gustavo_petro``, ``federico_gutierrez``, ``rodolfo_hernandez`` non-NA
-        - At least one of ``sergio_fajardo`` or ``ingrid_betancourt`` non-NA
-        - ``fecha >= CONSULTATION_DATE``
+        - Required first-round candidate columns non-NA
+        - At least one optional first-round candidate non-NA (2022 only)
+        - ``fecha >= consultation_date``
 
     Round 1 (forced-choice):
         - ``forced_choice=True`` (R2 candidate pattern but no blanco/ns_nr)
         - ``round_number`` is 1 because forced-choice polls track R1 preferences
 
     Round 2:
-        - ``gustavo_petro``, ``rodolfo_hernandez`` non-NA
-        - ``federico_gutierrez``, ``sergio_fajardo``, ``ingrid_betancourt`` all NA
-        - ``fecha >= ELECTION_DATE_ROUND1``
+        - Required runoff candidate columns non-NA
+        - Absent first-round candidate columns all NA
+        - ``fecha >= first_round_election_date``
         - ``forced_choice`` is not ``True``
 
     All other polls: ``round_number = pd.NA`` (nullable Int64).
 
     Args:
         df: Poll DataFrame with candidate columns and ``fecha``.
+        year: Election year (default 2022).
 
     Returns:
         Copy of ``df`` with a new ``round_number`` column (Int64, nullable).
@@ -1146,10 +1219,10 @@ def infer_round_number(df: pd.DataFrame) -> pd.DataFrame:
     has_forced_choice = "forced_choice" in result.columns
     for _, row in result.iterrows():
         if (has_forced_choice and row.get("forced_choice", False) is True) or _is_round1_candidate(
-            row, result.columns
+            row, result.columns, year=year
         ):
             round_numbers.append(1)
-        elif _is_round2_candidate(row, result.columns):
+        elif _is_round2_candidate(row, result.columns, year=year):
             round_numbers.append(2)
         else:
             round_numbers.append(None)
@@ -1218,11 +1291,11 @@ def deduplicate_polls(df: pd.DataFrame) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════
 
 
-def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
-    """Load AS/COA 2022 Colombian presidential poll tracker (SPEC-25).
+def load_as_coa_polls(data_dir: Path | None = None, year: int = 2022) -> CleanPolls:
+    """Load AS/COA Colombian presidential poll tracker (SPEC-25).
 
     Reads ``round1.csv`` and ``runoff.csv`` from
-    ``data/2022-polls/as_coa/`` as a third independent poll source. The
+    ``data/{year}-polls/as_coa/`` as a third independent poll source. The
     data is an aggregate (``encuestadora="AGREGADO"``) with no per-pollster
     metadata, sample sizes, or margins of error.
 
@@ -1237,6 +1310,7 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     Args:
         data_dir: Path to the project data directory. Auto-resolved if
             ``None``.
+        year: Election year (default 2022).
 
     Returns:
         A validated ``CleanPolls`` container with AS/COA data and an
@@ -1262,9 +1336,11 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
 
     """
     resolved = resolve_data_dir(data_dir)
-    as_coa_dir = resolved / "2022-polls" / "as_coa"
+    as_coa_dir = resolved / f"{year}-polls" / "as_coa"
 
     # ── Column mapping: AS/COA CSV → canonical keys ──
+    # The AS/COA source is currently only available for 2022; the map is
+    # kept explicit to preserve exact 2022 behavior.
     _round1_col_map: dict[str, str] = {
         "petro": "gustavo_petro",
         "fico_gutierrez": "federico_gutierrez",
@@ -1307,7 +1383,7 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     combined["muestra_int_voto"] = None
 
     # Fix known anomalies (Invamer date + YanHaas) before normalization
-    combined = _fix_known_anomalies(combined)
+    combined = _fix_known_anomalies(combined, year=year)
 
     # Normalize undecided (redistribute ns_nr + ninguno)
     combined = normalize_undecided(combined)
@@ -1320,12 +1396,12 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
         combined = combined.rename(columns={"otros": "rest"})
 
     # Infer round number
-    r1_keys = [c.key for c in get_active_candidates(1)]
+    r1_keys = [c.key for c in get_active_candidates(1, year=year)]
     combined = retain_active_candidates(combined, r1_keys)
 
     # Detect forced-choice BEFORE round inference
-    combined["forced_choice"] = _detect_forced_choice(combined)
-    combined = infer_round_number(combined)
+    combined["forced_choice"] = _detect_forced_choice(combined, year=year)
+    combined = infer_round_number(combined, year=year)
 
     # Backfill round_number and forced_choice into all_polls snapshot
     # (consistent with load_and_clean_all API)
@@ -1339,7 +1415,7 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
     round2_df = combined[mask_r2].copy()
 
     # Per-round: retain active candidates + deduplicate
-    r2_keys = [c.key for c in get_active_candidates(2)]
+    r2_keys = [c.key for c in get_active_candidates(2, year=year)]
     if not round1_df.empty:
         round1_df = retain_active_candidates(round1_df, r1_keys)
         round1_df = deduplicate_polls(round1_df)
@@ -1373,12 +1449,15 @@ def load_as_coa_polls(data_dir: Path | None = None) -> CleanPolls:
 # ═══════════════════════════════════════════════════════════════════
 
 
-def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:  # noqa: C901
+def load_and_clean_all(  # noqa: C901
+    data_dir: Path | None = None,
+    year: int = 2022,
+) -> CleanPolls:
     """Load, clean, normalize, and classify all poll data.
 
     Pipeline:
         1. ``load_raw_polls`` → parse dates, coerce types
-        2. ``fix_invamer_date`` → correct April 19 → May 19
+        2. ``fix_invamer_date`` → correct April 19 → May 19 (2022 only)
         3. ``normalize_undecided`` → redistribute, validate 100±1%
            └─ ``all_polls`` snapshot taken here (before column filtering)
         4. ``retain_active_candidates`` (round 1 superset)
@@ -1391,16 +1470,26 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:  # noqa: C90
 
     Args:
         data_dir: Path to the project data directory. Auto-resolved if ``None``.
+        year: Election year (default 2022).
 
     Returns:
         A validated ``CleanPolls`` container.
 
     """
+    if year == 2026:  # noqa: PLR2004
+        from co_president.data_cne_2026 import (  # noqa: PLC0415
+            build_clean_polls_2026,
+        )
+
+        return build_clean_polls_2026(data_dir=data_dir)
+
+    election_day_r1 = get_election_date(year, _ROUND_FIRST)
+
     # Step 1: Load raw polls
-    polls = load_raw_polls(data_dir=data_dir)
+    polls = load_raw_polls(data_dir=data_dir, year=year)
 
     # Step 2: Fix known anomalies
-    polls = _fix_known_anomalies(polls)
+    polls = _fix_known_anomalies(polls, year=year)
 
     # Step 3: Normalize undecided
     polls = normalize_undecided(polls)
@@ -1413,14 +1502,14 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:  # noqa: C90
         polls = polls.rename(columns={"otros": "rest"})
 
     # Step 5: Retain active candidates (round 1 superset)
-    r1_keys = [c.key for c in get_active_candidates(1, as_of=ELECTION_DATE_ROUND1)]
+    r1_keys = [c.key for c in get_active_candidates(1, year=year, as_of=election_day_r1)]
     polls = retain_active_candidates(polls, r1_keys)
 
     # Step 6: Detect forced-choice BEFORE round inference
-    polls["forced_choice"] = _detect_forced_choice(polls)
+    polls["forced_choice"] = _detect_forced_choice(polls, year=year)
 
     # Step 7: Infer round number (forced-choice polls get classified as R1)
-    polls = infer_round_number(polls)
+    polls = infer_round_number(polls, year=year)
     all_polls["round_number"] = polls["round_number"]
     all_polls["forced_choice"] = polls["forced_choice"]
 
@@ -1431,7 +1520,7 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:  # noqa: C90
     round2_df = polls[mask_r2].copy()
 
     # Step 9: Per-round retain_active_candidates
-    r2_keys = [c.key for c in get_active_candidates(2, as_of=ELECTION_DATE_ROUND1)]
+    r2_keys = [c.key for c in get_active_candidates(2, year=year, as_of=election_day_r1)]
     if not round1_df.empty:
         round1_df = retain_active_candidates(round1_df, r1_keys)
     if not round2_df.empty:
@@ -1458,8 +1547,8 @@ def load_and_clean_all(data_dir: Path | None = None) -> CleanPolls:  # noqa: C90
         )
 
     # Step 11: Consultation data
-    consultas_df = load_raw_consultas(data_dir=data_dir)
-    consultation_list = parse_consultations(consultas_df)
+    consultas_df = load_raw_consultas(data_dir=data_dir, year=year)
+    consultation_list = parse_consultations(consultas_df, year=year)
 
     # Step 12: Sort all DataFrames chronologically
     _sort_keys = ["fecha", "encuestadora"]

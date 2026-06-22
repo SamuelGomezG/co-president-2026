@@ -7,7 +7,8 @@ canonical 2022 election results.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import argparse
+from datetime import UTC, datetime, timedelta
 import logging
 from pathlib import Path
 import sys
@@ -23,14 +24,11 @@ from report_utils import (
     save_reports,
 )
 
-from co_president.config import ModelConfig
+from co_president.config import ModelConfig, get_active_candidates, get_election_date
 from co_president.data import load_and_clean_all, load_canonical_results
 from co_president.fundamentals.features import load_features
 from co_president.ingestion.ingest_trends import compute_prop_fav, fetch_trends
-from co_president.ingestion.trends_keywords import (
-    CANDIDATE_QUERY_MAPS,
-    CANDIDATE_QUERY_MAP_2022_RUNOFF,
-)
+from co_president.ingestion.trends_keywords import CANDIDATE_QUERY_MAPS
 
 if TYPE_CHECKING:
     from co_president.data import CleanPolls
@@ -54,15 +52,27 @@ CONFIG_DEBUG = ModelConfig(
     nuts_sampler="numpyro",
 )
 
-RESULTS_DIR = Path("results")
-REPORT_PATH = Path("results/baseline_100k_report.md")
-JSON_PATH = Path("results/baseline_100k_report.json")
+
+def _report_paths(year: int) -> tuple[Path, Path]:
+    """Return report and JSON paths, keeping 2022 names unchanged."""
+    results_dir = Path("results")
+    if year == 2022:
+        return results_dir / "baseline_100k_report.md", results_dir / "baseline_100k_report.json"
+    return (
+        results_dir / f"baseline_100k_report_{year}.md",
+        results_dir / f"baseline_100k_report_{year}.json",
+    )
 
 
 def main() -> None:
-    """Run 100K-iteration MCMC for both rounds and produce accuracy report."""
+    """Run 100K-iteration MCMC for both rounds and produce an accuracy report."""
+    parser = argparse.ArgumentParser(description="Run 100K-iteration accuracy benchmark.")
+    parser.add_argument("--year", type=int, default=2022, help="Election year (default 2022)")
+    args = parser.parse_args()
+    year = args.year
+
     started_at = datetime.now(UTC)
-    logger.info("Starting 100K-iteration accuracy benchmark...")
+    logger.info("Starting 100K-iteration accuracy benchmark for %d...", year)
 
     logger.info("Loading canonical election results...")
     try:
@@ -73,7 +83,7 @@ def main() -> None:
 
     logger.info("Loading and cleaning poll data...")
     try:
-        clean_polls: CleanPolls = load_and_clean_all()
+        clean_polls: CleanPolls = load_and_clean_all(year=year)
     except (OSError, ValueError):
         logger.exception("Failed to load poll data")
         sys.exit(1)
@@ -96,10 +106,18 @@ def main() -> None:
             "and calibrated transfer prior",
         )
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    results_dir = Path("results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    election_r1 = get_election_date(year, 1)
+    election_r2 = get_election_date(year, 2)
+    trends_start = (election_r1 - timedelta(days=90)).strftime("%Y-%m-%d")
+    trends_end = (election_r2 - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    query_map = CANDIDATE_QUERY_MAPS.get(str(year)) or CANDIDATE_QUERY_MAPS["2022"]
 
     digital_signals: pd.DataFrame = pd.DataFrame()
-    trends_cache = RESULTS_DIR / "trends_cache_2022.parquet"
+    trends_cache = results_dir / f"trends_cache_{year}.parquet"
     if trends_cache.exists():
         try:
             digital_signals = pd.read_parquet(trends_cache)
@@ -113,13 +131,12 @@ def main() -> None:
             logger.warning("Failed to load cached Google Trends; will attempt fetch")
     if digital_signals.empty:
         try:
-            query_map = CANDIDATE_QUERY_MAPS.get("2022")
             if query_map:
-                logger.info("Fetching Google Trends data for runoff...")
+                logger.info("Fetching Google Trends data...")
                 trends_raw = fetch_trends(
                     list(query_map.values()),
-                    start_date="2022-03-01",
-                    end_date="2022-06-18",
+                    start_date=trends_start,
+                    end_date=trends_end,
                 )
                 if not trends_raw.empty:
                     prop_fav_long = compute_prop_fav(trends_raw, query_map)
@@ -132,7 +149,7 @@ def main() -> None:
                     digital_signals["fecha"] = pd.to_datetime(digital_signals["fecha"])
                     digital_signals.to_parquet(trends_cache)
                     logger.info(
-                        "Fetched and cached Google Trends for %d candidates, %d runoff dates",
+                        "Fetched and cached Google Trends for %d candidates, %d dates",
                         len(query_map),
                         len(digital_signals),
                     )
@@ -152,10 +169,12 @@ def main() -> None:
         )
         raise RuntimeError(msg)
 
-    # Runoff-specific head-to-head digital signals (only Petro + Rodolfo)
+    # Runoff-specific head-to-head digital signals
     # Separately cached so prop_fav is computed head-to-head per SciELO.
+    runoff_candidates = [c.key for c in get_active_candidates(2, year=year) if c.key != "rest"]
+    runoff_query_map = {k: query_map[k] for k in runoff_candidates if k in query_map}
     digital_signals_runoff: pd.DataFrame = pd.DataFrame()
-    runoff_cache = RESULTS_DIR / "trends_cache_2022_runoff.parquet"
+    runoff_cache = results_dir / f"trends_cache_{year}_runoff.parquet"
     if runoff_cache.exists():
         try:
             digital_signals_runoff = pd.read_parquet(runoff_cache)
@@ -163,17 +182,17 @@ def main() -> None:
             logger.info("Loaded cached runoff-specific head-to-head Trends")
         except (OSError, ValueError, KeyError):
             digital_signals_runoff = pd.DataFrame()
-    if digital_signals_runoff.empty:
+    if digital_signals_runoff.empty and runoff_query_map:
         try:
-            runoff_keys = list(CANDIDATE_QUERY_MAP_2022_RUNOFF.values())
-            logger.info("Fetching runoff-specific Google Trends (Petro vs Rodolfo)...")
+            runoff_keys = list(runoff_query_map.values())
+            logger.info("Fetching runoff-specific Google Trends...")
             trends_raw = fetch_trends(
                 runoff_keys,
-                start_date="2022-05-01",
-                end_date="2022-06-18",
+                start_date=(election_r1 + timedelta(days=1)).strftime("%Y-%m-%d"),
+                end_date=trends_end,
             )
             if not trends_raw.empty:
-                prop_fav_long = compute_prop_fav(trends_raw, CANDIDATE_QUERY_MAP_2022_RUNOFF)
+                prop_fav_long = compute_prop_fav(trends_raw, runoff_query_map)
                 digital_signals_runoff = prop_fav_long.pivot_table(
                     index="as_of_date",
                     columns="candidate",
@@ -192,9 +211,8 @@ def main() -> None:
             )
     # Fallback: compute head-to-head from multi-candidate prop_fav
     if digital_signals_runoff.empty and not digital_signals.empty:
-        runoff_cols = ["gustavo_petro", "rodolfo_hernandez"]
-        if all(c in digital_signals.columns for c in runoff_cols):
-            ds_h2h = digital_signals[runoff_cols].copy()
+        if all(c in digital_signals.columns for c in runoff_candidates):
+            ds_h2h = digital_signals[runoff_candidates].copy()
             total = ds_h2h.sum(axis=1)
             ds_h2h = ds_h2h.div(total.where(total > 0, 1.0), axis=0).fillna(0.0)
             ds_h2h["fecha"] = digital_signals["fecha"]
@@ -213,7 +231,8 @@ def main() -> None:
         results_r1,
         features=features,
         digital_signals=digital_signals,
-        results_dir=RESULTS_DIR,
+        results_dir=results_dir,
+        year=year,
     )
 
     _idata_runoff, r2_metrics, r2_rhat, r2_converged, elapsed_r2_s = run_round2_survey(
@@ -224,6 +243,7 @@ def main() -> None:
         idata_r1,
         features=features,
         digital_signals=digital_signals_runoff,
+        year=year,
     )
 
     report_data = ReportInputs(
@@ -237,12 +257,13 @@ def main() -> None:
         elapsed_r2_s=elapsed_r2_s,
         n_polls_r1=n_polls_r1,
         n_polls_r2=n_polls_r2,
-        election_year=2022,
+        election_year=year,
     )
 
     report_md = generate_report(report_data, CONFIG_DEBUG)
-    REPORT_PATH.write_text(report_md, encoding="utf-8")
-    logger.info("Saved report to %s", REPORT_PATH)
+    report_path, json_path = _report_paths(year)
+    report_path.write_text(report_md, encoding="utf-8")
+    logger.info("Saved report to %s", report_path)
 
     total_elapsed = (datetime.now(UTC) - started_at).total_seconds()
     save_reports(
@@ -252,16 +273,16 @@ def main() -> None:
         n_polls_r1,
         n_polls_r2,
         CONFIG_DEBUG,
-        REPORT_PATH,
-        JSON_PATH,
-        year=2022,
+        report_path,
+        json_path,
+        year=year,
     )
     print_summary(
         r1_metrics,
         r2_metrics,
         total_elapsed,
-        REPORT_PATH,
-        JSON_PATH,
+        report_path,
+        json_path,
         r1_converged=r1_converged,
         r2_converged=r2_converged,
     )
