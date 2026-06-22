@@ -72,6 +72,12 @@ CANDIDATE_KEY_MAP_2026: dict[str, str] = {
     "No Sabe / No Responde": "ns_nr",
     "Gustavo Matamoros": "rest",
     "Blanco": "blanco",
+    # ---- Additional edge-case labels from 2026 CNE bundles ----
+    "Juan Fernando Cristo": "rest",
+    "Total": "ns_nr",
+    "Mujer": "ns_nr",
+    "Response": "ns_nr",
+    "Luis G. Murillo": "rest",
 }
 
 _CANONICAL_2026 = frozenset(FIRST_ROUND_CANDIDATES_2026.keys())
