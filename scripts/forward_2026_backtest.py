@@ -58,7 +58,7 @@ import numpy as np
 import pandas as pd
 
 from co_president.config import ModelConfig, get_active_candidates, get_election_date
-from co_president.data import RoundResult, load_and_clean_all
+from co_president.data import RoundResult
 from co_president.empirical_runoff import get_empirical_runoff_betas
 from co_president.fundamentals.features import load_features
 from co_president.ingestion.ingest_trends import compute_prop_fav, fetch_trends
@@ -78,8 +78,8 @@ logging.basicConfig(
 logger = logging.getLogger("forward_2026")
 
 CONFIG = ModelConfig(
-    mcmc_draws=5000,
-    mcmc_tune=5000,
+    mcmc_draws=2000,
+    mcmc_tune=2000,
     mcmc_chains=4,
     mcmc_cores=4,
     target_accept=0.95,
@@ -314,7 +314,7 @@ def _extract_r1_posterior_means(
     means: dict[str, float] = {}
     n_posterior = election_day.shape[-1]
     for i, key in enumerate(candidate_keys[:n_posterior]):
-        samples = election_day[:, :, i].to_numpy().flatten()
+        samples = election_day[:, :, i].flatten()
         means[key] = float(samples.mean())
 
     return means
@@ -928,11 +928,31 @@ def main() -> None:
     started_at = datetime.now(UTC)
     logger.info("Starting %d true forward backtest...", year)
 
-    logger.info("Loading and cleaning poll data...")
-    clean_polls = load_and_clean_all(year=year)
-    n_polls_r1 = len(clean_polls.round1)
-    n_polls_r2 = len(clean_polls.round2)
-    logger.info("Loaded %d round-1 polls, %d runoff polls", n_polls_r1, n_polls_r2)
+    logger.info("Loading 2026 CNE topline data...")
+    topline_path = Path("data/2026-polls/_processed/2026_topline.parquet")
+    topline = pd.read_parquet(topline_path)
+    r1_date_dt = get_election_date(year, 1)
+    field_end = pd.to_datetime(topline["field_end"]).dt.date
+    round1_mask = field_end <= r1_date_dt
+    round1_df = topline[round1_mask].copy()
+    round2_df = topline[~round1_mask].copy()
+    round1_df = round1_df.rename(columns={"field_end": "fecha"})
+    round2_df = round2_df.rename(columns={"field_end": "fecha"})
+    if "muestra" not in round1_df.columns and "total_weight" in round1_df.columns:
+        round1_df["muestra"] = round1_df["total_weight"]
+    if "muestra" not in round2_df.columns and "total_weight" in round2_df.columns:
+        round2_df["muestra"] = round2_df["total_weight"]
+    round1_df["round_number"] = 1
+    round2_df["round_number"] = 2
+    n_polls_r1 = len(round1_df)
+    n_polls_r2 = len(round2_df)
+    logger.info(
+        "Loaded %d round-1 polls (%d pollsters), %d runoff polls (%d pollsters)",
+        n_polls_r1,
+        round1_df["encuestadora"].nunique(),
+        n_polls_r2,
+        round2_df["encuestadora"].nunique(),
+    )
 
     features: pd.DataFrame | None = None
     try:
@@ -983,7 +1003,7 @@ def main() -> None:
 
     logger.info("Building R1 model without election result...")
     model_r1 = m1.build_round1_model(
-        clean_polls.round1,
+        round1_df,
         results=None,
         config=CONFIG,
         features=features,
@@ -1037,7 +1057,7 @@ def main() -> None:
     matrix = estimate_runoff_matrix(
         idata_r1,
         (synthetic_r1, synthetic_r1),
-        clean_polls.round2,
+        round2_df,
         CONFIG,
         candidate_keys=_get_candidate_order(year),
         features=features,
