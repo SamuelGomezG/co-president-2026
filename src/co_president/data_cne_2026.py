@@ -1017,6 +1017,20 @@ def extract_runoff_pairings(
         n_total = len(group)
         n_a = total_w
         n_b = total_w  # same denominator for paired responses
+        # STATE_REPORT.md §6.B2: this n_a == n_b assignment is a known
+        # upstream bug (extraction semantics, not aggregation) that
+        # produces degenerate Beta(total+0.5, 0.5) posteriors downstream.
+        # The pairing-table rebuild (P1.7) will fix it. Until then, log
+        # every pairing so silent emission is at least visible.
+        logger.warning(
+            "extract_runoff_pairings: candidate_a=%s candidate_b=%s n_a=n_b=%.1f "
+            "from %d rows in firm=%s (P1.7 fix pending)",
+            group_key[2] if isinstance(group_key, tuple) else None,  # type: ignore[reportUnknownArgumentType]
+            group_key[3] if isinstance(group_key, tuple) else None,  # type: ignore[reportUnknownArgumentType]
+            total_w,
+            n_total,
+            group_key[1] if isinstance(group_key, tuple) else None,  # type: ignore[reportUnknownArgumentType]
+        )
         effective_n = (
             total_w * total_w / (group[weight_col] ** 2).sum()
             if (group[weight_col] ** 2).sum() > 0

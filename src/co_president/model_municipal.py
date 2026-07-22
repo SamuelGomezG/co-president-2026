@@ -23,7 +23,7 @@ import pymc as pm  # type: ignore[reportMissingTypeStubs]
 
 from co_president.config import (
     ELECTION_DATE_ROUND1,
-    FIRST_ROUND_CANDIDATES,
+    get_active_candidates,
 )
 from co_president.fundamentals.compositional import (
     _apply_zero_floor,  # type: ignore[reportPrivateUsage]
@@ -93,10 +93,12 @@ def _extract_clr_left_share(features: pd.DataFrame, target_year: int = 2022) -> 
     """Extract CLR-transformed left vote share from the most recent election.
 
     Uses *target_year* round-1 ``historical`` record.  Falls back to 0.0
-    (neutral CLR) when no record is available.
+    (neutral CLR) when no record is available — and logs a warning so the
+    silent fallback is visible in the report (STATE_REPORT.md §6.C1).
     """
     n = len(features)
     result = np.full(n, 0.0, dtype=float)
+    matches = 0
     for i in range(n):
         hist = features.iloc[i].get("historical")
         if isinstance(hist, tuple) and len(hist) > 0:  # pyright: ignore[reportUnknownArgumentType]
@@ -104,7 +106,16 @@ def _extract_clr_left_share(features: pd.DataFrame, target_year: int = 2022) -> 
                 if rec.year == target_year and rec.round == _EXTRACT_ROUND:  # type: ignore[reportUnknownMemberType]
                     clr_left = float(rec.clr_shares()[0])  # type: ignore[reportUnknownMemberType]
                     result[i] = clr_left
+                    matches += 1
                     break
+    if matches == 0:
+        logger.warning(
+            "_extract_clr_left_share: no historical record for year=%s round=%s; "
+            "falling back to neutral CLR=0.0 for all %d municipalities",
+            target_year,
+            _EXTRACT_ROUND,
+            n,
+        )
     return result
 
 
@@ -220,7 +231,9 @@ def build_municipal_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
 
     # Candidate keys from DataFrame columns (determined before empty check
     # since prior_only mode passes empty polls with correct columns)
-    candidate_keys = sorted(set(FIRST_ROUND_CANDIDATES) & set(polls.columns))
+    candidate_keys = sorted(
+        {c.key for c in get_active_candidates(1, year=target_year)} & set(polls.columns)
+    )
     n_candidates = len(candidate_keys)
     if n_candidates == 0:
         msg = "No candidate columns found in polls DataFrame"
