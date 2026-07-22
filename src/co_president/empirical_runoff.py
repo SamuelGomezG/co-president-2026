@@ -70,7 +70,7 @@ def load_runoff_raw(data_dir: Path | None = None) -> pd.DataFrame:
         return pd.read_parquet(parquet_path)
 
     logger.info("Runoff pairings parquet not found; building CNE 2026 tables on-demand...")
-    _topline, runoff = build_cne_2026_tables(data_dir=data_dir)
+    _topline, runoff, _report = build_cne_2026_tables(data_dir=data_dir)
     return runoff
 
 

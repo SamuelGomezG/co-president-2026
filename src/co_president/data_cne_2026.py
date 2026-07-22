@@ -28,6 +28,13 @@ import pandas as pd
 
 from co_president.config import FIRST_ROUND_CANDIDATES_2026, get_election_date
 from co_president.data_polls import CleanPolls
+from co_president.ingestion_report import (
+    BundleResult,
+    check_firm_coverage,
+    persist_report,
+    results_to_dataframe,
+    write_report_markdown,
+)
 from co_president.paths import resolve_data_dir
 
 logger = logging.getLogger(__name__)
@@ -1076,9 +1083,108 @@ def load_bundle(bundle_path: Path) -> pd.DataFrame:
     return df
 
 
+def _process_one_bundle(
+    bundle_path: Path,
+    firm: str,
+) -> tuple[BundleResult, pd.DataFrame | None, pd.DataFrame | None]:
+    """Load a single bundle, return (result, topline_df, runoff_df).
+
+    All failure modes (no loader, loader exception, empty DataFrame) are
+    captured in the returned ``BundleResult`` rather than raised. Returns
+    ``(result, None, None)`` on any non-OK status.
+    """
+    loader = _FIRM_LOADERS.get(firm)
+    if loader is None:
+        logger.warning(
+            "Firm %r is PDF-only or unrecognized; skipping structured load for %s",
+            firm,
+            bundle_path,
+        )
+        return (
+            BundleResult(
+                firm=firm,
+                bundle_path=bundle_path,
+                loader="<none>",
+                rows=0,
+                status="rejected",
+                reason="no registered loader for firm",
+                shares_sum_check=None,
+            ),
+            None,
+            None,
+        )
+
+    loader_name = loader.__name__ if hasattr(loader, "__name__") else str(loader)
+    try:
+        df = loader(bundle_path)
+    except (KeyError, ValueError, zipfile.BadZipFile, OSError) as exc:
+        logger.warning("Failed to load %s: %s", bundle_path, exc)
+        return (
+            BundleResult(
+                firm=firm,
+                bundle_path=bundle_path,
+                loader=loader_name,
+                rows=0,
+                status="errored",
+                reason=f"{type(exc).__name__}: {exc}",
+                shares_sum_check=None,
+            ),
+            None,
+            None,
+        )
+
+    if df.empty:
+        return (
+            BundleResult(
+                firm=firm,
+                bundle_path=bundle_path,
+                loader=loader_name,
+                rows=0,
+                status="rejected",
+                reason="loader returned empty DataFrame",
+                shares_sum_check=None,
+            ),
+            None,
+            None,
+        )
+
+    topline = extract_topline(df)
+    shares_sum: float | None = None
+    if not topline.empty:
+        candidate_cols = [
+            c
+            for c in topline.columns
+            if c not in {"fecha", "encuestadora", "muestra", "muestra_int_voto", "round_number"}
+        ]
+        if candidate_cols:
+            row = topline[candidate_cols].iloc[0]
+            shares_sum = float(pd.to_numeric(row, errors="coerce").sum())
+
+    runoff: pd.DataFrame | None = None
+    runoff_raw = df.attrs.get("runoff_df", pd.DataFrame())
+    if not runoff_raw.empty:
+        extracted = extract_runoff_pairings(runoff_raw)
+        if not extracted.empty:
+            runoff = extracted
+
+    return (
+        BundleResult(
+            firm=firm,
+            bundle_path=bundle_path,
+            loader=loader_name,
+            rows=len(df),
+            status="ok",
+            reason=None,
+            shares_sum_check=shares_sum,
+        ),
+        topline,
+        runoff,
+    )
+
+
 def build_cne_2026_tables(
     data_dir: Path | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build 2026 CNE topline and runoff-pairing tables.
 
     Iterates all zip bundles under ``data/2026-polls/``, loads each via the
@@ -1088,11 +1194,17 @@ def build_cne_2026_tables(
     - ``data/2026-polls/_processed/2026_topline.parquet``
     - ``data/2026-polls/_processed/2026_runoff_pairings.parquet``
 
+    Also writes a per-bundle ingestion report to
+    ``results/ingestion/2026_bundle_report.parquet`` and
+    ``results/ingestion/2026_bundle_report.md`` for inspection.
+
     Args:
         data_dir: Optional override for the project data directory.
 
     Returns:
-        ``(topline_df, runoff_pairings_df)`` tuple.
+        ``(topline_df, runoff_pairings_df, bundle_report_df)`` tuple.
+        Raises :class:`co_president.ingestion_report.DataQualityError` if any
+        firm produced zero successful bundles (STATE_REPORT.md §6.A1).
 
     """
     bundles = _list_zip_bundles(data_dir)
@@ -1100,37 +1212,18 @@ def build_cne_2026_tables(
 
     topline_parts: list[pd.DataFrame] = []
     runoff_parts: list[pd.DataFrame] = []
+    bundle_results: list[BundleResult] = []
 
     for bundle_path in bundles:
         firm = _identify_firm(bundle_path.name)
         logger.info("Processing %s (firm=%s)", bundle_path.name, firm)
 
-        try:
-            loader = _FIRM_LOADERS.get(firm)
-            if loader is None:
-                logger.warning(
-                    "Firm %r is PDF-only or unrecognized; skipping structured load for %s",
-                    firm,
-                    bundle_path,
-                )
-                continue
-            df = loader(bundle_path)
-
-            if df.empty:
-                continue
-
-            topline = extract_topline(df)
-            if not topline.empty:
-                topline_parts.append(topline)
-
-            runoff_raw = df.attrs.get("runoff_df", pd.DataFrame())
-            if not runoff_raw.empty:
-                runoff = extract_runoff_pairings(runoff_raw)
-                if not runoff.empty:
-                    runoff_parts.append(runoff)
-
-        except Exception:
-            logger.exception("Failed to process bundle %s", bundle_path)
+        result, topline, runoff = _process_one_bundle(bundle_path, firm)
+        bundle_results.append(result)
+        if topline is not None and not topline.empty:
+            topline_parts.append(topline)
+        if runoff is not None and not runoff.empty:
+            runoff_parts.append(runoff)
 
     all_topline = pd.concat(topline_parts, ignore_index=True) if topline_parts else pd.DataFrame()
     all_runoff = pd.concat(runoff_parts, ignore_index=True) if runoff_parts else pd.DataFrame()
@@ -1146,7 +1239,15 @@ def build_cne_2026_tables(
         all_runoff.to_parquet(out_dir / "2026_runoff_pairings.parquet", index=False)
         logger.info("Wrote %d rows to 2026_runoff_pairings.parquet", len(all_runoff))
 
-    return all_topline, all_runoff
+    report_df = results_to_dataframe(bundle_results)
+    project_root = Path(__file__).resolve().parent.parent.parent
+    report_dir = project_root / "results" / "ingestion"
+    persist_report(report_df, year=2026, output_dir=report_dir)
+    write_report_markdown(report_df, output_path=report_dir / "2026_bundle_report.md")
+
+    check_firm_coverage(bundle_results)
+
+    return all_topline, all_runoff, report_df
 
 
 def build_clean_polls_2026(
