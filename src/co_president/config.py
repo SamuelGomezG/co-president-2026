@@ -34,6 +34,8 @@ __all__ = [
     "EXPECTED_MUNICIPALITIES_POPULATION_INCL_ANM",
     "EXPECTED_MUNICIPALITIES_WITH_LOCALIDADES",
     "FIRST_ROUND_CANDIDATES",
+    "FIRST_ROUND_CANDIDATES_2014",
+    "FIRST_ROUND_CANDIDATES_2018",
     "FIRST_ROUND_CANDIDATES_2026",
     "HISTORICAL_CANDIDATE_IDEOLOGY",
     "HISTORICAL_CANDIDATE_IDEOLOGY_5CLASS",
@@ -285,9 +287,136 @@ FIRST_ROUND_CANDIDATES_2026: dict[str, Candidate] = {
     ),
 }
 
+# SPEC-26 OOS holdout: 2014 first-round candidates sourced from Registraduría
+# historical records.  The prediction set for the municipal prior OOS test
+# intersects these with whatever candidate columns the synthetic polls use.
+FIRST_ROUND_CANDIDATES_2014: dict[str, Candidate] = {
+    "juan_manuel_santos": Candidate(
+        key="juan_manuel_santos",
+        display_name="Juan Manuel Santos",
+        coalition="Unidad Nacional",
+        first_round=True,
+        runoff=True,
+    ),
+    "oscar_ivan_zuluaga": Candidate(
+        key="oscar_ivan_zuluaga",
+        display_name="Óscar Iván Zuluaga",
+        coalition="Centro Democrático",
+        first_round=True,
+        runoff=True,
+    ),
+    "marta_lucia_ramirez": Candidate(
+        key="marta_lucia_ramirez",
+        display_name="Marta Lucía Ramírez",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+    "clara_lopez": Candidate(
+        key="clara_lopez",
+        display_name="Clara López",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+    "enrique_penalosa": Candidate(
+        key="enrique_penalosa",
+        display_name="Enrique Peñalosa",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+    "gustavo_petro": Candidate(
+        key="gustavo_petro",
+        display_name="Gustavo Petro",
+        coalition="Progresistas",
+        first_round=True,
+        runoff=False,
+    ),
+    "sergio_fajardo": Candidate(
+        key="sergio_fajardo",
+        display_name="Sergio Fajardo",
+        coalition="Compromiso Ciudadano",
+        first_round=True,
+        runoff=False,
+    ),
+    "rest": Candidate(
+        key="rest",
+        display_name="Otros",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+    "blanco": Candidate(
+        key="blanco",
+        display_name="Voto en Blanco",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+}
+
+# SPEC-26 OOS holdout: 2018 first-round candidates.  Note the strong left
+# (Petro) vs right (Duque) split that motivates the coalition-structure
+# transfer test in ``year_2018_holdout``.
+FIRST_ROUND_CANDIDATES_2018: dict[str, Candidate] = {
+    "ivan_duque": Candidate(
+        key="ivan_duque",
+        display_name="Iván Duque",
+        coalition="Centro Democrático",
+        first_round=True,
+        runoff=True,
+    ),
+    "gustavo_petro": Candidate(
+        key="gustavo_petro",
+        display_name="Gustavo Petro",
+        coalition="Pacto Histórico",
+        first_round=True,
+        runoff=True,
+    ),
+    "sergio_fajardo": Candidate(
+        key="sergio_fajardo",
+        display_name="Sergio Fajardo",
+        coalition="Compromiso Ciudadano",
+        first_round=True,
+        runoff=False,
+    ),
+    "german_vargas_lleras": Candidate(
+        key="german_vargas_lleras",
+        display_name="Germán Vargas Lleras",
+        coalition="Cambio Radical",
+        first_round=True,
+        runoff=False,
+    ),
+    "horst_de_la_calle": Candidate(
+        key="horst_de_la_calle",
+        display_name="Humberto de la Calle",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+    "rest": Candidate(
+        key="rest",
+        display_name="Otros",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+    "blanco": Candidate(
+        key="blanco",
+        display_name="Voto en Blanco",
+        coalition=None,
+        first_round=True,
+        runoff=False,
+    ),
+}
+
 # Year-indexed candidate registries.  2022 is populated from the existing
-# constants; 2026 entries are populated by SPEC-31.
+# constants; 2026 entries are populated by SPEC-31.  2014 and 2018 are
+# populated for the SPEC-26 OOS holdout framework.
 CANDIDATES_BY_YEAR: dict[int, dict[str, Candidate]] = {
+    2014: FIRST_ROUND_CANDIDATES_2014,
+    2018: FIRST_ROUND_CANDIDATES_2018,
     2022: FIRST_ROUND_CANDIDATES,
     2026: FIRST_ROUND_CANDIDATES_2026,
 }

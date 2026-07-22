@@ -1002,7 +1002,7 @@ def run_feature_group_ablation(
     polls: pd.DataFrame,
     results: RoundResult | None,
     config: ModelConfig,
-    target_year: int = 2018,
+    target_year: int = 2022,
 ) -> pd.DataFrame:
     """Run feature group ablation: drop one group at a time, re-fit, report ΔMAE.
 

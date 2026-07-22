@@ -692,6 +692,18 @@ class TestYearAgnosticHelpers:
         assert CANDIDATES_BY_YEAR[2022] == FIRST_ROUND_CANDIDATES
         assert CANDIDATES_BY_YEAR[2026] == FIRST_ROUND_CANDIDATES_2026
 
+    def test_candidates_by_year_2014(self) -> None:
+        """2014 registry must exist for OOS holdout tests (target_year=2014)."""
+        assert 2014 in CANDIDATES_BY_YEAR
+        # The OOS test fixtures use 2022 candidate keys; the 2014 registry
+        # is the prediction set for the historical-record prior.
+        assert "gustavo_petro" in CANDIDATES_BY_YEAR[2014]
+
+    def test_candidates_by_year_2018(self) -> None:
+        """2018 registry must exist for OOS holdout tests (target_year=2018)."""
+        assert 2018 in CANDIDATES_BY_YEAR
+        assert "gustavo_petro" in CANDIDATES_BY_YEAR[2018]
+
     def test_consultation_log_share_prior_year_default(self) -> None:
         """Verify default year for consultation log prior is 2022."""
         default = consultation_log_share_prior()
