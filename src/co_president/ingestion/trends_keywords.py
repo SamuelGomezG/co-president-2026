@@ -7,11 +7,16 @@ for Google Trends search interest extraction.
 from __future__ import annotations
 
 CANDIDATE_QUERY_MAP_2026: dict[str, str] = {
-    "gustavo_petro": "Petro",
-    "federico_gutierrez": "Fico",
-    "rodolfo_hernandez": "Rodolfo",
-    "sergio_fajardo": "Fajardo",
-    "ingrid_betancourt": "Ingrid",
+    "cepeda": "Iván Cepeda",
+    "de_la_espriella": "Abelardo de la Espriella",
+    "valencia": "Paloma Valencia",
+    "fajardo": "Sergio Fajardo",
+    "claudia_lopez": "Claudia López",
+}
+
+CANDIDATE_QUERY_MAP_2026_RUNOFF: dict[str, str] = {
+    "cepeda": "Iván Cepeda",
+    "valencia": "Paloma Valencia",
 }
 
 CANDIDATE_QUERY_MAP_2022: dict[str, str] = {
@@ -30,6 +35,7 @@ CANDIDATE_QUERY_MAPS: dict[str, dict[str, str]] = {
     "2022": CANDIDATE_QUERY_MAP_2022,
     "2022_runoff": CANDIDATE_QUERY_MAP_2022_RUNOFF,
     "2026": CANDIDATE_QUERY_MAP_2026,
+    "2026_runoff": CANDIDATE_QUERY_MAP_2026_RUNOFF,
 }
 
 __all__ = [
@@ -37,4 +43,5 @@ __all__ = [
     "CANDIDATE_QUERY_MAP_2022",
     "CANDIDATE_QUERY_MAP_2022_RUNOFF",
     "CANDIDATE_QUERY_MAP_2026",
+    "CANDIDATE_QUERY_MAP_2026_RUNOFF",
 ]

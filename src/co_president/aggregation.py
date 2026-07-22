@@ -20,7 +20,10 @@ from co_president.config import (
     pollster_weight_formula,
 )
 from co_president.ingestion.ingest_trends import compute_prop_fav
-from co_president.ingestion.trends_keywords import CANDIDATE_QUERY_MAP_2026
+from co_president.ingestion.trends_keywords import (
+    CANDIDATE_QUERY_MAP_2022,
+    CANDIDATE_QUERY_MAP_2026,
+)
 
 __all__ = [
     "aggregation_snapshot",
@@ -35,6 +38,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 _DEFAULT_HALF_LIFE = 30.0
+_QUERY_MAP_2022_CUTOFF_YEAR = 2025
 
 
 def time_weight(
@@ -364,7 +368,14 @@ def evolution_series(  # noqa: PLR0913
     result = pd.DataFrame(rows)
 
     if trends_df is not None and not trends_df.empty:
-        query_map = trends_query_map if trends_query_map is not None else CANDIDATE_QUERY_MAP_2026
+        if trends_query_map is not None:
+            query_map = trends_query_map
+        else:
+            query_map = (
+                CANDIDATE_QUERY_MAP_2022
+                if election_date.year <= _QUERY_MAP_2022_CUTOFF_YEAR
+                else CANDIDATE_QUERY_MAP_2026
+            )
         active_map = {k: v for k, v in query_map.items() if k in candidates}
         if active_map:
             prop_fav_long = compute_prop_fav(trends_df, active_map)

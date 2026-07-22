@@ -18,7 +18,7 @@ import arviz as az
 import numpy as np
 import pandas as pd
 
-from co_president.config import FIRST_ROUND_CANDIDATES, ModelConfig
+from co_president.config import Candidate, ModelConfig, get_active_candidates
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -48,6 +48,25 @@ class ReportInputs:
     n_polls_r1: int
     n_polls_r2: int
     election_year: int = 2022
+    candidate_registry: dict[str, Candidate] | None = None
+
+    def __post_init__(self) -> None:
+        """Derive the candidate registry from the election year if not provided."""
+        if self.candidate_registry is None:
+            self.candidate_registry = {
+                c.key: c for c in get_active_candidates(1, year=self.election_year)
+            }
+        if self.candidate_registry:
+            runoff_keys = {c.key for c in get_active_candidates(2, year=self.election_year)}
+            for key in runoff_keys:
+                if key not in self.candidate_registry:
+                    self.candidate_registry[key] = Candidate(
+                        key=key,
+                        display_name=key,
+                        coalition=None,
+                        first_round=False,
+                        runoff=True,
+                    )
 
 
 def format_pct(value: float) -> str:
@@ -81,6 +100,7 @@ def compute_r1_accuracy(
     idata_r1: xr.DataTree,
     results_r1: RoundResult,
     poll_columns: set[str] | None = None,
+    candidate_registry: dict[str, Candidate] | None = None,
 ) -> dict:
     """Compute round 1 accuracy metrics.
 
@@ -91,6 +111,8 @@ def compute_r1_accuracy(
             candidate ordering.  When ``None``, falls back to
             ``results_r1.candidates`` (may misalign if model excluded
             some candidates).
+        candidate_registry: Mapping of candidate key to ``Candidate`` metadata.
+            When ``None``, falls back to ``get_active_candidates(1)``.
 
     Returns:
         Dict with per-candidate metrics and aggregate scores.
@@ -98,7 +120,9 @@ def compute_r1_accuracy(
     """
     from co_president.model_utils import extract_election_day_shares  # noqa: PLC0415
 
-    candidate_base = set(FIRST_ROUND_CANDIDATES.keys())
+    if candidate_registry is None:
+        candidate_registry = {c.key: c for c in get_active_candidates(1)}
+    candidate_base = set(candidate_registry.keys())
     if poll_columns is not None:
         candidate_keys = sorted(candidate_base & poll_columns)
     else:
@@ -124,11 +148,12 @@ def compute_r1_accuracy(
         ci = _hdi_95(posterior)
         in_ci = bool(ci[0] <= actual <= ci[1])
         std_dev = float(posterior.std())
+        display_name = candidate_registry[key].display_name if key in candidate_registry else key
 
         candidates_metrics.append(
             {
                 "candidate_key": key,
-                "display_name": FIRST_ROUND_CANDIDATES[key].display_name,
+                "display_name": display_name,
                 "actual": round(actual, 6),
                 "predicted_mean": round(mean_pred, 6),
                 "predicted_median": round(median_pred, 6),
@@ -163,6 +188,7 @@ def compute_r2_accuracy_from_matrix(
     results_r1: RoundResult,
     results_r2: RoundResult,
     idata_runoff: xr.DataTree | None = None,
+    candidate_registry: dict[str, Candidate] | None = None,
 ) -> dict:
     """Compute runoff accuracy metrics from the probabilistic pairing matrix.
 
@@ -177,11 +203,16 @@ def compute_r2_accuracy_from_matrix(
         results_r2: Round 2 ``RoundResult``.
         idata_runoff: Posterior ``DataTree`` from the K=3 runoff model
             (optional).  Used to compute HDIs and posterior std.
+        candidate_registry: Mapping of candidate key to ``Candidate`` metadata.
+            When ``None``, falls back to ``get_active_candidates(1)``.
 
     Returns:
         Dict with pairing-level metrics and aggregate scores.
 
     """
+    if candidate_registry is None:
+        candidate_registry = {c.key: c for c in get_active_candidates(1)}
+
     top_two = results_r1.top_two()
     cand_a_key = top_two[0].candidate_key
     cand_b_key = top_two[1].candidate_key
@@ -199,10 +230,10 @@ def compute_r2_accuracy_from_matrix(
     except KeyError:
         actual_rest = 0.0
 
-    names_a = FIRST_ROUND_CANDIDATES[cand_a_key].display_name
-    names_b_entry = FIRST_ROUND_CANDIDATES.get(cand_b_key, None)
+    names_a = candidate_registry[cand_a_key].display_name
+    names_b_entry = candidate_registry.get(cand_b_key, None)
     names_b = names_b_entry.display_name if names_b_entry else cand_b_key
-    names_rest_entry = FIRST_ROUND_CANDIDATES.get("rest", None)
+    names_rest_entry = candidate_registry.get("rest", None)
     names_rest = names_rest_entry.display_name if names_rest_entry else "Rest"
 
     margin_actual = actual_a - actual_b
@@ -698,6 +729,7 @@ def run_round1_survey(
     digital_signals: pd.DataFrame,
     features: pd.DataFrame | None = None,
     results_dir: Path = Path("results"),
+    year: int = 2022,
 ) -> tuple:
     """Build, sample, and compute metrics for round 1.
 
@@ -711,12 +743,15 @@ def run_round1_survey(
         features: Optional municipal features matrix.
         digital_signals: Google Trends data.
         results_dir: Directory for saving trace files.
+        year: Election year (default 2022).
 
     Returns:
         Tuple of ``(idata, metrics, rhat, converged, elapsed_s)``.
 
     """
     import co_president.model_round1 as m1  # noqa: PLC0415
+
+    candidate_registry = {c.key: c for c in get_active_candidates(1, year=year)}
 
     logger.info("Building round 1 model with election likelihood...")
     model_r1 = m1.build_round1_model(
@@ -725,6 +760,7 @@ def run_round1_survey(
         config,
         features=features,
         digital_signals=digital_signals,
+        year=year,
     )
 
     logger.info(
@@ -761,6 +797,7 @@ def run_round1_survey(
         idata_r1,
         results_r1,
         poll_columns=set(clean_polls.round1.columns),
+        candidate_registry=candidate_registry,
     )
     r1_metrics["posterior_summaries"] = _extract_posterior_summaries(
         idata_r1,
@@ -778,6 +815,8 @@ def run_round2_survey(  # noqa: PLR0913
     idata_r1: xr.DataTree,
     digital_signals: pd.DataFrame,
     features: pd.DataFrame | None = None,
+    year: int = 2022,
+    empirical_betas: dict | None = None,
 ) -> tuple:
     """Compute runoff metrics via the probabilistic pairing matrix.
 
@@ -794,6 +833,12 @@ def run_round2_survey(  # noqa: PLR0913
         features: Municipal features for on-demand transfer model training.
         digital_signals: Google Trends data for the runoff K=3 poll
             likelihood.
+        year: Election year (default 2022).
+        empirical_betas: Optional dict mapping ``(candidate_a, candidate_b)``
+            to ``(alpha, beta)`` from
+            :func:`~co_president.empirical_runoff.get_empirical_runoff_betas`.
+            When provided, passed through to
+            :func:`estimate_runoff_matrix` for empirical Beta sampling.
 
     Returns:
         Tuple of ``(idata_runoff, metrics, rhat, converged, elapsed_s)``.
@@ -801,8 +846,9 @@ def run_round2_survey(  # noqa: PLR0913
     """
     from co_president.model_runoff_matrix import estimate_runoff_matrix  # noqa: PLC0415
 
+    candidate_registry = {c.key: c for c in get_active_candidates(1, year=year)}
     candidate_keys = sorted(
-        set(FIRST_ROUND_CANDIDATES.keys()) & set(clean_polls.round1.columns),
+        set(candidate_registry.keys()) & set(clean_polls.round1.columns),
     )
 
     logger.info("Computing runoff pairing matrix...")
@@ -815,6 +861,8 @@ def run_round2_survey(  # noqa: PLR0913
         candidate_keys=candidate_keys,
         features=features,
         digital_signals=digital_signals,
+        year=year,
+        empirical_betas=empirical_betas,
     )
     elapsed_r2_s = (datetime.now(UTC) - t0).total_seconds()
     logger.info("Runoff matrix computed in %.0fs", elapsed_r2_s)
@@ -851,6 +899,7 @@ def run_round2_survey(  # noqa: PLR0913
         results_r1,
         results_r2,
         idata_runoff=idata_runoff,
+        candidate_registry=candidate_registry,
     )
 
     return idata_runoff, r2_metrics, r2_rhat, r2_converged, elapsed_r2_s
