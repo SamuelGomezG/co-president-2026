@@ -133,3 +133,19 @@ def test_ingestion_handles_empty_bundle_dir(tmp_path: Path) -> None:
     assert runoff.empty
     assert report.empty
     assert len(report) == 0
+
+
+def test_ingestion_ci_smoke_artifact(tmp_path: Path) -> None:
+    """CI gate: ingest one OK bundle + persist a non-empty report.
+
+    Runs last so the CI assertion (assert results/ingestion/*.parquet has
+    ≥1 row) sees fresh state from a successful build.
+    """
+    data_dir = tmp_path / "2026-polls"
+    data_dir.mkdir()
+    _make_atlas_zip(data_dir / "atlas_intel_01012026_02012026.zip")
+
+    _topline, _runoff, report = build_cne_2026_tables(data_dir=tmp_path)
+
+    assert len(report) >= 1
+    assert (report["status"] == "ok").any()

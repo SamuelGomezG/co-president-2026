@@ -1,0 +1,69 @@
+name: CI - Ingestion Report Gate
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ingestion: ${{ steps.filter.outputs.ingestion }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          filters: |
+            ingestion:
+              - "src/co_president/data_cne_2026.py"
+              - "src/co_president/ingestion_report.py"
+              - "tests/test_ingestion_report.py"
+              - ".github/workflows/ci-ingestion.yml"
+
+  ingestion-report:
+    needs: changes
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - if: needs.changes.outputs.ingestion == 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - if: needs.changes.outputs.ingestion == 'true'
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - if: needs.changes.outputs.ingestion == 'true'
+        run: uv python install
+      - if: needs.changes.outputs.ingestion == 'true'
+        run: uv sync --extra dev
+      - if: needs.changes.outputs.ingestion == 'true'
+        run: uv run pytest tests/test_ingestion_report.py -v
+      - if: needs.changes.outputs.ingestion == 'true'
+        name: Assert ingestion report artifacts exist with BundleResult rows
+        run: |
+          set -euo pipefail
+          test -f results/ingestion/2026_bundle_report.parquet
+          test -f results/ingestion/2026_bundle_report.md
+          uv run python -c "
+          import pandas as pd
+          df = pd.read_parquet('results/ingestion/2026_bundle_report.parquet')
+          assert set(df.columns) >= {'firm', 'bundle_path', 'loader', 'rows', 'status', 'reason', 'shares_sum_check'}, \
+              f'Expected BundleResult columns, got {list(df.columns)}'
+          assert len(df) > 0, 'Bundle report is empty'
+          print(f'OK: {len(df)} bundles recorded')
+          "
