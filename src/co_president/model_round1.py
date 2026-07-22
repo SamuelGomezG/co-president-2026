@@ -168,6 +168,7 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     features: pd.DataFrame | None = None,
     digital_signals: pd.DataFrame,
     year: int = 2022,
+    approval: pd.Series | None = None,
 ) -> pm.Model:
     """Build the PyMC model graph for the first round.
 
@@ -192,6 +193,9 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             columns containing digital signal values (e.g., Google Trends).
             When provided, a separate Beta observation layer is added.
         year: Election year (default 2022).
+        approval: Optional daily approval-pct series indexed by date. When
+            provided, adds a candidate-level linear covariate on the latent
+            theta. Missing dates are filled with 50.0.
 
     Returns:
         pm.Model: Constructed PyMC model.
@@ -287,6 +291,29 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
     # Index arrays
     time_indices = polls["time_idx"].to_numpy().astype(int)
     pollster_indices = polls["pollster_idx"].to_numpy().astype(int)
+
+    # ── Presidential approval covariate ─────────────────────────────────
+    n_polls = len(polls)
+    has_approval = False
+    approval_values_np: np.ndarray = np.zeros(n_polls)
+    if approval is not None and len(approval) > 0 and n_polls > 0:
+        approval_s = approval.copy()
+        approval_s.index = pd.to_datetime(approval_s.index)
+        approval_df = approval_s.reset_index()
+        approval_df.columns = ["fecha", "approval_pct"]
+        polls_sorted = polls[["fecha"]].sort_values("fecha").reset_index(drop=True)
+        polls_sorted["fecha"] = polls_sorted["fecha"].astype("datetime64[us]")
+        approval_df["fecha"] = approval_df["fecha"].astype("datetime64[us]")
+        merged = pd.merge_asof(
+            polls_sorted,
+            approval_df.sort_values("fecha"),
+            on="fecha",
+            direction="backward",
+        )
+        merged = merged.sort_index()
+        approval_values_np = merged["approval_pct"].fillna(50.0).to_numpy() / 100.0
+        has_approval = True
+        logger.info("Merged approval covariate across %d polls", n_polls)
 
     # Consultation log-share prior for theta[T-1] (earliest time point)
     log_prior = consultation_log_share_prior(year)
@@ -392,6 +419,15 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 phi_poll * sample_size_multiplier,
             )
 
+            # ── Presidential approval coefficient ─────────────────────
+            if has_approval:
+                beta_approval = pm.Normal(  # type: ignore[reportUnknownMemberType]
+                    "beta_approval",
+                    mu=0,
+                    sigma=1.0,
+                    shape=n_candidates,
+                )
+
             # Latent vote share probabilities per time point
             # (used for prior predictive validation and plotting)
             pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))  # type: ignore
@@ -412,14 +448,28 @@ def build_round1_model(  # noqa: C901, PLR0912, PLR0913, PLR0915
             theta_selected = theta_stacked[time_indices]  # type: ignore
             house_selected = house_effects[pollster_indices]  # type: ignore
             theta_adj = theta_selected + house_selected  # type: ignore
+            if has_approval:
+                theta_adj = theta_adj + beta_approval[None, :] * approval_values_np[:, None]  # type: ignore[operator,reportPossiblyUnboundVariable]
 
             p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_adj, axis=-1))  # type: ignore
             alpha_poll = pm.math.maximum(p_adj * phi_poll_n, eps)  # type: ignore
         else:
             # Simplified model without house effects or phi_poll
+            # ── Presidential approval coefficient (no-house branch) ──
+            if has_approval:
+                beta_approval = pm.Normal(  # type: ignore[reportUnknownMemberType]
+                    "beta_approval",
+                    mu=0,
+                    sigma=1.0,
+                    shape=n_candidates,
+                )
             # Latent vote share probabilities per time point
             pm.Deterministic("p_time", pm.math.softmax(theta_stacked, axis=-1))  # type: ignore
             theta_selected = theta_stacked[time_indices]  # type: ignore
+            if has_approval:
+                theta_selected = (  # type: ignore[reportUnknownVariableType,reportPossiblyUnboundVariable]
+                    theta_selected + beta_approval[None, :] * approval_values_np[:, None]  # type: ignore[operator]
+                )
             p_adj = pm.Deterministic("p_adj", pm.math.softmax(theta_selected, axis=-1))  # type: ignore
             phi_poll_fixed = float(config.concentration_poll_prior_mean)
             alpha_poll = pm.math.maximum(  # type: ignore

@@ -56,9 +56,11 @@ CANDIDATE_KEY_MAP_2026: dict[str, str] = {
     "No sabe / No responde": "ns_nr",
     "Voto nulo": "ns_nr",
     "Voto nulo / No votaré": "ns_nr",
+    "Nulo / No votaré": "ns_nr",
     "Ninguno": "ns_nr",
     "No votaría en segunda vuelta": "ns_nr",
     "NsNr": "ns_nr",
+    "No Sabe/No Responde": "ns_nr",
     # ---- La Silla Vacía 2026 candidate variants (SPEC-32) ----
     "Luis Gilberto Murillo": "rest",
     "Carlos Caicedo": "rest",
@@ -73,11 +75,21 @@ CANDIDATE_KEY_MAP_2026: dict[str, str] = {
     "Gustavo Matamoros": "rest",
     "Blanco": "blanco",
     # ---- Additional edge-case labels from 2026 CNE bundles ----
+    "Carlos Felipe Córdoba": "rest",
+    "Daniel Palacios": "rest",
+    "Luis Carlos Reyes": "rest",
+    "Maurice Armitage": "rest",
     "Juan Fernando Cristo": "rest",
     "Total": "ns_nr",
     "Mujer": "ns_nr",
     "Response": "ns_nr",
     "Luis G. Murillo": "rest",
+    "No votaría": "ns_nr",
+    "no Sabe/No Responde": "ns_nr",
+    "Carlos F. Caicedo": "rest",
+    "Roy Barrera": "rest",
+    "Miguel Uribe": "rest",
+    "Oscar Mauricio Lizcano": "rest",
 }
 
 _CANONICAL_2026 = frozenset(FIRST_ROUND_CANDIDATES_2026.keys())
@@ -131,6 +143,7 @@ def normalize_candidate_labels(series: pd.Series) -> pd.Series:
 _CANONICAL_KEYS = sorted(_CANONICAL_2026)
 _MIN_CANDIDATE_NAME_HITS = 3
 _MAX_UNIQUE_VALS = 30
+_MIN_XLSX_ROWS_FOR_DATA = 20
 
 
 def _topline_column_order() -> list[str]:
@@ -745,6 +758,100 @@ def _parse_cnc_df(df: pd.DataFrame, bundle_path: Path) -> pd.DataFrame:
     return out
 
 
+# ---- Generic XLSX loader ---------------------------------------------------
+
+
+def _detect_weight_column(df: pd.DataFrame) -> str | None:
+    """Discover a weight column by column-name pattern matching.
+
+    Returns the first column matching known weight keywords, or None.
+    """
+    weight_keywords = (
+        "factor",
+        "ponderacion",
+        "ponderador",
+        "peso",
+        "weight",
+        "factor de ponderación",
+        "factor_de_ponderacion",
+        "factor de expansión",
+        "fexp",
+    )
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if any(kw in col_lower for kw in weight_keywords):
+            return col
+    return None
+
+
+def _load_generic_xlsx(bundle_path: Path) -> pd.DataFrame:
+    """Load any CNE 2026 XLSX microdata bundle via heuristic column detection.
+
+    Opens the first usable XLSX found inside the zip, discovers the
+    vote-intention column via ``_invamer_find_r1_col``, normalizes
+    labels through ``CANDIDATE_KEY_MAP_2026``, and returns a microdata
+    DataFrame.
+
+    Args:
+        bundle_path: Path to a CNE 2026 zip bundle.
+
+    Returns:
+        DataFrame with ``fecha``, ``weight``, ``candidate_r1``, ``firm``,
+        ``field_end``, ``raw_source`` columns.
+
+    Raises:
+        ValueError: If no XLSX is found, or no vote-intention column can
+            be detected.
+
+    """
+    with zipfile.ZipFile(bundle_path) as zf:
+        xlsx_names = [n for n in zf.namelist() if n.lower().endswith(".xlsx") and "$" not in n]
+        if not xlsx_names:
+            msg = f"No XLSX found in generic bundle: {bundle_path}"
+            raise ValueError(msg)
+
+        # Prefer the first XLSX that has data-like structure (skip summary/pivot).
+        df = None
+        for candidate in xlsx_names:
+            with zf.open(candidate) as fh:
+                df = pd.read_excel(fh, engine="openpyxl")  # type: ignore[reportUnknownMemberType]
+            if len(df) >= _MIN_XLSX_ROWS_FOR_DATA:
+                break
+        if df is None or len(df) < 2:  # noqa: PLR2004
+            msg = f"Generic XLSX has too few rows in {bundle_path}"
+            raise ValueError(msg)
+
+    weight_col = _detect_weight_column(df)
+    weight = (
+        pd.to_numeric(df[weight_col], errors="coerce").fillna(1.0)
+        if weight_col
+        else pd.Series(1.0, index=df.index)
+    )
+
+    r1_col = _invamer_find_r1_col(df)
+    if r1_col is None:
+        msg = f"Could not detect vote-intention column in generic XLSX: {bundle_path}"
+        raise ValueError(msg)
+
+    r1 = df[r1_col].astype(str).apply(_normalize_candidate_name)
+
+    firm = _identify_firm(bundle_path.name)
+    field_end = _parse_field_end_date(bundle_path.name)
+
+    out = pd.DataFrame(
+        {
+            "fecha": field_end,
+            "weight": weight,
+            "candidate_r1": r1,
+            "firm": firm,
+            "field_end": field_end,
+            "raw_source": bundle_path.name,
+        }
+    )
+    out.attrs["runoff_df"] = pd.DataFrame()
+    return out
+
+
 # ---- PDF extraction --------------------------------------------------------
 
 
@@ -930,10 +1037,11 @@ _FIRM_LOADERS: dict[str, Callable[[Path], pd.DataFrame]] = {
     "gad3": load_gad3,
     "invamer": load_invamer,
     "cnc": load_cnc,
-    "genesis_crea": load_invamer,
-    "tempo": load_invamer,
-    "corp_mmm": load_invamer,
-    "guarumo_ecoanalitica": load_invamer,
+    "genesis_crea": _load_generic_xlsx,
+    "tempo": _load_generic_xlsx,
+    "corp_mmm": _load_generic_xlsx,
+    "guarumo_ecoanalitica": _load_generic_xlsx,
+    "analizar_lombana": _load_generic_xlsx,
 }
 
 
@@ -1100,11 +1208,17 @@ def build_clean_polls_2026(
         round1_df = _empty_template.copy()
     else:
         round1_df["round_number"] = 1
+        round1_df["fecha"] = pd.to_datetime(round1_df["field_end"])
+        if "muestra" not in round1_df.columns:
+            round1_df["muestra"] = 1200
 
     if round2_df.empty:
         round2_df = _empty_template.copy()
     else:
         round2_df["round_number"] = 2
+        round2_df["fecha"] = pd.to_datetime(round2_df["field_end"])
+        if "muestra" not in round2_df.columns:
+            round2_df["muestra"] = 1200
 
     all_polls = pd.concat([round1_df, round2_df], ignore_index=True)
 
@@ -1114,3 +1228,131 @@ def build_clean_polls_2026(
         consultation=[],
         all_polls=all_polls,
     )
+
+
+# ---------------------------------------------------------------------------
+# Presidential approval extraction
+# ---------------------------------------------------------------------------
+
+_APPROVAL_COL_PATTERNS: tuple[str, ...] = (
+    "approve_disapprove_president",
+    "approve_disapprove_federal_government",
+    "aprueba_desaprueba_presidente",
+    "aprobacion_presidencial",
+)
+_APPROVAL_POSITIVE_VALUES: tuple[str, ...] = (
+    "aprueba",
+    "apruebo",
+)
+
+
+def _load_approval_raw(bundle_path: Path, firm: str, df: pd.DataFrame) -> pd.DataFrame | None:
+    """Return the microdata DataFrame containing the approval column.
+
+    Atlas Intel bundles need a separate CSV read because the loader strips it.
+    """
+    if firm == "atlas_intel":
+        with zipfile.ZipFile(bundle_path) as zf:
+            csv_names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+            if not csv_names:
+                return None
+            with zf.open(csv_names[0]) as fh:
+                raw = pd.read_csv(fh, encoding="utf-8")
+        raw.columns = [c.strip() for c in raw.columns]
+        return raw
+    return df
+
+
+def _find_approval_column(raw: pd.DataFrame) -> str | None:
+    """Return the first column whose name matches an approval pattern."""
+    for col in raw.columns:
+        col_lower = col.lower().replace(" ", "_")
+        if any(pat in col_lower for pat in _APPROVAL_COL_PATTERNS):
+            return col
+    return None
+
+
+def _weighted_approval_pct(raw: pd.DataFrame, approval_col: str) -> float:
+    """Compute weighted share of positive approval responses in [0, 100]."""
+    weight_col = _detect_weight_column(raw)
+    weights = (
+        pd.to_numeric(raw[weight_col], errors="coerce").fillna(1.0)
+        if weight_col
+        else pd.Series(1.0, index=raw.index)
+    )
+    approval_series = raw[approval_col].astype(str).str.lower().str.strip()
+    positive = approval_series.isin(_APPROVAL_POSITIVE_VALUES)
+    total_weight = weights.sum()
+    positive_weight = weights[positive].sum()
+    return positive_weight / total_weight * 100 if total_weight > 0 else float("nan")
+
+
+def extract_approval_series(
+    data_dir: Path | None = None,
+) -> pd.Series:
+    """Extract daily weighted presidential approval from all CNE 2026 bundles.
+
+    Iterates all zip bundles, reads microdata from firm loaders, identifies
+    columns containing presidential approval ratings, and computes a weighted
+    daily approval percentage (positive responses / valid responses * 100).
+
+    Atlas Intel bundles include ``approve_disapprove_federal_government``
+    with values like ``"Aprueba"``, ``"Desaprueba"``,
+    ``"Ni aprueba ni desaprueba"``, ``"No sabe/No opina"``.
+
+    Args:
+        data_dir: Optional override for the project data directory.
+
+    Returns:
+        Series indexed by ``field_end`` date with ``approval_pct`` values
+        in [0, 100].  Empty Series if no approval data is found.
+
+    """
+    bundles = _list_zip_bundles(data_dir)
+    records: list[dict[str, Any]] = []
+
+    for bundle_path in bundles:
+        firm = _identify_firm(bundle_path.name)
+        loader = _FIRM_LOADERS.get(firm)
+        if loader is None:
+            continue
+        try:
+            df = loader(bundle_path)
+        except (KeyError, ValueError, zipfile.BadZipFile, OSError) as exc:
+            logger.debug("Skipping approval extraction for %s: %s", bundle_path.name, exc)
+            continue
+        if df.empty:
+            continue
+
+        raw = _load_approval_raw(bundle_path, firm, df)
+        if raw is None:
+            continue
+
+        approval_col = _find_approval_column(raw)
+        if approval_col is None:
+            continue
+
+        field_end = _parse_field_end_date(bundle_path.name) or df["field_end"].iloc[0]
+        approv_pct = _weighted_approval_pct(raw, approval_col)
+
+        records.append(
+            {
+                "fecha": field_end,
+                "approval_pct": approv_pct,
+                "firm": firm,
+            }
+        )
+
+    if not records:
+        return pd.Series(dtype=float)
+
+    result = pd.DataFrame(records)
+    result["fecha"] = pd.to_datetime(result["fecha"])
+    # Deduplicate by date: weighted average across firms
+    daily = result.groupby("fecha")["approval_pct"].mean().sort_index()
+    logger.info(
+        "Extracted approval series: %d daily observations from %d bundles",
+        len(daily),
+        len(records),
+    )
+    return daily
