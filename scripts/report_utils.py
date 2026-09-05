@@ -727,9 +727,12 @@ def run_round1_survey(
     clean_polls: CleanPolls,
     results_r1: RoundResult,
     digital_signals: pd.DataFrame,
+    *,
     features: pd.DataFrame | None = None,
     results_dir: Path = Path("results"),
     year: int = 2022,
+    approval: pd.Series | None = None,
+    no_house_effects: bool = False,
 ) -> tuple:
     """Build, sample, and compute metrics for round 1.
 
@@ -744,6 +747,7 @@ def run_round1_survey(
         digital_signals: Google Trends data.
         results_dir: Directory for saving trace files.
         year: Election year (default 2022).
+        approval: Optional presidential approval series (date-indexed).
 
     Returns:
         Tuple of ``(idata, metrics, rhat, converged, elapsed_s)``.
@@ -761,6 +765,8 @@ def run_round1_survey(
         features=features,
         digital_signals=digital_signals,
         year=year,
+        approval=approval,
+        no_house_effects=no_house_effects,
     )
 
     logger.info(
@@ -793,12 +799,43 @@ def run_round1_survey(
         logger.info("Skipping round 1 trace save (no netcdf/zarr backend)")
 
     r1_rhat, r1_converged = check_convergence(idata_r1, "Round 1")
-    r1_metrics = compute_r1_accuracy(
-        idata_r1,
-        results_r1,
-        poll_columns=set(clean_polls.round1.columns),
-        candidate_registry=candidate_registry,
-    )
+    if results_r1 is not None:
+        r1_metrics = compute_r1_accuracy(
+            idata_r1,
+            results_r1,
+            poll_columns=set(clean_polls.round1.columns),
+            candidate_registry=candidate_registry,
+        )
+    else:
+        from co_president.model_utils import extract_election_day_shares  # noqa: PLC0415
+
+        candidate_keys = sorted(
+            set(candidate_registry.keys()) & set(clean_polls.round1.columns),
+        )
+        shares = extract_election_day_shares(idata_r1, candidate_keys)
+        r1_metrics = {
+            "candidates": [
+                {
+                    "candidate_key": k,
+                    "display_name": candidate_registry.get(
+                        k, Candidate(key=k, display_name=k, coalition=None)
+                    ).display_name,
+                    "actual": 0.0,
+                    "predicted_mean": float(shares[k].mean()),
+                    "predicted_median": float(np.median(shares[k])),
+                    "error": 0.0,
+                    "abs_error": 0.0,
+                    "within_95_ci": False,
+                    "ci_95_lower": 0.0,
+                    "ci_95_upper": 0.0,
+                    "posterior_std": float(shares[k].std()),
+                }
+                for k in candidate_keys
+            ],
+            "mae": 0.0,
+            "rmse": 0.0,
+            "ci_coverage_95": 0.0,
+        }
     r1_metrics["posterior_summaries"] = _extract_posterior_summaries(
         idata_r1,
         features,
@@ -850,6 +887,22 @@ def run_round2_survey(  # noqa: PLR0913
     candidate_keys = sorted(
         set(candidate_registry.keys()) & set(clean_polls.round1.columns),
     )
+
+    if results_r2 is None or not results_r2.candidates:
+        logger.warning("Runoff results have zero candidates; returning empty metrics")
+        empty_metrics: dict = {
+            "candidates": [],
+            "mae": float("nan"),
+            "rmse": float("nan"),
+            "ci_coverage_95": float("nan"),
+            "mean_margin": float("nan"),
+            "actual_margin": float("nan"),
+            "margin_error": float("nan"),
+            "prob_a_wins": float("nan"),
+            "cand_a_key": "",
+            "cand_b_key": "",
+        }
+        return None, empty_metrics, float("nan"), False, 0.0
 
     logger.info("Computing runoff pairing matrix...")
     t0 = datetime.now(UTC)

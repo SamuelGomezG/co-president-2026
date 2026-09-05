@@ -22,8 +22,7 @@ import pandas as pd
 
 from co_president.config import (
     COALITION_TO_CANDIDATE,
-    ELECTION_DATE_ROUND1,
-    ELECTION_DATE_ROUND2,
+    get_election_date,
 )
 from co_president.paths import resolve_data_dir
 
@@ -442,6 +441,8 @@ def _build_round_result(
     round_number: Literal[1, 2],
     registered_voters: int,
     polling_stations: int,
+    *,
+    year: int = 2022,
 ) -> RoundResult:
     """Build a ``RoundResult`` from aggregated candidate vote data.
 
@@ -450,6 +451,7 @@ def _build_round_result(
         round_number: 1 or 2.
         registered_voters: Total registered voters.
         polling_stations: Unique polling stations.
+        year: Election year (default 2022). Determines the correct election date.
 
     Returns:
         A fully populated ``RoundResult``.
@@ -458,7 +460,7 @@ def _build_round_result(
         ValueError: If ``aggregated`` contains unexpected keys.
 
     """
-    election_date = ELECTION_DATE_ROUND1 if round_number == 1 else ELECTION_DATE_ROUND2
+    election_date = get_election_date(year, round_number)
 
     null_votes, unmarked_votes, blank_votes = _extract_excluded_votes(aggregated)
 
@@ -486,6 +488,80 @@ def _build_round_result(
         null_votes=null_votes,
         unmarked_votes=unmarked_votes,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 2026 canonical mapping and MMV loader
+# ═══════════════════════════════════════════════════════════════════
+
+_CANONICAL_2026_MAP: dict[int, str] = {
+    1: "cepeda",
+    2: "claudia_lopez",
+    3: "rest",
+    4: "de_la_espriella",
+    5: "rest",
+    6: "rest",
+    7: "rest",
+    8: "rest",
+    10: "rest",
+    11: "valencia",
+    12: "fajardo",
+    996: "blanco",
+    997: "nulos",
+    998: "no_marcados",
+}
+
+_2026_NUM_DEPARTMENTS = 33  # expected number of MMV files for 2026
+
+
+def _load_2026_mmv_round(
+    resolved: Path,
+    round_number: Literal[1, 2],
+) -> pd.DataFrame | None:
+    """Load and aggregate 2026 MMV files for one election round.
+
+    Reads all semicolon-delimited CSVs from the 2026-presidential1/ or
+    2026-presidential2/ subdirectory, sums ``VOTOS`` per ``CAN`` code,
+    and maps CAN codes to canonical candidate keys via
+    ``_CANONICAL_2026_MAP``.
+
+    Args:
+        resolved: Resolved project data directory.
+        round_number: 1 or 2.
+
+    Returns:
+        DataFrame indexed by candidate key with a ``votes`` column.
+        Returns ``None`` if the round directory does not exist.
+
+    """
+    round_dir = resolved / "2026-elections" / f"2026-presidential{round_number}"
+    if not round_dir.is_dir():
+        logger.info("2026 round %d directory not found: %s", round_number, round_dir)
+        return None
+
+    csv_files = sorted(round_dir.glob("MMV_*.csv"))
+    if not csv_files:
+        logger.warning("No MMV CSV files found in %s", round_dir)
+        return None
+
+    all_votes: dict[int, int] = {}
+    for fpath in csv_files:
+        df = _read_mmv(fpath)
+        for can_val, votes_sum in df.groupby("CAN")["VOTOS"].sum().items():
+            can_code = int(can_val)  # type: ignore[reportArgumentType]
+            votes_int = int(votes_sum)  # type: ignore[reportArgumentType]
+            all_votes[can_code] = all_votes.get(can_code, 0) + votes_int
+
+    result: dict[str, int] = {}
+    for can_code, votes in all_votes.items():
+        key = _CANONICAL_2026_MAP.get(can_code)
+        if key is None:
+            logger.warning("Unmapped CAN code %d in 2026 data; skipping", can_code)
+            continue
+        result[key] = result.get(key, 0) + votes
+
+    result_df = pd.DataFrame(list(result.items()), columns=["candidate_key", "votes"])
+    return result_df.set_index("candidate_key")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -683,14 +759,18 @@ def consolidate_round(
 
 def load_canonical_results(
     data_dir: Path | None = None,
+    *,
+    year: int = 2022,
 ) -> tuple[RoundResult, RoundResult]:
     """Load and consolidate both rounds' election results.
 
     Loads Registraduría and MOE data for both rounds, cross-validates,
-    and returns the canonical (Registraduría) results.
+    and returns the canonical (Registraduría) results.  For 2026, loads
+    directly from per-department MMV CSV files without MOE cross-validation.
 
     Args:
         data_dir: Path to the project data directory. Auto-resolved if ``None``.
+        year: Election year (default 2022).
 
     Returns:
         ``(round1, round2)`` as ``RoundResult`` objects.
@@ -698,6 +778,56 @@ def load_canonical_results(
     """
     resolved = resolve_data_dir(data_dir)
 
+    # ── 2026 code path ─────────────────────────────────────────────
+    if year == 2026:  # noqa: PLR2004
+        reg1_df = _load_2026_mmv_round(resolved, 1)
+        if reg1_df is None:
+            msg = "2026 round 1 MMV data not found at data/2026-elections/2026-presidential1/"
+            raise FileNotFoundError(msg)
+
+        # Approximate registered voters from 2025 electoral census.
+        # Vote share denominator is ``total_votes_incl_blank`` (computed
+        # from actual votes), so the exact census number does not affect
+        # accuracy metrics.
+        registered_voters_r1 = 39_000_000
+        polling_stations_r1 = 110_000
+
+        result1 = _build_round_result(
+            reg1_df,
+            1,
+            registered_voters_r1,
+            polling_stations_r1,
+            year=2026,
+        )
+
+        reg2_df = _load_2026_mmv_round(resolved, 2)
+        if reg2_df is None:
+            # Runoff has not occurred yet.  Return a minimal RoundResult
+            # so downstream code can distinguish the missing round.
+            election_date_r2 = get_election_date(2026, 2)
+            result2 = RoundResult(
+                round_number=2,
+                date=election_date_r2,
+                total_valid_votes=0,
+                total_votes_incl_blank=0,
+                registered_voters=registered_voters_r1,
+                polling_stations=polling_stations_r1,
+                candidates=(),
+                blank_votes=0,
+                null_votes=0,
+                unmarked_votes=0,
+            )
+        else:
+            result2 = _build_round_result(
+                reg2_df,
+                2,
+                registered_voters_r1,
+                polling_stations_r1,
+                year=2026,
+            )
+        return result1, result2
+
+    # ── 2022 code path (original) ──────────────────────────────────
     # Load Registraduría data
     reg1_df = load_registraduria_round1(resolved)
     reg2_df = load_registraduria_round2(resolved)
